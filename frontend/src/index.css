@@ -1348,6 +1348,66 @@ button {
   color: var(--error);
 }
 
+.canvas-node-expanded {
+  z-index: 5;
+}
+
+.canvas-node-subtitle {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-node-expand {
+  width: 100%;
+  margin-top: 8px;
+  padding: 5px 8px;
+  border: 1px solid #c7d2fe;
+  border-radius: 6px;
+  background: #eef2ff;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 800;
+  text-align: left;
+}
+
+.canvas-node-expand:hover {
+  background: #e0e7ff;
+}
+
+.canvas-node-offers {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.canvas-node-offer-row {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  gap: 6px;
+  align-items: baseline;
+  font-size: 11px;
+}
+
+.canvas-node-offer-row span {
+  color: var(--text-secondary);
+}
+
+.canvas-node-offer-row strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ── Inspector ──────────────────────────────────── */
 
 .inspector-panel {
@@ -2183,6 +2243,65 @@ button {
   border-radius: 8px;
   min-width: 14px;
   text-align: center;
+}
+
+.adt-node-expanded {
+  z-index: 20;
+}
+
+.adt-node-offers {
+  display: grid;
+  gap: 4px;
+  padding: 0 8px 24px 22px;
+}
+
+.adt-node-offers-title {
+  color: #4b5563;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.adt-node-offer-row {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 4px;
+  align-items: baseline;
+  font-size: 9.5px;
+}
+
+.adt-node-offer-row span {
+  color: #9ca3af;
+}
+
+.adt-node-offer-row strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #374151;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adt-node-expand {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: #e0e7ff;
+  color: #4f46e5;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.adt-node-expand:hover {
+  background: #c7d2fe;
 }
 
 /* Active sidebar group highlight */

@@ -49,6 +49,17 @@ export interface FlowContentParameter {
   valueExpression?: string | null;
 }
 
+export interface CampaignOffer {
+  id: string;
+  activityId?: string;
+  channelId?: number;
+  contentType?: string;
+  text?: string;
+  sender?: string;
+  offerTemplateId?: number;
+  businessOperationId?: string;
+}
+
 export interface FlowActivity {
   id: string;
   type: string;
@@ -77,6 +88,7 @@ export interface FlowActivity {
 
 export interface CampaignFlow {
   activities: FlowActivity[];
+  offers?: CampaignOffer[];
 }
 
 export interface BuilderResponse {

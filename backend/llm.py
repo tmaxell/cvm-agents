@@ -16,26 +16,63 @@ LLM Factory — единственное место выбора LLM.
   - Ollama:  brew install ollama && ollama pull qwen2.5:7b && ollama serve
 """
 
+import importlib.util
+import json
 import os
+from typing import Any, Sequence
+
 from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolCall, ToolMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
+from pydantic import PrivateAttr
+
+
+PROVIDER_MODULES: dict[str, tuple[str, ...]] = {
+    "gigachat": ("langchain_gigachat", "langchain_community"),
+    "groq": ("langchain_groq", "httpx"),
+    "gemini": ("langchain_google_genai",),
+    "ollama": ("langchain_ollama",),
+    "anthropic": ("langchain_anthropic",),
+}
+
+
+def _has_any_module(module_names: tuple[str, ...]) -> bool:
+    return any(importlib.util.find_spec(module_name) is not None for module_name in module_names)
+
+
+def _provider_is_installed(provider: str) -> bool:
+    return _has_any_module(PROVIDER_MODULES.get(provider, ()))
+
+
+def _provider_candidates() -> list[str]:
+    """Returns configured providers whose integration packages are installed."""
+    candidates: list[str] = []
+    if os.getenv("ANTHROPIC_API_KEY"):
+        candidates.append("anthropic")
+    if os.getenv("GIGACHAT_AUTH_KEY"):
+        candidates.append("gigachat")
+    if os.getenv("GROQ_API_KEY"):
+        candidates.append("groq")
+    if os.getenv("GOOGLE_API_KEY"):
+        candidates.append("gemini")
+    candidates.append("ollama")
+    return [provider for provider in candidates if _provider_is_installed(provider)]
 
 
 def get_llm(for_tools: bool = False) -> BaseChatModel:
-    """Возвращает LLM согласно настройкам окружения."""
+    """Возвращает LLM согласно настройкам окружения.
+
+    Если выбранный в .env провайдер недоступен из-за неустановленной
+    LangChain-интеграции, автоматически используем следующий настроенный и
+    установленный провайдер. Это защищает API от 500 вида
+    ``No module named 'langchain_groq'`` в локальном прототипе.
+    """
     provider = os.getenv("LLM_PROVIDER", "").lower().strip()
 
     # Auto-detect if not set
     if not provider:
-        if os.getenv("GROQ_API_KEY"):
-            provider = "groq"
-        elif os.getenv("GOOGLE_API_KEY"):
-            provider = "gemini"
-        elif os.getenv("ANTHROPIC_API_KEY"):
-            provider = "anthropic"
-        elif os.getenv("GIGACHAT_AUTH_KEY"):
-            provider = "gigachat"
-        else:
-            provider = "ollama"
+        candidates = _provider_candidates()
+        provider = candidates[0] if candidates else "ollama"
 
     dispatch = {
         "gigachat":  _gigachat,
@@ -51,6 +88,21 @@ def get_llm(for_tools: bool = False) -> BaseChatModel:
             f"Неизвестный LLM провайдер: '{provider}'. "
             f"Допустимые значения: {', '.join(dispatch.keys())}"
         )
+
+    if not _provider_is_installed(provider):
+        fallback_provider = next((candidate for candidate in _provider_candidates() if candidate != provider), None)
+        if fallback_provider:
+            print(
+                f"[llm] Provider '{provider}' is configured, but its package is not installed; "
+                f"fallback → {fallback_provider}"
+            )
+            return dispatch[fallback_provider](for_tools=for_tools)
+        modules = ", ".join(PROVIDER_MODULES.get(provider, ()))
+        raise RuntimeError(
+            f"LLM provider '{provider}' is configured, but required package is not installed: {modules}. "
+            "Install dependencies from backend/requirements.txt or choose another LLM_PROVIDER."
+        )
+
     return fn(for_tools=for_tools)
 
 
@@ -84,21 +136,168 @@ def _gigachat(for_tools: bool = False) -> BaseChatModel:
 # ── Groq (FREE tier, recommended) ─────────────────────────────────────────────
 
 def _groq(for_tools: bool = False) -> BaseChatModel:
-    from langchain_groq import ChatGroq
-
     # llama-3.3-70b-versatile has excellent tool use support on free tier
     default_model = "llama-3.3-70b-versatile"
     model = os.getenv("GROQ_MODEL", default_model)
     api_key = os.getenv("GROQ_API_KEY", "")
     max_tokens = int(os.getenv("GROQ_MAX_TOKENS", "2048"))
 
-    print(f"[llm] Groq → {model} (tools={for_tools})")
-    return ChatGroq(
-        model=model,
-        api_key=api_key,
-        temperature=0.05,
-        max_tokens=max_tokens,
-    )
+    try:
+        from langchain_groq import ChatGroq
+
+        print(f"[llm] Groq → {model} (tools={for_tools}, langchain_groq)")
+        return ChatGroq(
+            model=model,
+            api_key=api_key,
+            temperature=0.05,
+            max_tokens=max_tokens,
+        )
+    except ImportError:
+        # The prototype environment may not have langchain_groq installed. Groq is
+        # OpenAI-compatible, so use a small native LangChain adapter over httpx
+        # instead of failing with HTTP 500.
+        print(f"[llm] Groq → {model} (tools={for_tools}, native httpx adapter)")
+        return GroqNativeChatModel(model=model, api_key=api_key, max_tokens=max_tokens)
+
+
+# ── Native Groq fallback (OpenAI-compatible API via httpx) ────────────────────
+
+class GroqNativeChatModel(BaseChatModel):
+    """Minimal LangChain chat model for Groq without langchain_groq installed."""
+
+    _model: str = PrivateAttr(default="")
+    _api_key: str = PrivateAttr(default="")
+    _max_tokens: int = PrivateAttr(default=2048)
+    _bound_tools: list[Any] = PrivateAttr(default_factory=list)
+
+    model_config = {"arbitrary_types_allowed": True}
+
+    def __init__(self, *, model: str, api_key: str, max_tokens: int = 2048, **kwargs: Any):
+        super().__init__(**kwargs)
+        self._model = model
+        self._api_key = api_key
+        self._max_tokens = max_tokens
+
+    def bind_tools(self, tools: Sequence[Any], **kwargs: Any) -> "GroqNativeChatModel":
+        new = GroqNativeChatModel(model=self._model, api_key=self._api_key, max_tokens=self._max_tokens)
+        new._bound_tools = list(tools)
+        return new
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: Any = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        import httpx
+
+        if not self._api_key:
+            raise RuntimeError("GROQ_API_KEY is empty; set it in backend/.env")
+
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "messages": [_to_openai_message(message) for message in messages],
+            "temperature": 0.05,
+            "max_tokens": self._max_tokens,
+        }
+        if stop:
+            payload["stop"] = stop
+        if self._bound_tools:
+            payload["tools"] = [_to_openai_tool(tool) for tool in self._bound_tools]
+            payload["tool_choice"] = "auto"
+
+        with httpx.Client(timeout=120, trust_env=False) as client:
+            response = client.post(
+                os.getenv("GROQ_API_BASE_URL", "https://api.groq.com/openai/v1/chat/completions"),
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+        response.raise_for_status()
+        message = response.json()["choices"][0]["message"]
+        ai_message = _from_openai_assistant_message(message)
+        return ChatResult(generations=[ChatGeneration(message=ai_message)])
+
+    async def _agenerate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: Any = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        import asyncio
+        return await asyncio.to_thread(self._generate, messages, stop=stop, **kwargs)
+
+    @property
+    def _llm_type(self) -> str:
+        return "groq-native"
+
+
+def _to_openai_tool(tool: Any) -> dict[str, Any]:
+    schema: dict[str, Any] = {"type": "object", "properties": {}}
+    if hasattr(tool, "args_schema") and tool.args_schema:
+        try:
+            schema = tool.args_schema.model_json_schema()
+        except Exception:
+            schema = {"type": "object", "properties": {}}
+    schema.pop("title", None)
+    return {
+        "type": "function",
+        "function": {
+            "name": tool.name,
+            "description": tool.description or tool.name,
+            "parameters": schema,
+        },
+    }
+
+
+def _to_openai_message(message: BaseMessage) -> dict[str, Any]:
+    content = message.content if isinstance(message.content, str) else json.dumps(message.content, ensure_ascii=False)
+    if isinstance(message, SystemMessage):
+        return {"role": "system", "content": content}
+    if isinstance(message, HumanMessage):
+        return {"role": "user", "content": content}
+    if isinstance(message, ToolMessage):
+        return {
+            "role": "tool",
+            "content": content,
+            "tool_call_id": getattr(message, "tool_call_id", None) or getattr(message, "id", None) or "tool_call",
+        }
+    if isinstance(message, AIMessage):
+        result: dict[str, Any] = {"role": "assistant", "content": content or None}
+        if getattr(message, "tool_calls", None):
+            result["tool_calls"] = [
+                {
+                    "id": call.get("id") or f"call_{call.get('name', 'tool')}",
+                    "type": "function",
+                    "function": {
+                        "name": call["name"],
+                        "arguments": json.dumps(call.get("args", {}), ensure_ascii=False),
+                    },
+                }
+                for call in message.tool_calls
+            ]
+        return result
+    return {"role": "user", "content": content}
+
+
+def _from_openai_assistant_message(message: dict[str, Any]) -> AIMessage:
+    tool_calls = []
+    for call in message.get("tool_calls") or []:
+        function = call.get("function") or {}
+        try:
+            args = json.loads(function.get("arguments") or "{}")
+        except json.JSONDecodeError:
+            args = {"raw": function.get("arguments") or ""}
+        tool_calls.append(ToolCall(
+            id=call.get("id") or f"call_{function.get('name', 'tool')}",
+            name=function.get("name", "tool"),
+            args=args,
+        ))
+    return AIMessage(content=message.get("content") or "", tool_calls=tool_calls)
 
 
 # ── Google Gemini (FREE tier) ─────────────────────────────────────────────────

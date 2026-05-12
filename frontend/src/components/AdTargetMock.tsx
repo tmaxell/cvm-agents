@@ -6,6 +6,7 @@
  * с SVG-соединителями и tree-layout алгоритмом.
  */
 
+import { useState } from "react";
 import type { CampaignFlow, FlowActivity } from "../types/api";
 
 interface Props {
@@ -420,22 +421,25 @@ function AdtFlowCanvas({ flow }: { flow: CampaignFlow }) {
 function AdtNode({ activity, x, y, animDelay }: {
   activity: FlowActivity; x: number; y: number; animDelay: number;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const meta = NODE_META[activity.type] ?? { label: activity.type, color: "#9ca3af" };
   const hasError = Array.isArray(activity.errors) && activity.errors.length > 0;
   const subtitleText = activity.name && activity.name !== meta.label ? activity.name : "";
+  const communicationDetails = getCommunicationDetails(activity);
+  const isExpandable = communicationDetails.length > 0;
 
   // Shortened subtitle for display
   const subtitle = subtitleText.length > 22 ? subtitleText.slice(0, 20) + "…" : subtitleText;
 
   return (
     <div
-      className={`adt-node${hasError ? " adt-node-error" : ""}`}
+      className={`adt-node${hasError ? " adt-node-error" : ""}${expanded ? " adt-node-expanded" : ""}`}
       style={{
         position: "absolute",
         left: x,
         top: y,
         width: NODE_W,
-        height: NODE_H,
+        height: expanded ? 154 : NODE_H,
         animationDelay: `${animDelay}ms`,
       }}
     >
@@ -457,8 +461,32 @@ function AdtNode({ activity, x, y, animDelay }: {
         )}
       </div>
 
+      {expanded && (
+        <div className="adt-node-offers">
+          {communicationDetails.map((detail, index) => (
+            <div key={`${detail.label}-${index}`} className="adt-node-offer-row">
+              <span>{detail.label}</span>
+              <strong title={detail.value}>{detail.value}</strong>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Action icons at bottom */}
       <div className="adt-node-actions">
+        {isExpandable && (
+          <button
+            className="adt-node-expand"
+            onClick={(event) => {
+              event.stopPropagation();
+              setExpanded((value) => !value);
+            }}
+            title={expanded ? "Скрыть оффер" : "Показать оффер"}
+            type="button"
+          >
+            {expanded ? "▴" : "▾"}
+          </button>
+        )}
         <span className="adt-node-act-icon">✎</span>
         <span className="adt-node-act-icon">⎘</span>
         <span className="adt-node-act-icon">✕</span>
@@ -468,4 +496,33 @@ function AdtNode({ activity, x, y, animDelay }: {
       </div>
     </div>
   );
+}
+
+function getCommunicationDetails(activity: FlowActivity): Array<{ label: string; value: string }> {
+  if (activity.type !== "PushCommunicationActivity" && activity.type !== "PullCommunicationActivity") {
+    return [];
+  }
+
+  const parameters = activity.content?.parameters ?? [];
+  const text = getParameterValue(parameters, "Text");
+  const sender = getParameterValue(parameters, "Sender");
+  const channel = activity.contentType
+    ? activity.contentType.replace("Content", "")
+    : activity.name;
+
+  const details: Array<{ label: string; value: string }> = [];
+  if (channel) details.push({ label: "Канал", value: channel });
+  if (text) details.push({ label: "Оффер", value: text });
+  if (sender) details.push({ label: "Отправитель", value: sender });
+
+  return details;
+}
+
+function getParameterValue(
+  parameters: NonNullable<FlowActivity["content"]>["parameters"],
+  name: string,
+): string | null {
+  const param = parameters?.find((item) => item.name === name);
+  if (param?.value === undefined || param.value === null) return null;
+  return String(param.value);
 }

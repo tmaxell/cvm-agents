@@ -17,15 +17,15 @@ const DEFAULT_CONTEXT: AgentContext = {
 
 const SUGGESTIONS: Record<"ru" | "en", string[]> = {
   ru: [
-    "Создай SMS-кампанию по утилизации пакета данных",
-    "Email-кампания для абонентов с низким ARPU",
-    "Push-кампания на день рождения абонента",
+    "SMS по утилизации пакета данных",
+    "Email для абонентов с низким ARPU",
+    "Push ко дню рождения абонента",
     "Промо с активацией скидочного пакета",
   ],
   en: [
-    "Create an SMS campaign for data pack utilization",
-    "Email campaign for low-ARPU subscribers",
-    "Push campaign for subscriber birthdays",
+    "SMS for data pack utilization",
+    "Email for low-ARPU subscribers",
+    "Birthday push campaign",
     "Promo with discount package activation",
   ],
 };
@@ -117,13 +117,17 @@ export function CampaignBuilderChat({ onResponse, lang = "ru" }: Props) {
                 ? "Describe your goal — the agent will build the campaign in AdTarget"
                 : "Опишите цель — агент соберёт кампанию в AdTarget"}
             </p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%" }}>
+            <div className="fw-suggestions-title">
+              {lang === "en" ? "Quick starts" : "Быстрые сценарии"}
+            </div>
+            <div className="fw-suggestions-grid">
               {SUGGESTIONS[lang].map((s, i) => (
                 <button
                   key={i}
                   className="fw-suggestion"
                   onClick={() => setInput(s)}
                   disabled={loading}
+                  type="button"
                 >
                   {s}
                 </button>

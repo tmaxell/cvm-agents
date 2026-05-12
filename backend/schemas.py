@@ -1,7 +1,7 @@
 """Pydantic-схемы для запросов/ответов агентов."""
 
 from typing import Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # ── Контекст экрана ───────────────────────────────────────────────────────────
@@ -69,15 +69,42 @@ class MonitorRequest(BaseModel):
     refresh_seed: int = 0               # инкрементируется при каждом Refresh
 
 
+class ChannelDeliveryMetric(BaseModel):
+    channel_id: int | None = None
+    channel_name: str
+    content_type: str
+    sent_count: int
+    delivered_count: int
+    delivery_rate: float                # 0–100, % доставки по каналу
+
+
+class ControlGroupComparison(BaseModel):
+    test_group_size: int
+    control_group_size: int
+    test_conversion_rate: float         # 0–100, % конверсии/активаций в тестовой группе
+    control_conversion_rate: float      # 0–100, % конверсии/активаций в контрольной группе
+    uplift_pp: float                    # разница в процентных пунктах
+    uplift_percent: float               # относительный uplift к контрольной группе
+    test_activations: int
+    control_activations: int
+
+
 class MonitorMetrics(BaseModel):
     delivery_rate: float                # 0–100, % доставки
     open_rate: float                    # 0–100, % открытий / прочтений
     conversion_rate: float              # 0–100, % целевых действий
     click_rate: float                   # 0–100, % переходов (для push/email)
+    sent_count: int = 0                 # всего отправлено по всем каналам
+    delivered_count: int = 0            # всего доставлено по всем каналам
+    activation_count: int = 0           # количество активаций / целевых действий
+    channel_deliveries: list[ChannelDeliveryMetric] = Field(default_factory=list)
+    control_group: ControlGroupComparison | None = None
 
 
 class MonitorResponse(BaseModel):
     metrics: MonitorMetrics
-    recommendations: list[str]          # список рекомендаций на русском
+    recommendations: list[str] = Field(default_factory=list)  # legacy: объединённый список рекомендаций
+    structure_recommendations: list[str] = Field(default_factory=list)  # рекомендации по структуре до/во время сборки
+    launch_recommendations: list[str] = Field(default_factory=list)     # рекомендации по результатам после запуска
     overall_score: int                  # 0–100, общая оценка кампании
     summary: str                        # краткое заключение

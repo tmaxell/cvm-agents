@@ -2452,6 +2452,7 @@ button {
 
 .fw-suggestion {
   width: 100%;
+  min-height: 38px;
   text-align: left;
   padding: 8px 12px;
   border: 1px solid var(--border, #e5e7eb);
@@ -2460,8 +2461,8 @@ button {
   color: var(--text-primary, #111);
   cursor: pointer;
   font-size: 12px;
-  line-height: 1.4;
-  transition: background 0.15s, border-color 0.15s;
+  line-height: 1.35;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 
 .fw-suggestion:hover {
@@ -2747,4 +2748,239 @@ button {
   align-items: center;
   justify-content: center;
   margin-top: 1px;
+}
+
+/* Monitoring: counts, channel breakdown, control comparison */
+.fw-monitor-kpis {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.fw-monitor-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 10px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-left: 3px solid var(--accent, #5257ff);
+  border-radius: 9px;
+  background: var(--surface-primary, #fff);
+  min-width: 0;
+}
+
+.fw-monitor-kpi-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.fw-monitor-kpi-value {
+  font-size: 19px;
+  line-height: 1.1;
+  font-weight: 800;
+}
+
+.fw-monitor-kpi-sub {
+  font-size: 10px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fw-monitor-section,
+.fw-monitor-control {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.fw-monitor-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.fw-monitor-channel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fw-monitor-channel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  gap: 5px 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  background: var(--surface-secondary, #f9fafb);
+}
+
+.fw-monitor-channel-main {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.fw-monitor-channel-main span {
+  color: var(--text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.fw-monitor-channel-bar {
+  height: 5px;
+  background: var(--border, #e5e7eb);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.fw-monitor-channel-bar div {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #22c55e, #16a34a);
+}
+
+.fw-monitor-channel-rate {
+  text-align: right;
+  font-size: 11px;
+  font-weight: 700;
+  color: #16a34a;
+}
+
+.fw-monitor-control {
+  padding: 9px 10px;
+  border: 1px solid #c7d2fe;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #eef2ff 0%, #ffffff 100%);
+}
+
+.fw-monitor-control-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.fw-monitor-control-cell {
+  min-width: 0;
+  padding: 7px 6px;
+  border: 1px solid rgba(82, 87, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.fw-monitor-control-cell span,
+.fw-monitor-control-cell small {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fw-monitor-control-cell strong {
+  display: block;
+  margin: 2px 0;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.fw-monitor-control-note {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.fw-monitor-positive { color: #16a34a; }
+.fw-monitor-negative { color: #dc2626; }
+
+.fw-suggestions-title {
+  width: 100%;
+  margin: 2px 0 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fw-suggestions-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  width: 100%;
+}
+
+/* Expandable AdTarget communication node with generated offer preview */
+.adt-node-expanded {
+  z-index: 5;
+  box-shadow: 0 10px 26px rgba(31, 41, 55, 0.18), var(--adt-node-shadow);
+}
+
+.adt-node-offers {
+  margin: 0 7px 24px 22px;
+  padding: 6px 7px;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  background: #fbfcff;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.adt-node-offer-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.adt-node-offer-row span {
+  color: var(--adt-text-secondary);
+  font-size: 9px;
+  line-height: 1.1;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.adt-node-offer-row strong {
+  color: var(--adt-text);
+  font-size: 10px;
+  line-height: 1.25;
+  font-weight: 600;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.adt-node-expand {
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 2px;
+  background: rgba(79, 142, 247, 0.1);
+  color: #4f8ef7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.adt-node-expand:hover {
+  background: rgba(79, 142, 247, 0.18);
 }

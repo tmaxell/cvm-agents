@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import type { MonitorResponse } from "../types/api";
+import type { ChannelDeliveryMetric, MonitorResponse } from "../types/api";
 
 interface Props {
   campaignId: number | null;
@@ -53,7 +53,7 @@ export function MonitoringPanel({ campaignId, draftFlowJson, lang = "ru" }: Prop
       setData(null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [campaignId]);
+  }, [campaignId, draftFlowJson]);
 
   const handleRefresh = () => {
     const nextSeed = seed + 1;
@@ -76,6 +76,11 @@ export function MonitoringPanel({ campaignId, draftFlowJson, lang = "ru" }: Prop
       </div>
     );
   }
+
+  const structureRecommendations = data?.structure_recommendations?.length
+    ? data.structure_recommendations
+    : data?.recommendations ?? [];
+  const launchRecommendations = data?.launch_recommendations ?? [];
 
   return (
     <div className="fw-monitor">
@@ -116,6 +121,21 @@ export function MonitoringPanel({ campaignId, draftFlowJson, lang = "ru" }: Prop
             <p className="fw-monitor-summary">{data.summary}</p>
           </div>
 
+          {/* KPI counts */}
+          <div className="fw-monitor-kpis">
+            <KpiCard
+              label={lang === "en" ? "Activations" : "Активации"}
+              value={data.metrics.activation_count ?? 0}
+              accent="#8b5cf6"
+            />
+            <KpiCard
+              label={lang === "en" ? "Delivered" : "Доставлено"}
+              value={data.metrics.delivered_count ?? 0}
+              subValue={data.metrics.sent_count ? `${formatNumber(data.metrics.sent_count)} ${lang === "en" ? "sent" : "отправлено"}` : undefined}
+              accent="#22c55e"
+            />
+          </div>
+
           {/* Metrics */}
           <div className="fw-monitor-metrics">
             <MetricCard label={lang === "en" ? "Delivery" : "Доставка"} value={data.metrics.delivery_rate} color="#22c55e" benchmark={92} lang={lang} />
@@ -124,19 +144,22 @@ export function MonitoringPanel({ campaignId, draftFlowJson, lang = "ru" }: Prop
             <MetricCard label={lang === "en" ? "Clicks" : "Переходы"} value={data.metrics.click_rate} color="#f59e0b" benchmark={10} lang={lang} />
           </div>
 
-          {/* Recommendations */}
-          <div className="fw-monitor-recs-header">
-            <span>💡 {lang === "en" ? "Recommendations" : "Рекомендации"}</span>
-            <span className="fw-monitor-recs-count">{data.recommendations.length}</span>
-          </div>
-          <ul className="fw-monitor-recs">
-            {data.recommendations.map((rec, i) => (
-              <li key={i} className="fw-monitor-rec-item">
-                <span className="fw-monitor-rec-num">{i + 1}</span>
-                <span>{rec}</span>
-              </li>
-            ))}
-          </ul>
+          <ChannelDeliveryList channels={data.metrics.channel_deliveries ?? []} lang={lang} />
+
+          {data.metrics.control_group && (
+            <ControlGroupCard comparison={data.metrics.control_group} lang={lang} />
+          )}
+
+          <RecommendationSection
+            icon="🧩"
+            title={lang === "en" ? "Campaign structure" : "Структура кампании"}
+            recommendations={structureRecommendations}
+          />
+          <RecommendationSection
+            icon="🚀"
+            title={lang === "en" ? "After launch" : "После запуска"}
+            recommendations={launchRecommendations}
+          />
         </>
       )}
     </div>
@@ -154,6 +177,18 @@ function ScoreBadge({ score, lang = "ru" }: { score: number; lang?: "ru" | "en" 
     <div className="fw-monitor-score" style={{ borderColor: color + "40", background: color + "12" }}>
       <span className="fw-monitor-score-num" style={{ color }}>{score}</span>
       <span className="fw-monitor-score-label" style={{ color }}>{label}</span>
+    </div>
+  );
+}
+
+function KpiCard({ label, value, subValue, accent }: {
+  label: string; value: number; subValue?: string; accent: string;
+}) {
+  return (
+    <div className="fw-monitor-kpi" style={{ borderLeftColor: accent }}>
+      <span className="fw-monitor-kpi-label">{label}</span>
+      <strong className="fw-monitor-kpi-value" style={{ color: accent }}>{formatNumber(value)}</strong>
+      {subValue && <span className="fw-monitor-kpi-sub">{subValue}</span>}
     </div>
   );
 }
@@ -188,4 +223,93 @@ function MetricCard({ label, value, color, benchmark, lang = "ru" }: {
       </div>
     </div>
   );
+}
+
+function ChannelDeliveryList({ channels, lang }: { channels: ChannelDeliveryMetric[]; lang: "ru" | "en" }) {
+  if (channels.length === 0) return null;
+  return (
+    <section className="fw-monitor-section">
+      <div className="fw-monitor-section-header">
+        <span>📨 {lang === "en" ? "Deliveries by channel" : "Доставки по каналам"}</span>
+        <span className="fw-monitor-recs-count">{channels.length}</span>
+      </div>
+      <div className="fw-monitor-channel-list">
+        {channels.map((ch, i) => (
+          <div className="fw-monitor-channel" key={`${ch.content_type}-${ch.channel_id ?? i}`}>
+            <div className="fw-monitor-channel-main">
+              <strong>{ch.channel_name}</strong>
+              <span>{formatNumber(ch.delivered_count)} / {formatNumber(ch.sent_count)}</span>
+            </div>
+            <div className="fw-monitor-channel-bar">
+              <div style={{ width: `${Math.min(100, ch.delivery_rate)}%` }} />
+            </div>
+            <span className="fw-monitor-channel-rate">{ch.delivery_rate}%</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ControlGroupCard({ comparison, lang }: {
+  comparison: NonNullable<MonitorResponse["metrics"]["control_group"]>;
+  lang: "ru" | "en";
+}) {
+  const positive = comparison.uplift_pp >= 0;
+  return (
+    <section className="fw-monitor-control">
+      <div className="fw-monitor-section-header">
+        <span>🧪 {lang === "en" ? "Test vs control" : "Тест vs контроль"}</span>
+        <span className={positive ? "fw-monitor-positive" : "fw-monitor-negative"}>
+          {positive ? "+" : ""}{comparison.uplift_pp} п.п.
+        </span>
+      </div>
+      <div className="fw-monitor-control-grid">
+        <ControlCell label={lang === "en" ? "Test group" : "Тестовая"} value={`${comparison.test_conversion_rate}%`} hint={`${formatNumber(comparison.test_activations)} ${lang === "en" ? "activations" : "активаций"}`} />
+        <ControlCell label={lang === "en" ? "Control" : "Контроль"} value={`${comparison.control_conversion_rate}%`} hint={`${formatNumber(comparison.control_activations)} ${lang === "en" ? "activations" : "активаций"}`} />
+        <ControlCell label="Uplift" value={`${comparison.uplift_percent}%`} hint={lang === "en" ? "incremental effect" : "инкрементальный эффект"} />
+      </div>
+      <p className="fw-monitor-control-note">
+        {lang === "en"
+          ? `${formatNumber(comparison.test_group_size)} clients in test, ${formatNumber(comparison.control_group_size)} in control.`
+          : `${formatNumber(comparison.test_group_size)} клиентов в тесте, ${formatNumber(comparison.control_group_size)} в контроле.`}
+      </p>
+    </section>
+  );
+}
+
+function ControlCell({ label, value, hint }: { label: string; value: string; hint: string }) {
+  return (
+    <div className="fw-monitor-control-cell">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{hint}</small>
+    </div>
+  );
+}
+
+function RecommendationSection({ icon, title, recommendations }: {
+  icon: string; title: string; recommendations: string[];
+}) {
+  if (!recommendations.length) return null;
+  return (
+    <section className="fw-monitor-section">
+      <div className="fw-monitor-section-header">
+        <span>{icon} {title}</span>
+        <span className="fw-monitor-recs-count">{recommendations.length}</span>
+      </div>
+      <ul className="fw-monitor-recs">
+        {recommendations.map((rec, i) => (
+          <li key={i} className="fw-monitor-rec-item">
+            <span className="fw-monitor-rec-num">{i + 1}</span>
+            <span>{rec}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat("ru-RU").format(value);
 }

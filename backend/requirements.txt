@@ -38,3 +38,6 @@ lxml>=5.0.0                         # HTML parser backend for BeautifulSoup
 # ── GigaChat (Sber) ───────────────────────────────────────────────────────────
 gigachat>=0.2.0                     # GigaChat Python SDK
 langchain-gigachat>=0.3.0           # Официальная LangChain-интеграция с bind_tools()
+langchain-groq>=0.1.0              # Groq provider selected in backend/.env
+langchain-google-genai>=1.0.0      # Optional Gemini provider
+langchain-ollama>=0.1.0            # Optional local Ollama provider

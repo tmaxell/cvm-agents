@@ -1,0 +1,32 @@
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    container_name: cvm-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ../backend/.env
+    volumes:
+      - ../backend:/app/backend
+      - ../docs:/app/docs
+    environment:
+      - ADTARGET_MOCK=${ADTARGET_MOCK:-true}
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.frontend
+    container_name: cvm-frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ../frontend/src:/app/frontend/src
+      - ../frontend/index.html:/app/frontend/index.html
+      - ../frontend/vite.config.ts:/app/frontend/vite.config.ts
+      - /app/frontend/node_modules
+    environment:
+      - VITE_API_PROXY=http://backend:8000
+    depends_on:
+      - backend

@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import type { ChatMessage, AgentContext, SourceCitation } from "../types/api";
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
 interface UseChatOptions {
   endpoint: "/api/copilot" | "/api/builder";

@@ -365,6 +365,167 @@ async def start_campaign_tool(campaign_id: int) -> str:
         return _api_error("start_campaign", e)
 
 
+
+# ── Pseudo tool-call recovery ────────────────────────────────────────────────
+
+def _extract_pseudo_tool_calls(text: str) -> list[tuple[str, dict]]:
+    """Extracts tool calls printed by an LLM as text instead of real tool_calls.
+
+    Some providers occasionally return markup like
+    ``<build_sms_campaign_flow>{...}</function>`` in ``content``. LangGraph
+    treats that as a final assistant answer, so tools are never executed and the
+    UI receives no ``draft_flow``. This parser is deliberately tolerant: it
+    accepts both ``</function>`` and ``</tool_name>`` closing tags and ignores
+    malformed JSON blocks.
+    """
+    import re
+
+    calls: list[tuple[str, dict]] = []
+    pattern = re.compile(
+        r"<(?P<name>[A-Za-z_][\w]*)>\s*(?P<args>.*?)\s*</(?:function|(?P=name))>",
+        re.DOTALL,
+    )
+    for match in pattern.finditer(text or ""):
+        raw_args = match.group("args").strip()
+        try:
+            args = json.loads(raw_args)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(args, dict):
+            calls.append((match.group("name"), args))
+    return calls
+
+
+def _flow_from_legacy_steps(data: dict) -> dict | None:
+    """Converts old prototype ``{name, steps[]}`` flow JSON to activities[]."""
+    steps = data.get("steps")
+    if not isinstance(steps, list):
+        return None
+
+    campaign_name = data.get("name") or "Новая кампания"
+    target_group_id: int | None = None
+    sms_channel_id: int | None = None
+    message_text: str | None = None
+
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        step_type = step.get("type")
+        params = step.get("params") if isinstance(step.get("params"), dict) else {}
+        if step_type in {"Common", "TargetGroup", "TargetGroupActivity"} and params.get("target_group_id"):
+            target_group_id = int(params["target_group_id"])
+        elif step_type in {"SMS", "Sms", "PushCommunicationActivity"}:
+            if params.get("sms_channel_id"):
+                sms_channel_id = int(params["sms_channel_id"])
+            if params.get("message_text"):
+                message_text = str(params["message_text"])
+
+    if target_group_id and sms_channel_id and message_text:
+        return assemble_flow([
+            make_common_activity(campaign_name),
+            make_target_group_activity(target_group_id),
+            make_push_communication_activity(sms_channel_id, "SmsContent", message_text),
+        ])
+    return None
+
+
+async def _flow_from_tool_args(tool_name: str, args: dict) -> dict | None:
+    """Builds a flow from parsed textual tool-call arguments."""
+    try:
+        if tool_name == "build_sms_campaign_flow":
+            resolved_ch = await _resolve_channel_id(int(args["sms_channel_id"]), "SmsContent")
+            return assemble_flow([
+                make_common_activity(str(args["campaign_name"])),
+                make_target_group_activity(int(args["target_group_id"])),
+                make_push_communication_activity(resolved_ch, "SmsContent", str(args["message_text"])),
+            ])
+        if tool_name == "build_email_campaign_flow":
+            resolved_ch = await _resolve_channel_id(int(args["email_channel_id"]), "EmailContent")
+            return assemble_flow([
+                make_common_activity(str(args["campaign_name"])),
+                make_target_group_activity(int(args["target_group_id"])),
+                make_push_communication_activity(resolved_ch, "EmailContent", str(args["message_text"])),
+            ])
+        if tool_name == "build_push_campaign_flow":
+            resolved_ch = await _resolve_channel_id(int(args["push_channel_id"]), "CustomContent")
+            return assemble_flow([
+                make_common_activity(str(args["campaign_name"])),
+                make_target_group_activity(int(args["target_group_id"])),
+                make_push_communication_activity(resolved_ch, "CustomContent", str(args["message_text"])),
+            ])
+        if tool_name == "build_event_sms_campaign_flow":
+            resolved_ch = await _resolve_channel_id(int(args["sms_channel_id"]), "SmsContent")
+            return assemble_flow([
+                make_common_activity(str(args["campaign_name"])),
+                make_target_group_activity(int(args["target_group_id"])),
+                make_event_activity(str(args["event_code"])),
+                make_push_communication_activity(resolved_ch, "SmsContent", str(args["message_text"])),
+            ])
+        if tool_name == "build_business_transaction_flow":
+            resolved_ch = await _resolve_channel_id(int(args["sms_channel_id"]), "SmsContent")
+            return assemble_flow([
+                make_common_activity(str(args["campaign_name"])),
+                make_target_group_activity(int(args["target_group_id"])),
+                make_push_communication_activity(resolved_ch, "SmsContent", str(args["message_text"])),
+                make_business_transaction_activity(
+                    int(args["offer_template_id"]),
+                    str(args["operation_id"]),
+                    [],
+                ),
+            ])
+        if tool_name == "build_event_sms_with_bt_flow":
+            resolved_ch = await _resolve_channel_id(int(args["sms_channel_id"]), "SmsContent")
+            return assemble_flow([
+                make_common_activity(str(args["campaign_name"])),
+                make_target_group_activity(int(args["target_group_id"])),
+                make_event_activity(str(args["event_code"])),
+                make_push_communication_activity(resolved_ch, "SmsContent", str(args["message_text"])),
+                make_business_transaction_activity(
+                    int(args["offer_template_id"]),
+                    str(args["operation_id"]),
+                    [],
+                ),
+            ])
+        if tool_name == "build_sms_with_wait_flow":
+            resolved_ch = await _resolve_channel_id(int(args["sms_channel_id"]), "SmsContent")
+            activities = [
+                make_common_activity(str(args["campaign_name"])),
+                make_target_group_activity(int(args["target_group_id"])),
+                make_wait_activity(int(args.get("wait_days") or 3)),
+                make_push_communication_activity(resolved_ch, "SmsContent", str(args["message_text"])),
+            ]
+            offer_template_id = int(args.get("offer_template_id") or 0)
+            operation_id = str(args.get("operation_id") or "")
+            if offer_template_id and operation_id:
+                activities.append(make_business_transaction_activity(offer_template_id, operation_id, []))
+            return assemble_flow(activities)
+        if tool_name in {"validate_flow_tool", "create_campaign_tool"} and args.get("flow_json"):
+            flow_data = json.loads(args["flow_json"]) if isinstance(args["flow_json"], str) else args["flow_json"]
+            if isinstance(flow_data, dict):
+                if isinstance(flow_data.get("activities"), list):
+                    return flow_data
+                return _flow_from_legacy_steps(flow_data)
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+    return None
+
+
+async def _recover_flow_from_textual_tool_calls(text: str) -> dict | None:
+    """Returns the richest flow represented by pseudo tool calls in text."""
+    best_flow: dict | None = None
+    best_len = -1
+    for tool_name, args in _extract_pseudo_tool_calls(text):
+        flow = await _flow_from_tool_args(tool_name, args)
+        if not flow:
+            continue
+        activities_len = len(flow.get("activities", []))
+        # Prefer richer builders (e.g. SMS → BusinessTransaction) over later
+        # hallucinated simple SMS validation payloads.
+        if activities_len > best_len:
+            best_flow = flow
+            best_len = activities_len
+    return best_flow
+
 # ── LangGraph State ───────────────────────────────────────────────────────────
 
 class BuilderState(TypedDict):
@@ -534,6 +695,18 @@ async def run(request: BuilderRequest) -> BuilderResponse:
     else:
         print("[campaign_builder] WARNING: No tool calls detected in result messages!")
 
+    # ── Recovery: some LLMs print pseudo tool calls instead of real tool_calls ──
+    # Without this fallback the chat displays raw <tool>{...}</function> text and
+    # the prototype has no draft_flow to render. Recover the richest flow and let
+    # the existing auto-create path persist it in AdTarget.
+    recovered_from_text = False
+    if not last_flow_json and isinstance(answer_text, str) and "</function>" in answer_text:
+        recovered_flow = await _recover_flow_from_textual_tool_calls(answer_text)
+        if recovered_flow:
+            last_flow_json = json.dumps(recovered_flow, ensure_ascii=False)
+            recovered_from_text = True
+            print("[campaign_builder] Recovered flow from textual tool calls")
+
     # ── Авто-создание: если агент построил flow но не вызвал create_campaign ──
     auto_created = False
     if last_flow_json and not campaign_id:
@@ -576,19 +749,26 @@ async def run(request: BuilderRequest) -> BuilderResponse:
         status = "in_progress"
 
     # ── Финализируем сообщение ────────────────────────────────────────────────
-    # Если auto_created — заменяем ответ агента на чёткое подтверждение с реальным ID
-    if auto_created and campaign_id:
+    # Если auto_created/recovered_from_text — заменяем служебный вывод агента на
+    # чёткое подтверждение. Это скрывает raw <tool>{...}</function> из чата.
+    if (auto_created and campaign_id) or recovered_from_text:
         flow_name = ""
         if draft_flow and draft_flow.get("activities"):
             for act in draft_flow["activities"]:
                 if act.get("type") == "CommonActivity" and act.get("name"):
                     flow_name = f' «{act["name"]}»'
                     break
-        answer_text = f"Кампания{flow_name} создана. ID: **{campaign_id}**"
-        if started:
-            answer_text += " — запущена ✅"
+        if campaign_id:
+            answer_text = f"Кампания{flow_name} создана. ID: **{campaign_id}**"
+            if started:
+                answer_text += " — запущена ✅"
+            else:
+                answer_text += "\n\nFlow собран и сохранён в AdTarget. Хотите запустить кампанию?"
         else:
-            answer_text += "\n\nFlow собран и сохранён в AdTarget. Хотите запустить кампанию?"
+            answer_text = (
+                f"Flow кампании{flow_name} собран и готов к отображению на прототипе. "
+                "Создание в AdTarget пока не выполнено — проверьте доступность API и повторите запрос."
+            )
 
     return BuilderResponse(
         message=answer_text,

@@ -43,6 +43,12 @@ export interface BuilderRequest {
   session_flow_json?: string | null;
 }
 
+export interface FlowContentParameter {
+  name: string;
+  value?: string | number | boolean | null;
+  valueExpression?: string | null;
+}
+
 export interface FlowActivity {
   id: string;
   type: string;
@@ -52,10 +58,15 @@ export interface FlowActivity {
   errors?: unknown[];
   warnings?: unknown[];
   contentType?: string;
+  content?: {
+    type?: string;
+    parameters?: FlowContentParameter[];
+  };
   eventCode?: string;
   clientSourceId?: number;
   channelId?: number;
   offerTemplateId?: number;
+  businessOperation?: { id?: string; parameters?: unknown[] };
   // Branching support
   cases?: Record<string, string>;
   defaultSuccessActivityId?: string | null;

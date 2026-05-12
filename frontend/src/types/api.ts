@@ -83,16 +83,43 @@ export interface MonitorRequest {
   refresh_seed?: number;
 }
 
+export interface ChannelDeliveryMetric {
+  channel_id?: number | null;
+  channel_name: string;
+  content_type: string;
+  sent_count: number;
+  delivered_count: number;
+  delivery_rate: number;
+}
+
+export interface ControlGroupComparison {
+  test_group_size: number;
+  control_group_size: number;
+  test_conversion_rate: number;
+  control_conversion_rate: number;
+  uplift_pp: number;
+  uplift_percent: number;
+  test_activations: number;
+  control_activations: number;
+}
+
 export interface MonitorMetrics {
   delivery_rate: number;
   open_rate: number;
   conversion_rate: number;
   click_rate: number;
+  sent_count?: number;
+  delivered_count?: number;
+  activation_count?: number;
+  channel_deliveries?: ChannelDeliveryMetric[];
+  control_group?: ControlGroupComparison | null;
 }
 
 export interface MonitorResponse {
   metrics: MonitorMetrics;
   recommendations: string[];
+  structure_recommendations?: string[];
+  launch_recommendations?: string[];
   overall_score: number;
   summary: string;
 }

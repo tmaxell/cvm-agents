@@ -1,0 +1,1 @@
+/Users/tmaxell/Documents/Work/Eastwind/Projects/cvmCopilot/docs/PLATFORM_SCHEMA.md

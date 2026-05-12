@@ -1,0 +1,40 @@
+# ── Web framework ─────────────────────────────────────────────────────────────
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+python-dotenv>=1.0.0
+
+# ── HTTP client ───────────────────────────────────────────────────────────────
+httpx>=0.27.0
+
+# ── Data validation ───────────────────────────────────────────────────────────
+pydantic>=2.7.0
+
+# ── LLM + LangChain core ──────────────────────────────────────────────────────
+langchain>=0.2.0
+langchain-core>=0.2.0
+langchain-anthropic>=0.3.2          # Includes AnthropicEmbeddings (Voyage AI)
+langchain-community>=0.2.0          # BM25Retriever, HuggingFaceEmbeddings fallback
+langchain-text-splitters>=0.2.0
+
+# ── LangGraph (F2 Campaign Builder agentic loop) ──────────────────────────────
+langgraph>=0.2.0
+
+# ── Vector DB ─────────────────────────────────────────────────────────────────
+langchain-chroma>=0.1.4             # langchain_chroma (replaces deprecated langchain_community.vectorstores.Chroma)
+chromadb>=0.5.0
+
+# ── Embeddings fallback (local, no API key needed) ────────────────────────────
+langchain-huggingface>=0.0.3
+sentence-transformers>=3.0.0
+
+# ── BM25 keyword search ───────────────────────────────────────────────────────
+rank_bm25>=0.2.2
+
+# ── Document parsing (HTML + DOCX for RAG indexer) ────────────────────────────
+beautifulsoup4>=4.12.0
+mammoth>=1.6.0
+lxml>=5.0.0                         # HTML parser backend for BeautifulSoup
+
+# ── GigaChat (Sber) ───────────────────────────────────────────────────────────
+gigachat>=0.2.0                     # GigaChat Python SDK
+langchain-gigachat>=0.3.0           # Официальная LangChain-интеграция с bind_tools()

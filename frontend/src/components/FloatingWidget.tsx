@@ -1,0 +1,195 @@
+/**
+ * FloatingWidget — плавающий AI-ассистент поверх AdTarget.
+ *
+ * Вкладки:
+ *   💬 CVM Copilot    — вопросы по платформе
+ *   🛠 Campaign Builder — создание кампании
+ *   📊 Monitoring      — метрики и рекомендации
+ *
+ * Фичи:
+ *   - Все три панели всегда смонтированы (state сохраняется при смене вкладок)
+ *   - Кнопка ⤢/⤡ для переключения размера панели
+ *   - Кнопка RU/EN для переключения языка
+ */
+
+import { useState, useRef, useEffect } from "react";
+import { ChatPanel } from "./ChatPanel";
+import { CampaignBuilderChat } from "./CampaignBuilderChat";
+import { MonitoringPanel } from "./MonitoringPanel";
+import type { BuilderResponse } from "../types/api";
+
+interface FloatingWidgetProps {
+  onFlowUpdate: (response: BuilderResponse | null) => void;
+  hasErrors: boolean;
+  builderResponse: BuilderResponse | null;
+}
+
+type Tab = "copilot" | "builder" | "monitoring";
+type Size = "normal" | "large";
+type Lang = "ru" | "en";
+
+const PANEL_SIZES: Record<Size, { width: number; height: number }> = {
+  normal: { width: 420, height: 560 },
+  large:  { width: 660, height: 760 },
+};
+
+const COPILOT_SUGGESTIONS: Record<Lang, string[]> = {
+  ru: [
+    "Какие типы активностей бывают в кампании?",
+    "Что означает ошибка TargetGroupNotSet?",
+    "Как запустить кампанию через API?",
+    "Чем отличается Push от Pull коммуникации?",
+  ],
+  en: [
+    "What activity types exist in a campaign?",
+    "What does the TargetGroupNotSet error mean?",
+    "How do I start a campaign via API?",
+    "What is the difference between Push and Pull communication?",
+  ],
+};
+
+const COPILOT_PLACEHOLDER: Record<Lang, string> = {
+  ru: "Спросите о кампании, ошибках, настройках…",
+  en: "Ask about campaigns, errors, settings…",
+};
+
+export function FloatingWidget({ onFlowUpdate, hasErrors, builderResponse }: FloatingWidgetProps) {
+  const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState<Tab>("copilot");
+  const [size, setSize] = useState<Size>("normal");
+  const [lang, setLang] = useState<Lang>("ru");
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const hasMonitorData = builderResponse?.campaign_id != null;
+
+  const handleBuilderResponse = (response: BuilderResponse | null) => {
+    onFlowUpdate(response);
+  };
+
+  const btnColor = hasErrors ? "var(--widget-error)" : "var(--widget-accent)";
+  const btnGlow = hasErrors
+    ? "0 0 0 4px rgba(239,68,68,0.25), 0 4px 20px rgba(239,68,68,0.4)"
+    : "0 0 0 4px rgba(82,87,255,0.2), 0 4px 20px rgba(82,87,255,0.35)";
+
+  const monitorFlowJson = builderResponse?.draft_flow
+    ? JSON.stringify(builderResponse.draft_flow)
+    : null;
+
+  const { width, height } = PANEL_SIZES[size];
+
+  return (
+    <div className="fw-root" ref={panelRef}>
+      {/* ── Widget Panel ─────────────────────────────────────────── */}
+      {open && (
+        <div className="fw-panel" style={{ width, height }}>
+          {/* Header */}
+          <div className="fw-header">
+            <div className="fw-tabs">
+              <button
+                className={`fw-tab${tab === "copilot" ? " active" : ""}`}
+                onClick={() => setTab("copilot")}
+              >
+                💬 Copilot
+              </button>
+              <button
+                className={`fw-tab${tab === "builder" ? " active" : ""}`}
+                onClick={() => setTab("builder")}
+              >
+                🛠 Builder
+              </button>
+              <button
+                className={`fw-tab${tab === "monitoring" ? " active" : ""}`}
+                onClick={() => setTab("monitoring")}
+                style={{ position: "relative" }}
+              >
+                📊 Monitor
+                {hasMonitorData && tab !== "monitoring" && (
+                  <span className="fw-tab-badge" />
+                )}
+              </button>
+            </div>
+
+            {/* Header action buttons */}
+            <div className="fw-header-actions">
+              <button
+                className="fw-action-btn"
+                onClick={() => setLang(l => l === "ru" ? "en" : "ru")}
+                title={lang === "ru" ? "Switch to English" : "Переключить на русский"}
+              >
+                {lang === "ru" ? "EN" : "RU"}
+              </button>
+              <button
+                className="fw-action-btn"
+                onClick={() => setSize(s => s === "normal" ? "large" : "normal")}
+                title={size === "normal" ? (lang === "en" ? "Expand" : "Развернуть") : (lang === "en" ? "Collapse" : "Свернуть")}
+              >
+                {size === "normal" ? "⤢" : "⤡"}
+              </button>
+              <button className="fw-close" onClick={() => setOpen(false)} title={lang === "en" ? "Close" : "Закрыть"}>✕</button>
+            </div>
+          </div>
+
+          {/* Content — all panels always mounted; hidden via display:none to preserve state */}
+          <div className="fw-body">
+            <div style={{ display: tab === "copilot" ? "contents" : "none" }}>
+              <ChatPanel
+                title="CVM Copilot"
+                endpoint="/api/copilot"
+                messageKey="question"
+                placeholder={COPILOT_PLACEHOLDER[lang]}
+                suggestions={COPILOT_SUGGESTIONS[lang]}
+              />
+            </div>
+            <div style={{ display: tab === "builder" ? "contents" : "none" }}>
+              <CampaignBuilderChat onResponse={handleBuilderResponse} lang={lang} />
+            </div>
+            <div style={{ display: tab === "monitoring" ? "contents" : "none" }}>
+              <MonitoringPanel
+                campaignId={builderResponse?.campaign_id ?? null}
+                draftFlowJson={monitorFlowJson}
+                lang={lang}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Toggle Button ─────────────────────────────────────────── */}
+      <button
+        className="fw-toggle"
+        onClick={() => setOpen(v => !v)}
+        style={{
+          background: btnColor,
+          boxShadow: open ? "none" : btnGlow,
+        }}
+        title={open
+          ? (lang === "en" ? "Close assistant" : "Закрыть ассистента")
+          : (lang === "en" ? "Open AI assistant" : "Открыть AI-ассистент")}
+        aria-label="AI Assistant"
+      >
+        {open ? (
+          <span style={{ fontSize: 20, lineHeight: 1 }}>✕</span>
+        ) : (
+          <span className="fw-toggle-icon">
+            {hasErrors ? "⚠" : "✦"}
+          </span>
+        )}
+        {!open && hasErrors && (
+          <span className="fw-error-badge" />
+        )}
+      </button>
+    </div>
+  );
+}

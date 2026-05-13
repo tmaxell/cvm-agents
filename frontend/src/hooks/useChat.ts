@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type { ChatMessage, AgentContext, SourceCitation } from "../types/api";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
@@ -9,12 +9,35 @@ interface UseChatOptions {
   context?: AgentContext;
   /** Extra fields merged into each API request body (e.g. session_campaign_id) */
   extraPayload?: () => Record<string, unknown>;
+  /** localStorage key for restoring chat after widget close/reload */
+  storageKey?: string;
 }
 
-export function useChat({ endpoint, messageKey, context, extraPayload }: UseChatOptions) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+function readStoredMessages(storageKey?: string): ChatMessage[] {
+  if (!storageKey || typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function useChat({ endpoint, messageKey, context, extraPayload, storageKey }: UseChatOptions) {
+  const [messages, setMessages] = useState<ChatMessage[]>(() => readStoredMessages(storageKey));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setMessages(readStoredMessages(storageKey));
+    setError(null);
+  }, [storageKey]);
+
+  useEffect(() => {
+    if (!storageKey || typeof window === "undefined") return;
+    window.localStorage.setItem(storageKey, JSON.stringify(messages));
+  }, [messages, storageKey]);
 
   const send = useCallback(
     async (userInput: string) => {
@@ -73,7 +96,15 @@ export function useChat({ endpoint, messageKey, context, extraPayload }: UseChat
   const clear = useCallback(() => {
     setMessages([]);
     setError(null);
+    if (storageKey && typeof window !== "undefined") {
+      window.localStorage.removeItem(storageKey);
+    }
+  }, [storageKey]);
+
+  const replaceMessages = useCallback((nextMessages: ChatMessage[]) => {
+    setMessages(nextMessages);
+    setError(null);
   }, []);
 
-  return { messages, loading, error, send, clear };
+  return { messages, loading, error, send, clear, replaceMessages };
 }

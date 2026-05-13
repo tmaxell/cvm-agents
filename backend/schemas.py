@@ -51,6 +51,7 @@ class BuilderRequest(BaseModel):
     # Контекст текущей сессии — передаётся при follow-up запросах
     session_campaign_id: int | None = None    # campaignId из предыдущего ответа
     session_flow_json: str | None = None      # JSON flow из предыдущего ответа
+    builder_preferences: dict[str, Any] = Field(default_factory=dict)  # каналы/ЦГ/офферы/цель из UI
 
 
 class BuilderResponse(BaseModel):

@@ -12,7 +12,7 @@
  *   - Кнопка RU/EN для переключения языка
  */
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { ChatPanel } from "./ChatPanel";
 import { CampaignBuilderChat } from "./CampaignBuilderChat";
 import { MonitoringPanel } from "./MonitoringPanel";
@@ -74,9 +74,9 @@ export function FloatingWidget({ onFlowUpdate, hasErrors, builderResponse }: Flo
 
   const hasMonitorData = builderResponse?.campaign_id != null;
 
-  const handleBuilderResponse = (response: BuilderResponse | null) => {
+  const handleBuilderResponse = useCallback((response: BuilderResponse | null) => {
     onFlowUpdate(response);
-  };
+  }, [onFlowUpdate]);
 
   const btnColor = hasErrors ? "var(--widget-error)" : "var(--widget-accent)";
   const btnGlow = hasErrors

@@ -101,6 +101,8 @@ export interface CampaignFlow {
   offers?: CampaignOffer[];
 }
 
+export type CampaignRuntimeStatus = "editing" | "active" | "paused";
+
 export interface BuilderResponse {
   message: string;
   campaign_id?: number | null;
@@ -114,6 +116,7 @@ export interface MonitorRequest {
   campaign_id: number;
   draft_flow_json: string;
   refresh_seed?: number;
+  campaign_status?: CampaignRuntimeStatus;
 }
 
 export interface ChannelDeliveryMetric {
@@ -153,6 +156,7 @@ export interface MonitorResponse {
   recommendations: string[];
   structure_recommendations?: string[];
   launch_recommendations?: string[];
+  similar_campaign_actions?: string[];
   overall_score: number;
   summary: string;
 }

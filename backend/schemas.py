@@ -68,6 +68,7 @@ class MonitorRequest(BaseModel):
     campaign_id: int
     draft_flow_json: str                # JSON flow кампании (activities[])
     refresh_seed: int = 0               # инкрементируется при каждом Refresh
+    campaign_status: str = "editing"     # "editing" | "active" | "paused"
 
 
 class ChannelDeliveryMetric(BaseModel):
@@ -107,5 +108,6 @@ class MonitorResponse(BaseModel):
     recommendations: list[str] = Field(default_factory=list)  # legacy: объединённый список рекомендаций
     structure_recommendations: list[str] = Field(default_factory=list)  # рекомендации по структуре до/во время сборки
     launch_recommendations: list[str] = Field(default_factory=list)     # рекомендации по результатам после запуска
+    similar_campaign_actions: list[str] = Field(default_factory=list)   # что сработало в похожих кампаниях
     overall_score: int                  # 0–100, общая оценка кампании
     summary: str                        # краткое заключение

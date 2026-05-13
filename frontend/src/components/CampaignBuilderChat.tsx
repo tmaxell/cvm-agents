@@ -83,7 +83,11 @@ export function CampaignBuilderChat({ onResponse, lang = "ru" }: Props) {
     readStoredJson<BuilderPreferences>(BUILDER_PREFS_KEY, {}),
   );
 
-  const { messages, loading, error, send, clear } = useChat({
+  const [lastResponse, setLastResponse] = useState<BuilderResponse | null>(activeDialog?.lastResponse ?? null);
+  const [preferences, setPreferences] = useState<BuilderPreferences>(activeDialog?.preferences ?? {});
+
+  const storageKey = activeDialog ? `cvm.builder.dialog.${activeDialog.id}.messages` : undefined;
+  const { messages, loading, error, send, clear, replaceMessages } = useChat({
     endpoint: "/api/builder",
     messageKey: "goal",
     context: DEFAULT_CONTEXT,
@@ -99,6 +103,18 @@ export function CampaignBuilderChat({ onResponse, lang = "ru" }: Props) {
 
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!activeDialog) return;
+    setLastResponse(activeDialog.lastResponse ?? null);
+    setPreferences(activeDialog.preferences ?? {});
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(storageKey ?? "", JSON.stringify(activeDialog.messages ?? []));
+    }
+    replaceMessages(activeDialog.messages ?? []);
+    onResponse(activeDialog.lastResponse ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeDialogId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });

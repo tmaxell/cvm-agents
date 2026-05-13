@@ -16,7 +16,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { ChatPanel } from "./ChatPanel";
 import { CampaignBuilderChat } from "./CampaignBuilderChat";
 import { MonitoringPanel } from "./MonitoringPanel";
-import type { BuilderResponse } from "../types/api";
+import type { BuilderResponse, CampaignRuntimeStatus } from "../types/api";
 
 interface FloatingWidgetProps {
   onFlowUpdate: (response: BuilderResponse | null) => void;
@@ -58,6 +58,7 @@ export function FloatingWidget({ onFlowUpdate, hasErrors, builderResponse }: Flo
   const [tab, setTab] = useState<Tab>("copilot");
   const [size, setSize] = useState<Size>("normal");
   const [lang, setLang] = useState<Lang>("ru");
+  const [campaignStatus, setCampaignStatus] = useState<CampaignRuntimeStatus>("editing");
   const panelRef = useRef<HTMLDivElement>(null);
 
   // Close on outside click
@@ -159,6 +160,8 @@ export function FloatingWidget({ onFlowUpdate, hasErrors, builderResponse }: Flo
               <MonitoringPanel
                 campaignId={builderResponse?.campaign_id ?? null}
                 draftFlowJson={monitorFlowJson}
+                campaignStatus={campaignStatus}
+                onCampaignStatusChange={setCampaignStatus}
                 lang={lang}
               />
             </div>

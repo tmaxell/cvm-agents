@@ -91,7 +91,15 @@ export function useChat({ endpoint, messageKey, context, extraPayload, storageKe
   const clear = useCallback(() => {
     setMessages([]);
     setError(null);
+    if (storageKey && typeof window !== "undefined") {
+      window.localStorage.removeItem(storageKey);
+    }
+  }, [storageKey]);
+
+  const replaceMessages = useCallback((nextMessages: ChatMessage[]) => {
+    setMessages(nextMessages);
+    setError(null);
   }, []);
 
-  return { messages, loading, error, send, clear };
+  return { messages, loading, error, send, clear, replaceMessages };
 }

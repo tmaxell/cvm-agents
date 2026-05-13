@@ -18,7 +18,7 @@ import json
 import os
 from typing import Annotated
 
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, trim_messages
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage, trim_messages
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
@@ -78,6 +78,177 @@ def _api_error(tool_name: str, e: Exception) -> str:
         msg = f"Ошибка: {type(e).__name__}: {e}"
     return json.dumps({"error": msg, "tool": tool_name}, ensure_ascii=False)
 
+
+
+def _normalize_text(text: str | None) -> str:
+    return (text or "").strip().lower()
+
+
+def _is_memory_only_request(goal: str) -> bool:
+    """Определяет сообщения, где пользователь только задаёт контекст для будущей сборки."""
+    text = _normalize_text(goal)
+    if not text:
+        return False
+
+    memory_markers = ("запомни", "учти", "контекст", "remember", "note that")
+    build_markers = (
+        "собер", "созда", "постро", "сгенер", "запусти", "build",
+        "create", "assemble", "generate", "добавь", "добавить", "add",
+    )
+    return text.startswith(memory_markers) and not any(marker in text for marker in build_markers)
+
+
+def _wants_business_transaction_update(goal: str) -> bool:
+    """Follow-up намерение: добавить business transaction к текущему flow."""
+    text = _normalize_text(goal)
+    transaction_markers = (
+        "бизнес-транзак", "бизнес транзак", "business transaction",
+        "транзакци", "transaction", "активаци", "activation",
+    )
+    add_markers = ("добав", "добавь", "add", "append", "в конец", "конце")
+    return any(marker in text for marker in transaction_markers) and any(marker in text for marker in add_markers)
+
+
+def _parse_flow_json(flow_json: str | None) -> dict | None:
+    if not flow_json:
+        return None
+    try:
+        data = json.loads(flow_json)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return data if isinstance(data, dict) and isinstance(data.get("activities"), list) else None
+
+
+def _extract_json_object(text: str) -> dict | None:
+    """Tolerantly extracts a JSON object from an LLM response."""
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    if raw.startswith("```"):
+        raw = raw.strip("`").strip()
+        if raw.lower().startswith("json"):
+            raw = raw[4:].strip()
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
+    try:
+        data = json.loads(raw[start:end + 1])
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+async def _llm_plan_special_turn(
+    goal: str,
+    *,
+    preferences: dict | None,
+    existing_flow: dict | None,
+    ref: dict | None = None,
+) -> tuple[dict | None, str | None]:
+    """Uses the LLM as a planner for iterative non-standard Builder turns.
+
+    The backend still validates and applies the returned plan deterministically,
+    so malformed tool-call JSON cannot break the prototype with HTTP 500.
+    """
+    try:
+        llm = get_llm(for_tools=False)
+        offers = []
+        if ref:
+            offers = [
+                {"id": offer.get("id"), "name": offer.get("name"), "operationId": offer.get("operationId")}
+                for offer in ref.get("offers", [])[:40]
+            ]
+
+        response = await llm.ainvoke([
+            SystemMessage(content=(
+                "Ты планировщик Campaign Builder. Верни только JSON без markdown. "
+                "Схема: {\"action\": \"remember_context|add_business_transaction|continue_agent\", "
+                "\"offer_template_id\": number|null, \"operation_id\": string|null, "
+                "\"assistant_message\": string}. "
+                "Если пользователь только просит запомнить вводные — action=remember_context. "
+                "Если просит добавить бизнес-транзакцию/активацию в текущий flow — "
+                "action=add_business_transaction и выбери лучший оффер из списка. "
+                "Иначе action=continue_agent. assistant_message всегда по-русски."
+            )),
+            HumanMessage(content=json.dumps({
+                "user_goal": goal,
+                "builder_preferences": preferences or {},
+                "has_existing_flow": bool(existing_flow),
+                "existing_activity_types": [
+                    activity.get("type")
+                    for activity in (existing_flow or {}).get("activities", [])
+                    if isinstance(activity, dict)
+                ],
+                "available_offers": offers,
+            }, ensure_ascii=False)),
+        ])
+        content = response.content if hasattr(response, "content") else str(response)
+        plan = _extract_json_object(content if isinstance(content, str) else str(content))
+        if not plan:
+            return None, "LLM-планировщик вернул не-JSON ответ."
+        return plan, None
+    except Exception as e:
+        return None, f"LLM-планировщик недоступен: {type(e).__name__}: {e}"
+
+
+def _select_offer_template(ref: dict, goal: str, preferences: dict | None = None) -> dict | None:
+    """Выбирает шаблон оффера для deterministic follow-up без LLM.
+
+    Сначала пытаемся найти совпадение по рекомендациям/тексту, иначе берём
+    первый доступный шаблон из справочника, чтобы запрос "добавь транзакцию"
+    не падал из-за отсутствия явного id.
+    """
+    offers = ref.get("offers", [])
+    if not offers:
+        return None
+
+    preference_text = ""
+    if isinstance(preferences, dict):
+        preference_text = " ".join(str(v) for v in preferences.values() if v)
+    haystack = _normalize_text(f"{goal} {preference_text}")
+
+    for offer in offers:
+        name = _normalize_text(str(offer.get("name", "")))
+        operation_id = _normalize_text(str(offer.get("operationId", "")))
+        if (name and name in haystack) or (operation_id and operation_id in haystack):
+            return offer
+
+    return offers[0]
+
+
+def _add_business_transaction_to_flow(
+    flow: dict,
+    offer_template_id: int,
+    operation_id: str,
+) -> dict:
+    """Возвращает новый flow с BusinessTransactionActivity после последней communication-ноды."""
+    activities = list(flow.get("activities") or [])
+    if not activities:
+        raise ValueError("flow должен содержать activities[]")
+
+    communication_indexes = [
+        i
+        for i, activity in enumerate(activities)
+        if isinstance(activity, dict)
+        and activity.get("type") in {"PushCommunicationActivity", "PullCommunicationActivity"}
+    ]
+    insert_index = (communication_indexes[-1] + 1) if communication_indexes else len(activities)
+
+    next_activity = activities[insert_index] if insert_index < len(activities) else None
+    if (
+        isinstance(next_activity, dict)
+        and next_activity.get("type") == "BusinessTransactionActivity"
+        and next_activity.get("offerTemplateId") == offer_template_id
+        and (next_activity.get("businessOperation") or {}).get("id") == operation_id
+    ):
+        return assemble_flow(activities)
+
+    activities.insert(
+        insert_index,
+        make_business_transaction_activity(offer_template_id, operation_id, []),
+    )
+    return assemble_flow(activities)
 
 
 # ── Reference data pre-fetch (injected into prompt, no tool round-trips) ─────
@@ -705,7 +876,28 @@ def get_graph():
 
 async def run(request: BuilderRequest) -> BuilderResponse:
     """Запускает один шаг агента и возвращает ответ."""
-    graph = get_graph()
+    existing_flow = _parse_flow_json(request.session_flow_json)
+
+    # Context-only turns go through an LLM planner, but never create a campaign.
+    if _is_memory_only_request(request.goal):
+        plan, plan_warning = await _llm_plan_special_turn(
+            request.goal,
+            preferences=request.builder_preferences,
+            existing_flow=existing_flow,
+        )
+        message = (
+            plan.get("assistant_message")
+            if plan and plan.get("action") == "remember_context" and plan.get("assistant_message")
+            else "Запомнил вводные для этой сборки. Когда будете готовы, напишите «собери кампанию» или уточните недостающие параметры."
+        )
+        if plan_warning:
+            message += f"\n\n⚠️ LLM-планировщик не смог подтвердить шаг ({plan_warning}); контекст сохранён без сборки кампании."
+        return BuilderResponse(
+            message=message,
+            campaign_id=request.session_campaign_id,
+            draft_flow=existing_flow,
+            status="created" if request.session_campaign_id else "in_progress",
+        )
 
     # ── Pre-fetch reference data in parallel → inject into system prompt ──────
     # This eliminates 4 lookup tool calls per run (~40% fewer LLM calls, ~50% fewer tokens)
@@ -720,6 +912,80 @@ async def run(request: BuilderRequest) -> BuilderResponse:
           f"{len(ref_full.get('channels', []))}→{len(ref['channels'])} channels, "
           f"{len(ref_full.get('events', []))}→{len(ref['events'])} events, "
           f"{len(ref_full.get('offers', []))}→{len(ref['offers'])} offers")
+
+    # LLM-planned follow-up edit: planner selects the offer, backend applies validated flow update.
+    if _wants_business_transaction_update(request.goal):
+        if not existing_flow:
+            return BuilderResponse(
+                message=(
+                    "Не нашёл текущий flow для доработки. Сначала соберите кампанию, "
+                    "затем повторите запрос на добавление бизнес-транзакции."
+                ),
+                campaign_id=request.session_campaign_id,
+                draft_flow=None,
+                status="error",
+            )
+
+        plan, plan_warning = await _llm_plan_special_turn(
+            request.goal,
+            preferences=request.builder_preferences,
+            existing_flow=existing_flow,
+            ref=ref_full,
+        )
+
+        offer = None
+        if plan and plan.get("action") == "add_business_transaction" and plan.get("offer_template_id"):
+            plan_offer_id = int(plan["offer_template_id"])
+            offer = next((item for item in ref_full.get("offers", []) if item.get("id") == plan_offer_id), None)
+        if not offer:
+            offer = _select_offer_template(ref_full, request.goal, request.builder_preferences)
+            if offer and not plan_warning:
+                plan_warning = "LLM-планировщик не выбрал валидный offer_template_id; использован ближайший шаблон из справочника."
+
+        if not offer:
+            return BuilderResponse(
+                message=(
+                    "Не удалось выбрать шаблон оффера для бизнес-транзакции: справочник офферов пуст "
+                    "или недоступен. Укажите offer_template_id и operation_id или проверьте доступ к AdTarget API."
+                ),
+                campaign_id=request.session_campaign_id,
+                draft_flow=existing_flow,
+                status="error",
+            )
+
+        operation_id = str(plan.get("operation_id") or offer["operationId"]) if plan else str(offer["operationId"])
+        try:
+            updated_flow = _add_business_transaction_to_flow(
+                existing_flow,
+                int(offer["id"]),
+                operation_id,
+            )
+        except Exception as e:
+            return BuilderResponse(
+                message=f"Не удалось добавить бизнес-транзакцию в текущий flow: {type(e).__name__}: {e}",
+                campaign_id=request.session_campaign_id,
+                draft_flow=existing_flow,
+                status="error",
+            )
+
+        message = (
+            plan.get("assistant_message")
+            if plan and plan.get("assistant_message")
+            else "Добавил BusinessTransactionActivity в конец коммуникационной цепочки."
+        )
+        message += (
+            f"\n\nШаблон оффера: **{offer.get('name', offer['id'])}** "
+            f"(id={offer['id']}, operationId={operation_id})."
+        )
+        if plan_warning:
+            message += f"\n\n⚠️ {plan_warning}"
+
+        return BuilderResponse(
+            message=message,
+            campaign_id=request.session_campaign_id,
+            draft_flow=updated_flow,
+            status="created" if request.session_campaign_id else "in_progress",
+        )
 
     messages = []
     for msg in request.history:
@@ -740,12 +1006,27 @@ async def run(request: BuilderRequest) -> BuilderResponse:
     initial_campaign_id = request.session_campaign_id
     initial_flow_json = request.session_flow_json
 
-    result = await graph.ainvoke({
-        "messages": messages,
-        "campaign_id": initial_campaign_id,
-        "last_flow_json": initial_flow_json,
-        "system_prompt": system_prompt,
-    })
+    graph = get_graph()
+    try:
+        result = await graph.ainvoke({
+            "messages": messages,
+            "campaign_id": initial_campaign_id,
+            "last_flow_json": initial_flow_json,
+            "system_prompt": system_prompt,
+        })
+    except Exception as e:
+        print(f"[campaign_builder] LLM/tool graph failed: {type(e).__name__}: {e}")
+        return BuilderResponse(
+            message=(
+                "Не удалось завершить шаг через LLM: "
+                f"{type(e).__name__}: {e}. "
+                "Риск: текущая модель или tool-call могли вернуть некорректный JSON/пустой ответ; "
+                "попробуйте повторить запрос или уточнить параметры."
+            ),
+            campaign_id=initial_campaign_id,
+            draft_flow=existing_flow,
+            status="error",
+        )
 
     last_message = result["messages"][-1]
     answer_text = last_message.content if hasattr(last_message, "content") else str(last_message)

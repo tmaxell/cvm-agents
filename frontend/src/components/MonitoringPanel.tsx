@@ -28,7 +28,7 @@ export function MonitoringPanel({
   const [error, setError] = useState<string | null>(null);
   const [seed, setSeed] = useState(0);
 
-  const fetchMonitor = useCallback(async (currentSeed: number) => {
+  const fetchMonitor = useCallback(async (currentSeed: number, statusOverride: CampaignRuntimeStatus = campaignStatus) => {
     if (!campaignId || !draftFlowJson) return;
     setLoading(true);
     setError(null);

@@ -93,9 +93,9 @@ export function CampaignBuilderChat({ onResponse, lang = "ru" }: Props) {
     context: DEFAULT_CONTEXT,
     storageKey: BUILDER_MESSAGES_KEY,
     extraPayload: () => ({
-      session_campaign_id: lastResponse?.campaign_id ?? null,
-      session_flow_json: lastResponse?.draft_flow
-        ? JSON.stringify(lastResponse.draft_flow)
+      session_campaign_id: activeBuilderResponse?.campaign_id ?? null,
+      session_flow_json: activeBuilderResponse?.draft_flow
+        ? JSON.stringify(activeBuilderResponse.draft_flow)
         : null,
       builder_preferences: preferences,
     }),

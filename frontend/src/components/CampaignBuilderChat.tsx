@@ -83,19 +83,15 @@ export function CampaignBuilderChat({ onResponse, lang = "ru" }: Props) {
     readStoredJson<BuilderPreferences>(BUILDER_PREFS_KEY, {}),
   );
 
-  const [lastResponse, setLastResponse] = useState<BuilderResponse | null>(activeDialog?.lastResponse ?? null);
-  const [preferences, setPreferences] = useState<BuilderPreferences>(activeDialog?.preferences ?? {});
-
-  const storageKey = activeDialog ? `cvm.builder.dialog.${activeDialog.id}.messages` : undefined;
-  const { messages, loading, error, send, clear, replaceMessages } = useChat({
+  const { messages, loading, error, send, clear } = useChat({
     endpoint: "/api/builder",
     messageKey: "goal",
     context: DEFAULT_CONTEXT,
     storageKey: BUILDER_MESSAGES_KEY,
     extraPayload: () => ({
-      session_campaign_id: activeBuilderResponse?.campaign_id ?? null,
-      session_flow_json: activeBuilderResponse?.draft_flow
-        ? JSON.stringify(activeBuilderResponse.draft_flow)
+      session_campaign_id: lastResponse?.campaign_id ?? null,
+      session_flow_json: lastResponse?.draft_flow
+        ? JSON.stringify(lastResponse.draft_flow)
         : null,
       builder_preferences: preferences,
     }),
@@ -103,18 +99,6 @@ export function CampaignBuilderChat({ onResponse, lang = "ru" }: Props) {
 
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!activeDialog) return;
-    setLastResponse(activeDialog.lastResponse ?? null);
-    setPreferences(activeDialog.preferences ?? {});
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(storageKey ?? "", JSON.stringify(activeDialog.messages ?? []));
-    }
-    replaceMessages(activeDialog.messages ?? []);
-    onResponse(activeDialog.lastResponse ?? null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeDialogId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });

@@ -6,7 +6,7 @@
  */
 
 import { useState, useRef, useEffect } from "react";
-import type { AgentContext, BuilderPreferences, BuilderResponse, ChatMessage } from "../types/api";
+import type { BuilderPreferences, BuilderResponse, AgentContext } from "../types/api";
 import { useChat } from "../hooks/useChat";
 import { MarkdownText } from "./MarkdownText";
 
@@ -15,34 +15,22 @@ const DEFAULT_CONTEXT: AgentContext = {
   user_role: "analyst",
 };
 
-const BUILDER_DIALOGS_KEY = "cvm.builder.dialogs.v2";
-const BUILDER_LEGACY_MESSAGES_KEY = "cvm.builder.messages.v1";
-const BUILDER_LEGACY_RESPONSE_KEY = "cvm.builder.lastResponse.v1";
-const BUILDER_LEGACY_PREFS_KEY = "cvm.builder.preferences.v1";
-
-interface BuilderDialog {
-  id: string;
-  title: string;
-  updatedAt: string;
-  messages: ChatMessage[];
-  lastResponse: BuilderResponse | null;
-  preferences: BuilderPreferences;
-}
+const BUILDER_MESSAGES_KEY = "cvm.builder.messages.v1";
+const BUILDER_RESPONSE_KEY = "cvm.builder.lastResponse.v1";
+const BUILDER_PREFS_KEY = "cvm.builder.preferences.v1";
 
 const SUGGESTIONS: Record<"ru" | "en", string[]> = {
   ru: [
-    "Создай SMS-кампанию по утилизации пакета данных",
-    "Хочу Email-кампанию для абонентов с низким ARPU",
-    "Нужна событийная Push-кампания на день рождения абонента",
-    "Создай промо-кампанию с активацией скидочного пакета",
-    "Добавь бизнес-транзакцию в конце текущего flow",
+    "Запомни: продукт — тариф Family Max, цель — апсейл на семейную аудиторию",
+    "Собери кампанию из введённых параметров",
+    "Доработай текст: сделай тон более премиальным",
+    "Добавь бизнес-транзакцию для активации оффера",
   ],
   en: [
-    "Create an SMS campaign for data pack utilization",
-    "Email campaign for low-ARPU subscribers",
-    "Birthday event-triggered push campaign",
-    "Promo campaign with discount package activation",
-    "Add a business transaction at the end of the current flow",
+    "Remember: product is Family Max, goal is family upsell",
+    "Build a campaign from the parameters",
+    "Refine the copy: make the tone more premium",
+    "Add a business transaction for offer activation",
   ],
 };
 
@@ -83,64 +71,17 @@ function readStoredJson<T>(key: string, fallback: T): T {
   }
 }
 
-function newDialog(): BuilderDialog {
-  const now = new Date().toISOString();
-  return {
-    id: `builder-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    title: "Новая сборка кампании",
-    updatedAt: now,
-    messages: [],
-    lastResponse: null,
-    preferences: {},
-  };
-}
-
-function titleFromMessages(messages: ChatMessage[], fallback: string): string {
-  const firstUserMessage = messages.find((message) => message.role === "user")?.content.trim();
-  if (!firstUserMessage) return fallback;
-  return firstUserMessage.length > 48 ? `${firstUserMessage.slice(0, 45)}…` : firstUserMessage;
-}
-
-function readStoredDialogs(): BuilderDialog[] {
-  const dialogs = readStoredJson<BuilderDialog[]>(BUILDER_DIALOGS_KEY, []);
-  if (dialogs.length > 0) return dialogs;
-
-  const legacyMessages = readStoredJson<ChatMessage[]>(BUILDER_LEGACY_MESSAGES_KEY, []);
-  const legacyResponse = readStoredJson<BuilderResponse | null>(BUILDER_LEGACY_RESPONSE_KEY, null);
-  const legacyPreferences = readStoredJson<BuilderPreferences>(BUILDER_LEGACY_PREFS_KEY, {});
-  if (legacyMessages.length > 0 || legacyResponse || hasPreferences(legacyPreferences)) {
-    const migrated = newDialog();
-    migrated.messages = legacyMessages;
-    migrated.lastResponse = legacyResponse;
-    migrated.preferences = legacyPreferences;
-    migrated.title = titleFromMessages(legacyMessages, "Восстановленная сборка");
-    return [migrated];
-  }
-
-  return [newDialog()];
-}
-
 function hasPreferences(preferences: BuilderPreferences): boolean {
   return Object.values(preferences).some((value) => Boolean(value?.trim()));
 }
 
-function formatDialogDate(value: string, lang: "ru" | "en"): string {
-  try {
-    return new Intl.DateTimeFormat(lang === "en" ? "en-US" : "ru-RU", {
-      day: "2-digit",
-      month: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(new Date(value));
-  } catch {
-    return value;
-  }
-}
-
 export function CampaignBuilderChat({ onResponse, lang = "ru" }: Props) {
-  const [dialogs, setDialogs] = useState<BuilderDialog[]>(() => readStoredDialogs());
-  const [activeDialogId, setActiveDialogId] = useState(() => dialogs[0]?.id ?? newDialog().id);
-  const activeDialog = dialogs.find((dialog) => dialog.id === activeDialogId) ?? dialogs[0];
+  const [lastResponse, setLastResponse] = useState<BuilderResponse | null>(() =>
+    readStoredJson<BuilderResponse | null>(BUILDER_RESPONSE_KEY, null),
+  );
+  const [preferences, setPreferences] = useState<BuilderPreferences>(() =>
+    readStoredJson<BuilderPreferences>(BUILDER_PREFS_KEY, {}),
+  );
 
   const [lastResponse, setLastResponse] = useState<BuilderResponse | null>(activeDialog?.lastResponse ?? null);
   const [preferences, setPreferences] = useState<BuilderPreferences>(activeDialog?.preferences ?? {});
@@ -150,7 +91,7 @@ export function CampaignBuilderChat({ onResponse, lang = "ru" }: Props) {
     endpoint: "/api/builder",
     messageKey: "goal",
     context: DEFAULT_CONTEXT,
-    storageKey,
+    storageKey: BUILDER_MESSAGES_KEY,
     extraPayload: () => ({
       session_campaign_id: lastResponse?.campaign_id ?? null,
       session_flow_json: lastResponse?.draft_flow
@@ -180,55 +121,22 @@ export function CampaignBuilderChat({ onResponse, lang = "ru" }: Props) {
   }, [messages, loading]);
 
   useEffect(() => {
-    if (!activeDialog) return;
-    setDialogs((current) => current.map((dialog) => {
-      if (dialog.id !== activeDialog.id) return dialog;
-      return {
-        ...dialog,
-        messages,
-        lastResponse,
-        preferences,
-        title: titleFromMessages(messages, dialog.title),
-        updatedAt: new Date().toISOString(),
-      };
-    }));
+    if (typeof window === "undefined") return;
+    if (lastResponse) {
+      window.localStorage.setItem(BUILDER_RESPONSE_KEY, JSON.stringify(lastResponse));
+    } else {
+      window.localStorage.removeItem(BUILDER_RESPONSE_KEY);
+    }
     onResponse(lastResponse);
-  }, [messages, lastResponse, preferences, activeDialog?.id, onResponse]);
+  }, [lastResponse, onResponse]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem(BUILDER_DIALOGS_KEY, JSON.stringify(dialogs));
-  }, [dialogs]);
+    window.localStorage.setItem(BUILDER_PREFS_KEY, JSON.stringify(preferences));
+  }, [preferences]);
 
   const handlePreferenceChange = (key: keyof BuilderPreferences, value: string) => {
     setPreferences((current) => ({ ...current, [key]: value }));
-  };
-
-  const handleNewDialog = () => {
-    const dialog = newDialog();
-    setDialogs((current) => [dialog, ...current]);
-    setActiveDialogId(dialog.id);
-    setInput("");
-  };
-
-  const handleSelectDialog = (dialog: BuilderDialog) => {
-    if (dialog.id === activeDialogId) return;
-    setActiveDialogId(dialog.id);
-    setInput("");
-  };
-
-  const handleDeleteDialog = (dialogId: string) => {
-    setDialogs((current) => {
-      const next = current.filter((dialog) => dialog.id !== dialogId);
-      const safeNext = next.length > 0 ? next : [newDialog()];
-      if (dialogId === activeDialogId) {
-        setActiveDialogId(safeNext[0].id);
-      }
-      return safeNext;
-    });
-    if (typeof window !== "undefined") {
-      window.localStorage.removeItem(`cvm.builder.dialog.${dialogId}.messages`);
-    }
   };
 
   const handleSend = async () => {
@@ -251,53 +159,21 @@ export function CampaignBuilderChat({ onResponse, lang = "ru" }: Props) {
   const handleClear = () => {
     clear();
     setLastResponse(null);
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(BUILDER_RESPONSE_KEY);
+    }
   };
 
   const handleClearAll = () => {
     handleClear();
     setPreferences({});
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(BUILDER_PREFS_KEY);
+    }
   };
 
   return (
     <div className="fw-builder-chat">
-      <details className="builder-history-panel">
-        <summary>
-          {lang === "en" ? "Build history" : "История сборок"}
-          <span>{dialogs.length}</span>
-        </summary>
-        <div className="builder-history-actions">
-          <button type="button" onClick={handleNewDialog}>
-            {lang === "en" ? "+ New campaign" : "+ Новая сборка"}
-          </button>
-        </div>
-        <div className="builder-history-list">
-          {dialogs.map((dialog) => (
-            <div
-              key={dialog.id}
-              className={`builder-history-item${dialog.id === activeDialogId ? " active" : ""}`}
-            >
-              <button
-                type="button"
-                onClick={() => handleSelectDialog(dialog)}
-                title={dialog.title}
-              >
-                <strong>{dialog.lastResponse?.campaign_id ? `#${dialog.lastResponse.campaign_id}` : "Draft"}</strong>
-                <span>{dialog.title}</span>
-                <small>{formatDialogDate(dialog.updatedAt, lang)}</small>
-              </button>
-              <button
-                className="builder-history-delete"
-                type="button"
-                onClick={() => handleDeleteDialog(dialog.id)}
-                title={lang === "en" ? "Delete dialog" : "Удалить диалог"}
-              >
-                ×
-              </button>
-            </div>
-          ))}
-        </div>
-      </details>
-
       <details className="builder-params-panel">
         <summary>
           {lang === "en" ? "Campaign parameters" : "Параметры для сборки"}
@@ -357,6 +233,30 @@ export function CampaignBuilderChat({ onResponse, lang = "ru" }: Props) {
         </div>
       </details>
 
+      <details className="builder-history-panel">
+        <summary>
+          {lang === "en" ? "Dialog history" : "История диалога"}
+          <span>{messages.length}</span>
+        </summary>
+        {messages.length === 0 ? (
+          <p>{lang === "en" ? "No saved messages yet." : "Пока нет сохранённых сообщений."}</p>
+        ) : (
+          <div className="builder-history-list">
+            {messages.map((message, index) => (
+              <button
+                key={`${message.role}-${index}`}
+                type="button"
+                onClick={() => setInput(message.content)}
+                title={message.content}
+              >
+                <strong>{message.role === "user" ? (lang === "en" ? "You" : "Вы") : "AI"}</strong>
+                <span>{message.content}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </details>
+
       {/* Message feed */}
       <div className="message-feed">
         {messages.length === 0 && !loading && (
@@ -365,11 +265,11 @@ export function CampaignBuilderChat({ onResponse, lang = "ru" }: Props) {
             <strong style={{ color: "var(--text-primary)", fontSize: 14 }}>Campaign Builder</strong>
             <p style={{ margin: "6px 0 14px", fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.5 }}>
               {lang === "en"
-                ? "Choose a ready campaign or describe product, content and goal step-by-step — then refine the flow."
-                : "Выберите готовый сценарий или опишите продукт, контент и цель по шагам — затем дорабатывайте flow."}
+                ? "Describe product, content and goal step-by-step — then ask the builder to assemble or refine the campaign."
+                : "Опишите продукт, контент и цель по шагам — затем попросите собрать или доработать кампанию."}
             </p>
             <div className="fw-suggestions-title">
-              {lang === "en" ? "Ready campaigns and edits" : "Готовые кампании и доработки"}
+              {lang === "en" ? "Multi-step examples" : "Примеры многошаговых команд"}
             </div>
             <div className="fw-suggestions-grid">
               {SUGGESTIONS[lang].map((s, i) => (

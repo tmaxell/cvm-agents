@@ -183,6 +183,10 @@ MONITOR_SYSTEM_PROMPT = """Ты — CVM-аналитик платформы AdTa
   "launch_recommendations": [
     "<рекомендация по метрикам после запуска 1>",
     "<рекомендация по метрикам после запуска 2>"
+  ],
+  "similar_campaign_actions": [
+    "<что обычно делали в похожих успешных кампаниях 1>",
+    "<что обычно делали в похожих успешных кампаниях 2>"
   ]
 }
 
@@ -197,6 +201,7 @@ MONITOR_SYSTEM_PROMPT = """Ты — CVM-аналитик платформы AdTa
 - Каждая рекомендация — одно предложение
 - structure_recommendations: только советы по flow, сегменту, событиям, wait, бизнес-транзакции, A/B/control setup
 - launch_recommendations: только советы по фактическим метрикам после запуска — доставки по каналам, активации, uplift к контролю, текст/время отправки
+- similar_campaign_actions: типовые успешные действия из похожих кампаний — контрольная группа, wait, fallback-канал, транзакция, персонализация оффера
 - Если нет EventActivity — рекомендуй добавить триггер в structure_recommendations
 - Если нет BusinessTransactionActivity — рекомендуй добавить для фиксации результата в structure_recommendations
 - Если есть Event — предложи добавить Wait перед коммуникацией в structure_recommendations
@@ -217,6 +222,21 @@ def _fallback_structure_recommendations(activities: list[dict]) -> list[str]:
     recs.append("Зафиксируйте контрольную группу или A/B-тест, чтобы измерять инкрементальный эффект кампании.")
     return recs[:4]
 
+
+
+
+def _fallback_similar_campaign_actions(activities: list[dict]) -> list[str]:
+    activity_types = {a.get("type", "") for a in activities}
+    actions: list[str] = []
+    if "BusinessTransactionActivity" not in activity_types:
+        actions.append("В похожих промо-кампаниях добавляли BusinessTransactionActivity для автоматической активации оффера и точного измерения результата.")
+    if "EventActivity" in activity_types and "WaitActivity" not in activity_types:
+        actions.append("Для событийных кампаний часто добавляли короткий Wait перед коммуникацией, чтобы снизить раздражение клиента после события.")
+    if "TargetGroupActivity" in activity_types:
+        actions.append("В успешных прошлых кампаниях фиксировали локальную контрольную группу 5–10%, чтобы отделить эффект кампании от органических активаций.")
+    if not any(a.get("contentType") == "EmailContent" for a in activities):
+        actions.append("Для сегментов с низким откликом добавляли fallback Email или Push-ветку после SMS, если первая коммуникация не дала отклик.")
+    return actions[:4]
 
 def _fallback_launch_recommendations(metrics: MonitorMetrics) -> list[str]:
     recs: list[str] = []
@@ -278,7 +298,8 @@ async def run(request: MonitorRequest) -> MonitorResponse:
         flow_summary.append(entry)
 
     user_message = (
-        f"Кампания ID: {request.campaign_id}\n\n"
+        f"Кампания ID: {request.campaign_id}\n"
+        f"Статус кампании: {request.campaign_status}\n\n"
         f"Структура flow ({len(activities)} активностей):\n"
         f"{json.dumps(flow_summary, ensure_ascii=False, indent=2)}\n\n"
         f"Текущие метрики:\n"
@@ -290,7 +311,8 @@ async def run(request: MonitorRequest) -> MonitorResponse:
         f"- Конверсия/активации: {metrics.conversion_rate}%\n"
         f"- Доставки по каналам: {json.dumps([c.model_dump() for c in metrics.channel_deliveries], ensure_ascii=False)}\n"
         f"- Контрольная группа: {json.dumps(metrics.control_group.model_dump() if metrics.control_group else None, ensure_ascii=False)}\n\n"
-        f"Дай оценку, отдельно рекомендации по структуре кампании и рекомендации после запуска."
+        f"Дай оценку, отдельно рекомендации по структуре кампании, похожим прошлым действиям и рекомендации после запуска. "
+        f"Если статус editing — фокусируйся на доработке flow до запуска; если active/paused — интерпретируй метрики."
     )
 
     try:
@@ -308,6 +330,7 @@ async def run(request: MonitorRequest) -> MonitorResponse:
         data = json.loads(raw)
         structure_recs = list(data.get("structure_recommendations") or [])
         launch_recs = list(data.get("launch_recommendations") or [])
+        similar_actions = list(data.get("similar_campaign_actions") or [])
         legacy_recs = list(data.get("recommendations") or [])
         if not structure_recs and not launch_recs and legacy_recs:
             midpoint = max(1, len(legacy_recs) // 2)
@@ -317,6 +340,8 @@ async def run(request: MonitorRequest) -> MonitorResponse:
             structure_recs = _fallback_structure_recommendations(activities)
         if not launch_recs:
             launch_recs = _fallback_launch_recommendations(metrics)
+        if not similar_actions:
+            similar_actions = _fallback_similar_campaign_actions(activities)
 
         return MonitorResponse(
             metrics=metrics,
@@ -324,17 +349,20 @@ async def run(request: MonitorRequest) -> MonitorResponse:
             summary=str(data.get("summary", "")),
             structure_recommendations=structure_recs,
             launch_recommendations=launch_recs,
-            recommendations=structure_recs + launch_recs,
+            similar_campaign_actions=similar_actions,
+            recommendations=structure_recs + similar_actions + launch_recs,
         )
     except Exception as e:
         print(f"[campaign_monitor] LLM error: {e}")
         structure_recs = _fallback_structure_recommendations(activities)
         launch_recs = _fallback_launch_recommendations(metrics)
+        similar_actions = _fallback_similar_campaign_actions(activities)
         return MonitorResponse(
             metrics=metrics,
             overall_score=62,
             summary="Кампания создана. Метрики рассчитаны, AI-анализ временно недоступен.",
             structure_recommendations=structure_recs,
             launch_recommendations=launch_recs,
-            recommendations=structure_recs + launch_recs,
+            similar_campaign_actions=similar_actions,
+            recommendations=structure_recs + similar_actions + launch_recs,
         )

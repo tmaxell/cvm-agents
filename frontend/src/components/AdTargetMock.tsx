@@ -7,7 +7,7 @@
  */
 
 import { useState } from "react";
-import type { CampaignFlow, FlowActivity } from "../types/api";
+import type { CampaignFlow, CampaignOffer, FlowActivity } from "../types/api";
 
 interface Props {
   flow: CampaignFlow | null;
@@ -409,7 +409,14 @@ function AdtFlowCanvas({ flow }: { flow: CampaignFlow }) {
         const x = pos.x + offsetX - NODE_W / 2;
         const y = pos.y + offsetY;
         return (
-          <AdtNode key={act.id} activity={act} x={x} y={y} animDelay={i * 65} />
+          <AdtNode
+            key={act.id}
+            activity={act}
+            offers={flow.offers ?? []}
+            x={x}
+            y={y}
+            animDelay={i * 65}
+          />
         );
       })}
     </div>
@@ -418,14 +425,14 @@ function AdtFlowCanvas({ flow }: { flow: CampaignFlow }) {
 
 // ── Single node card ──────────────────────────────────────────────────────────
 
-function AdtNode({ activity, x, y, animDelay }: {
-  activity: FlowActivity; x: number; y: number; animDelay: number;
+function AdtNode({ activity, offers, x, y, animDelay }: {
+  activity: FlowActivity; offers: CampaignOffer[]; x: number; y: number; animDelay: number;
 }) {
   const [expanded, setExpanded] = useState(false);
   const meta = NODE_META[activity.type] ?? { label: activity.type, color: "#9ca3af" };
   const hasError = Array.isArray(activity.errors) && activity.errors.length > 0;
   const subtitleText = activity.name && activity.name !== meta.label ? activity.name : "";
-  const communicationDetails = getCommunicationDetails(activity);
+  const communicationDetails = getCommunicationDetails(activity, offers);
   const isExpandable = communicationDetails.length > 0;
 
   // Shortened subtitle for display
@@ -463,6 +470,7 @@ function AdtNode({ activity, x, y, animDelay }: {
 
       {expanded && (
         <div className="adt-node-offers">
+          <div className="adt-node-offers-title">Сгенерированный оффер</div>
           {communicationDetails.map((detail, index) => (
             <div key={`${detail.label}-${index}`} className="adt-node-offer-row">
               <span>{detail.label}</span>
@@ -481,7 +489,7 @@ function AdtNode({ activity, x, y, animDelay }: {
               event.stopPropagation();
               setExpanded((value) => !value);
             }}
-            title={expanded ? "Скрыть оффер" : "Показать оффер"}
+            title={expanded ? "Скрыть офферы" : "Показать офферы"}
             type="button"
           >
             {expanded ? "▴" : "▾"}
@@ -498,24 +506,36 @@ function AdtNode({ activity, x, y, animDelay }: {
   );
 }
 
-function getCommunicationDetails(activity: FlowActivity): Array<{ label: string; value: string }> {
+function getCommunicationDetails(
+  activity: FlowActivity,
+  offers: CampaignOffer[],
+): Array<{ label: string; value: string }> {
   if (activity.type !== "PushCommunicationActivity" && activity.type !== "PullCommunicationActivity") {
     return [];
   }
 
+  const generatedOffer = offers.find((offer) => offer.activityId === activity.id);
   const parameters = activity.content?.parameters ?? [];
-  const text = getParameterValue(parameters, "Text");
-  const sender = getParameterValue(parameters, "Sender");
-  const channel = activity.contentType
-    ? activity.contentType.replace("Content", "")
-    : activity.name;
+  const text = generatedOffer?.text ?? getParameterValue(parameters, "Text");
+  const sender = generatedOffer?.sender ?? getParameterValue(parameters, "Sender");
+  const channel = generatedOffer?.contentType ?? activity.contentType ?? activity.name;
 
   const details: Array<{ label: string; value: string }> = [];
-  if (channel) details.push({ label: "Канал", value: channel });
+  if (channel) details.push({ label: "Канал", value: formatContentType(channel) });
   if (text) details.push({ label: "Оффер", value: text });
   if (sender) details.push({ label: "Отправитель", value: sender });
+  if (generatedOffer?.offerTemplateId) {
+    details.push({ label: "Шаблон", value: `#${generatedOffer.offerTemplateId}` });
+  }
+  if (generatedOffer?.businessOperationId) {
+    details.push({ label: "Операция", value: generatedOffer.businessOperationId });
+  }
 
   return details;
+}
+
+function formatContentType(contentType: string): string {
+  return contentType.replace("Content", "");
 }
 
 function getParameterValue(

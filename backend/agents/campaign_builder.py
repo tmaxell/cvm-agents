@@ -178,7 +178,7 @@ def _build_system_prompt(ref: dict, truncation_notes: list[str] | None = None) -
             f"- {line}" for line in truncation_notes
         ) + "\n"
 
-    return f"""AdTarget Campaign Builder. Always end with create_campaign_tool.
+    return f"""AdTarget Campaign Builder.
 {trunc_block}
 Target groups (target_group_id):
 {tg_lines}
@@ -191,7 +191,13 @@ Event codes: {ev_codes}
 Offer templates (offer_template_id / operation_id):
 {off_lines}
 
-Rules: pick the right build_*_flow tool, then validate_flow_tool, then create_campaign_tool. Use start_campaign_tool only if user says to launch. Reply in Russian. SMS text must be concrete and in Russian.
+Rules:
+- Work step-by-step: if the user only describes product, content, audience, goal, or offer preferences, acknowledge and keep these details in conversation; ask for missing inputs instead of forcing campaign creation.
+- Build/create only when the user asks to build/create/assemble, or when enough concrete inputs are available and the intent is clearly campaign creation.
+- For a new campaign: pick the right build_*_flow tool, then validate_flow_tool, then create_campaign_tool. Use start_campaign_tool only if user says to launch.
+- For follow-up edits to an existing flow (for example: "добавь бизнес-транзакцию", "добавь активацию оффера"), use session_flow_json and update_existing_flow_with_business_transaction instead of starting from scratch.
+- Prefer explicit Builder UI preferences when present (desired channels, target groups, offer recommendations, product/content/goal).
+- Reply in Russian. SMS text must be concrete and in Russian.
 """
 
 
@@ -331,6 +337,43 @@ async def build_sms_with_wait_flow(
         activities.append(make_business_transaction_activity(offer_template_id, operation_id, []))
     flow = assemble_flow(activities)
     return json.dumps(flow, ensure_ascii=False)
+
+
+@tool
+async def update_existing_flow_with_business_transaction(
+    flow_json: str,
+    offer_template_id: int,
+    operation_id: str,
+) -> str:
+    """Добавить BusinessTransactionActivity после последней communication-ноды существующего flow."""
+    flow = json.loads(flow_json)
+    activities = flow.get("activities") if isinstance(flow, dict) else None
+    if not isinstance(activities, list) or not activities:
+        raise ValueError("flow_json должен содержать activities[]")
+
+    communication_indexes = [
+        i
+        for i, activity in enumerate(activities)
+        if isinstance(activity, dict)
+        and activity.get("type") in {"PushCommunicationActivity", "PullCommunicationActivity"}
+    ]
+    insert_index = (communication_indexes[-1] + 1) if communication_indexes else len(activities)
+
+    # Не дублируем транзакцию, если следующая активность уже использует тот же шаблон/операцию.
+    next_activity = activities[insert_index] if insert_index < len(activities) else None
+    if (
+        isinstance(next_activity, dict)
+        and next_activity.get("type") == "BusinessTransactionActivity"
+        and next_activity.get("offerTemplateId") == offer_template_id
+        and (next_activity.get("businessOperation") or {}).get("id") == operation_id
+    ):
+        return json.dumps(assemble_flow(activities), ensure_ascii=False)
+
+    activities.insert(
+        insert_index,
+        make_business_transaction_activity(offer_template_id, operation_id, []),
+    )
+    return json.dumps(assemble_flow(activities), ensure_ascii=False)
 
 
 # ── API инструменты ───────────────────────────────────────────────────────────
@@ -499,6 +542,26 @@ async def _flow_from_tool_args(tool_name: str, args: dict) -> dict | None:
             if offer_template_id and operation_id:
                 activities.append(make_business_transaction_activity(offer_template_id, operation_id, []))
             return assemble_flow(activities)
+        if tool_name == "update_existing_flow_with_business_transaction" and args.get("flow_json"):
+            flow_data = json.loads(args["flow_json"]) if isinstance(args["flow_json"], str) else args["flow_json"]
+            if isinstance(flow_data, dict) and isinstance(flow_data.get("activities"), list):
+                activities = list(flow_data["activities"])
+                communication_indexes = [
+                    i
+                    for i, activity in enumerate(activities)
+                    if isinstance(activity, dict)
+                    and activity.get("type") in {"PushCommunicationActivity", "PullCommunicationActivity"}
+                ]
+                insert_index = (communication_indexes[-1] + 1) if communication_indexes else len(activities)
+                activities.insert(
+                    insert_index,
+                    make_business_transaction_activity(
+                        int(args["offer_template_id"]),
+                        str(args["operation_id"]),
+                        [],
+                    ),
+                )
+                return assemble_flow(activities)
         if tool_name in {"validate_flow_tool", "create_campaign_tool"} and args.get("flow_json"):
             flow_data = json.loads(args["flow_json"]) if isinstance(args["flow_json"], str) else args["flow_json"]
             if isinstance(flow_data, dict):
@@ -546,6 +609,7 @@ TOOLS = [
     build_business_transaction_flow,
     build_event_sms_with_bt_flow,
     build_sms_with_wait_flow,
+    update_existing_flow_with_business_transaction,
     # API
     validate_flow_tool,
     create_campaign_tool,
@@ -648,6 +712,9 @@ async def run(request: BuilderRequest) -> BuilderResponse:
     ref_full = await _fetch_reference_data()
     ref, trunc_notes = _cap_builder_reference(ref_full)
     system_prompt = _build_system_prompt(ref, trunc_notes)
+    if request.builder_preferences:
+        preferences_json = json.dumps(request.builder_preferences, ensure_ascii=False)
+        system_prompt += f"\nBuilder UI preferences (use as user-provided constraints): {preferences_json}\n"
     print(f"[campaign_builder] Ref data (API total → prompt): "
           f"{len(ref_full.get('target_groups', []))}→{len(ref['target_groups'])} TGs, "
           f"{len(ref_full.get('channels', []))}→{len(ref['channels'])} channels, "

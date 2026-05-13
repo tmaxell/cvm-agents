@@ -35,18 +35,39 @@ export interface CopilotResponse {
 }
 
 // F2 Campaign Builder
+export interface BuilderPreferences {
+  product?: string;
+  goal?: string;
+  content?: string;
+  channels?: string;
+  targetGroups?: string;
+  offerRecommendations?: string;
+}
+
 export interface BuilderRequest {
   goal: string;
   context?: AgentContext;
   history?: { role: "user" | "assistant"; content: string }[];
   session_campaign_id?: number | null;
   session_flow_json?: string | null;
+  builder_preferences?: BuilderPreferences;
 }
 
 export interface FlowContentParameter {
   name: string;
   value?: string | number | boolean | null;
   valueExpression?: string | null;
+}
+
+export interface CampaignOffer {
+  id: string;
+  activityId?: string;
+  channelId?: number;
+  contentType?: string;
+  text?: string;
+  sender?: string;
+  offerTemplateId?: number;
+  businessOperationId?: string;
 }
 
 export interface FlowActivity {
@@ -77,7 +98,10 @@ export interface FlowActivity {
 
 export interface CampaignFlow {
   activities: FlowActivity[];
+  offers?: CampaignOffer[];
 }
+
+export type CampaignRuntimeStatus = "editing" | "active" | "paused";
 
 export interface BuilderResponse {
   message: string;
@@ -92,6 +116,7 @@ export interface MonitorRequest {
   campaign_id: number;
   draft_flow_json: string;
   refresh_seed?: number;
+  campaign_status?: CampaignRuntimeStatus;
 }
 
 export interface ChannelDeliveryMetric {
@@ -131,6 +156,7 @@ export interface MonitorResponse {
   recommendations: string[];
   structure_recommendations?: string[];
   launch_recommendations?: string[];
+  similar_campaign_actions?: string[];
   overall_score: number;
   summary: string;
 }

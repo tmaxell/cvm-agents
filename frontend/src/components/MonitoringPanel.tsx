@@ -6,21 +6,29 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import type { ChannelDeliveryMetric, MonitorResponse } from "../types/api";
+import type { CampaignRuntimeStatus, ChannelDeliveryMetric, MonitorMetrics, MonitorResponse } from "../types/api";
 
 interface Props {
   campaignId: number | null;
   draftFlowJson: string | null;
+  campaignStatus: CampaignRuntimeStatus;
+  onCampaignStatusChange: (status: CampaignRuntimeStatus) => void;
   lang?: "ru" | "en";
 }
 
-export function MonitoringPanel({ campaignId, draftFlowJson, lang = "ru" }: Props) {
+export function MonitoringPanel({
+  campaignId,
+  draftFlowJson,
+  campaignStatus,
+  onCampaignStatusChange,
+  lang = "ru",
+}: Props) {
   const [data, setData] = useState<MonitorResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [seed, setSeed] = useState(0);
 
-  const fetchMonitor = useCallback(async (currentSeed: number) => {
+  const fetchMonitor = useCallback(async (currentSeed: number, statusOverride: CampaignRuntimeStatus = campaignStatus) => {
     if (!campaignId || !draftFlowJson) return;
     setLoading(true);
     setError(null);
@@ -32,6 +40,7 @@ export function MonitoringPanel({ campaignId, draftFlowJson, lang = "ru" }: Prop
           campaign_id: campaignId,
           draft_flow_json: draftFlowJson,
           refresh_seed: currentSeed,
+          campaign_status: statusOverride,
         }),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -42,7 +51,7 @@ export function MonitoringPanel({ campaignId, draftFlowJson, lang = "ru" }: Prop
     } finally {
       setLoading(false);
     }
-  }, [campaignId, draftFlowJson]);
+  }, [campaignId, draftFlowJson, campaignStatus]);
 
   // Auto-fetch when campaign changes
   useEffect(() => {
@@ -59,6 +68,18 @@ export function MonitoringPanel({ campaignId, draftFlowJson, lang = "ru" }: Prop
     const nextSeed = seed + 1;
     setSeed(nextSeed);
     fetchMonitor(nextSeed);
+  };
+
+  const handleStart = () => {
+    onCampaignStatusChange("active");
+    const nextSeed = seed + 1;
+    setSeed(nextSeed);
+    fetchMonitor(nextSeed, "active");
+  };
+
+  const handlePause = () => {
+    onCampaignStatusChange("paused");
+    fetchMonitor(seed, "paused");
   };
 
   if (!campaignId) {
@@ -81,6 +102,8 @@ export function MonitoringPanel({ campaignId, draftFlowJson, lang = "ru" }: Prop
     ? data.structure_recommendations
     : data?.recommendations ?? [];
   const launchRecommendations = data?.launch_recommendations ?? [];
+  const similarActions = data?.similar_campaign_actions ?? [];
+  const hasLaunched = campaignStatus === "active" || campaignStatus === "paused";
 
   return (
     <div className="fw-monitor">
@@ -89,15 +112,40 @@ export function MonitoringPanel({ campaignId, draftFlowJson, lang = "ru" }: Prop
         <div>
           <span className="fw-monitor-title">{lang === "en" ? "Campaign" : "Кампания"}</span>
           <code className="fw-monitor-campaign-id">#{campaignId}</code>
+          <span className={`fw-monitor-status ${campaignStatus}`}>
+            {campaignStatus === "editing"
+              ? (lang === "en" ? "Editing" : "Редактирование")
+              : campaignStatus === "active"
+              ? (lang === "en" ? "Active" : "Активна")
+              : (lang === "en" ? "Paused" : "Пауза")}
+          </span>
         </div>
-        <button
-          className="fw-monitor-refresh"
-          onClick={handleRefresh}
-          disabled={loading}
-          title={lang === "en" ? "Refresh data" : "Обновить данные"}
-        >
-          {loading ? "…" : lang === "en" ? "↻ Refresh" : "↻ Обновить"}
-        </button>
+        <div className="fw-monitor-actions">
+          <button
+            className="fw-monitor-run"
+            onClick={handleStart}
+            disabled={loading || campaignStatus === "active"}
+            title={lang === "en" ? "Start campaign" : "Запустить кампанию"}
+          >
+            ▶ {lang === "en" ? "Start" : "Запуск"}
+          </button>
+          <button
+            className="fw-monitor-pause"
+            onClick={handlePause}
+            disabled={campaignStatus !== "active"}
+            title={lang === "en" ? "Pause campaign" : "Поставить на паузу"}
+          >
+            ⏸ {lang === "en" ? "Pause" : "Пауза"}
+          </button>
+          <button
+            className="fw-monitor-refresh"
+            onClick={handleRefresh}
+            disabled={loading}
+            title={lang === "en" ? "Refresh data" : "Обновить данные"}
+          >
+            {loading ? "…" : "↻"}
+          </button>
+        </div>
       </div>
 
       {loading && !data && (
@@ -121,45 +169,67 @@ export function MonitoringPanel({ campaignId, draftFlowJson, lang = "ru" }: Prop
             <p className="fw-monitor-summary">{data.summary}</p>
           </div>
 
-          {/* KPI counts */}
-          <div className="fw-monitor-kpis">
-            <KpiCard
-              label={lang === "en" ? "Activations" : "Активации"}
-              value={data.metrics.activation_count ?? 0}
-              accent="#8b5cf6"
-            />
-            <KpiCard
-              label={lang === "en" ? "Delivered" : "Доставлено"}
-              value={data.metrics.delivered_count ?? 0}
-              subValue={data.metrics.sent_count ? `${formatNumber(data.metrics.sent_count)} ${lang === "en" ? "sent" : "отправлено"}` : undefined}
-              accent="#22c55e"
-            />
-          </div>
+          {!hasLaunched && (
+            <div className="fw-monitor-prelaunch-note">
+              <strong>{lang === "en" ? "Pre-launch mode" : "До запуска"}</strong>
+              <span>{lang === "en"
+                ? "Metrics will appear after Start is pressed. For now, use these recommendations to improve the flow."
+                : "Статистика появится после нажатия «Запуск». Пока здесь — советы по доработке flow."}</span>
+            </div>
+          )}
 
-          {/* Metrics */}
-          <div className="fw-monitor-metrics">
-            <MetricCard label={lang === "en" ? "Delivery" : "Доставка"} value={data.metrics.delivery_rate} color="#22c55e" benchmark={92} lang={lang} />
-            <MetricCard label={lang === "en" ? "Open rate" : "Прочтения"} value={data.metrics.open_rate} color="#3b82f6" benchmark={55} lang={lang} />
-            <MetricCard label={lang === "en" ? "Conversion" : "Конверсия"} value={data.metrics.conversion_rate} color="#8b5cf6" benchmark={15} lang={lang} />
-            <MetricCard label={lang === "en" ? "Clicks" : "Переходы"} value={data.metrics.click_rate} color="#f59e0b" benchmark={10} lang={lang} />
-          </div>
+          {hasLaunched && (
+            <>
+              {/* KPI counts */}
+              <div className="fw-monitor-kpis">
+                <KpiCard
+                  label={lang === "en" ? "Activations" : "Активации"}
+                  value={data.metrics.activation_count ?? 0}
+                  accent="#8b5cf6"
+                />
+                <KpiCard
+                  label={lang === "en" ? "Delivered" : "Доставлено"}
+                  value={data.metrics.delivered_count ?? 0}
+                  subValue={data.metrics.sent_count ? `${formatNumber(data.metrics.sent_count)} ${lang === "en" ? "sent" : "отправлено"}` : undefined}
+                  accent="#22c55e"
+                />
+              </div>
 
-          <ChannelDeliveryList channels={data.metrics.channel_deliveries ?? []} lang={lang} />
+              {/* Metrics */}
+              <div className="fw-monitor-metrics">
+                <MetricCard label={lang === "en" ? "Delivery" : "Доставка"} value={data.metrics.delivery_rate} color="#22c55e" benchmark={92} lang={lang} />
+                <MetricCard label={lang === "en" ? "Open rate" : "Прочтения"} value={data.metrics.open_rate} color="#3b82f6" benchmark={55} lang={lang} />
+                <MetricCard label={lang === "en" ? "Conversion" : "Конверсия"} value={data.metrics.conversion_rate} color="#8b5cf6" benchmark={15} lang={lang} />
+                <MetricCard label={lang === "en" ? "Clicks" : "Переходы"} value={data.metrics.click_rate} color="#f59e0b" benchmark={10} lang={lang} />
+              </div>
 
-          {data.metrics.control_group && (
-            <ControlGroupCard comparison={data.metrics.control_group} lang={lang} />
+              <Funnel metrics={data.metrics} lang={lang} />
+
+              <ChannelDeliveryList channels={data.metrics.channel_deliveries ?? []} lang={lang} />
+
+              {data.metrics.control_group && (
+                <ControlGroupCard comparison={data.metrics.control_group} lang={lang} />
+              )}
+            </>
           )}
 
           <RecommendationSection
             icon="🧩"
-            title={lang === "en" ? "Campaign structure" : "Структура кампании"}
+            title={lang === "en" ? "Flow improvements" : "Доработка flow"}
             recommendations={structureRecommendations}
           />
           <RecommendationSection
-            icon="🚀"
-            title={lang === "en" ? "After launch" : "После запуска"}
-            recommendations={launchRecommendations}
+            icon="🕘"
+            title={lang === "en" ? "Similar past campaigns" : "Похожие прошлые кампании"}
+            recommendations={similarActions}
           />
+          {hasLaunched && (
+            <RecommendationSection
+              icon="🚀"
+              title={lang === "en" ? "After launch" : "После запуска"}
+              recommendations={launchRecommendations}
+            />
+          )}
         </>
       )}
     </div>
@@ -222,6 +292,49 @@ function MetricCard({ label, value, color, benchmark, lang = "ru" }: {
         </span>
       </div>
     </div>
+  );
+}
+
+
+function Funnel({ metrics, lang }: { metrics: MonitorMetrics; lang: "ru" | "en" }) {
+  const sent = metrics.sent_count ?? 0;
+  const delivered = metrics.delivered_count ?? 0;
+  const opened = Math.round(delivered * (metrics.open_rate ?? 0) / 100);
+  const clicked = Math.round(opened * (metrics.click_rate ?? 0) / 100);
+  const activated = metrics.activation_count ?? 0;
+  const max = Math.max(sent, delivered, opened, clicked, activated, 1);
+  const steps = [
+    { label: lang === "en" ? "Sent" : "Отправлено", value: sent, color: "#64748b" },
+    { label: lang === "en" ? "Delivered" : "Доставлено", value: delivered, color: "#22c55e" },
+    { label: lang === "en" ? "Read/opened" : "Прочитано", value: opened, color: "#3b82f6" },
+    { label: lang === "en" ? "Clicked" : "Переходы", value: clicked, color: "#f59e0b" },
+    { label: lang === "en" ? "Activated" : "Активации", value: activated, color: "#8b5cf6" },
+  ];
+
+  return (
+    <section className="fw-monitor-section">
+      <div className="fw-monitor-section-header">
+        <span>🪄 {lang === "en" ? "Campaign funnel" : "Воронка кампании"}</span>
+      </div>
+      <div className="fw-monitor-funnel">
+        {steps.map((step) => (
+          <div className="fw-monitor-funnel-step" key={step.label}>
+            <div className="fw-monitor-funnel-main">
+              <span>{step.label}</span>
+              <strong>{formatNumber(step.value)}</strong>
+            </div>
+            <div className="fw-monitor-funnel-bar">
+              <div
+                style={{
+                  width: `${Math.max(4, Math.round(step.value / max * 100))}%`,
+                  background: step.color,
+                }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

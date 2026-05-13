@@ -230,6 +230,62 @@ def make_business_transaction_activity(
     }
 
 
+def _content_parameter_value(activity: dict[str, Any], name: str) -> Any:
+    """Возвращает значение content-параметра коммуникации по имени."""
+    content = activity.get("content")
+    if not isinstance(content, dict):
+        return None
+
+    parameters = content.get("parameters")
+    if not isinstance(parameters, list):
+        return None
+
+    for parameter in parameters:
+        if isinstance(parameter, dict) and parameter.get("name") == name:
+            return parameter.get("value")
+    return None
+
+
+def _build_generated_offers(activities: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Формирует UI-friendly список офферов из коммуникационных нод.
+
+    AdTarget хранит текст оффера внутри content.parameters коммуникации,
+    а шаблон/операцию активации — в следующей BusinessTransactionActivity.
+    Для раскрытия communication-ноды на фронтенде дублируем эти данные в
+    flow.offers и связываем запись с activityId.
+    """
+    by_id = {act.get("id"): act for act in activities if act.get("id")}
+    offers: list[dict[str, Any]] = []
+
+    for act in activities:
+        if act.get("type") not in {"PushCommunicationActivity", "PullCommunicationActivity"}:
+            continue
+
+        text = _content_parameter_value(act, "Text")
+        sender = _content_parameter_value(act, "Sender")
+        next_activity = by_id.get(act.get("nextActivityId"))
+        business_operation = (
+            next_activity.get("businessOperation")
+            if isinstance(next_activity, dict) and next_activity.get("type") == "BusinessTransactionActivity"
+            else None
+        )
+
+        content = act.get("content") if isinstance(act.get("content"), dict) else {}
+
+        offers.append({
+            "id": f"offer-{act.get('id')}",
+            "activityId": act.get("id"),
+            "channelId": act.get("channelId"),
+            "contentType": act.get("contentType") or content.get("type"),
+            "text": text,
+            "sender": sender,
+            "offerTemplateId": next_activity.get("offerTemplateId") if isinstance(next_activity, dict) else None,
+            "businessOperationId": business_operation.get("id") if isinstance(business_operation, dict) else None,
+        })
+
+    return offers
+
+
 def assemble_flow(activities: list[dict[str, Any]]) -> dict[str, Any]:
     """Собирает полный объект flow из списка активностей.
 
@@ -243,7 +299,7 @@ def assemble_flow(activities: list[dict[str, Any]]) -> dict[str, Any]:
 
     return {
         "activities": activities,
-        "offers": [],
+        "offers": _build_generated_offers(activities),
         "subNodes": [],
         "zoom": 1,
         "position": {"left": 120.5, "top": 566},

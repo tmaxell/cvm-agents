@@ -3140,42 +3140,20 @@ button {
   font-size: 12px;
 }
 
-.builder-history-actions {
-  padding: 0 12px 8px;
-}
-
-.builder-history-actions button {
-  width: 100%;
-  min-height: 30px;
-  border: 1px dashed #c7d2fe;
-  border-radius: 7px;
-  background: #eef2ff;
-  color: var(--accent, #5257ff);
-  font-size: 12px;
-  font-weight: 800;
-}
-
 .builder-history-list {
   display: grid;
   gap: 6px;
-  max-height: 190px;
+  max-height: 150px;
   overflow-y: auto;
   padding: 0 12px 12px;
 }
 
-.builder-history-item {
+.builder-history-list button {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 24px;
-  gap: 4px;
-  align-items: stretch;
-}
-
-.builder-history-item > button:first-child {
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) auto;
+  grid-template-columns: 42px minmax(0, 1fr);
   gap: 6px;
   align-items: center;
-  min-height: 32px;
+  min-height: 30px;
   padding: 6px 8px;
   border: 1px solid var(--border, #e5e7eb);
   border-radius: 7px;
@@ -3183,19 +3161,17 @@ button {
   text-align: left;
 }
 
-.builder-history-item.active > button:first-child,
-.builder-history-item > button:first-child:hover {
+.builder-history-list button:hover {
   border-color: var(--accent, #5257ff);
-  background: #f0f1ff;
 }
 
-.builder-history-item strong {
+.builder-history-list strong {
   color: var(--accent, #5257ff);
   font-size: 10px;
   text-transform: uppercase;
 }
 
-.builder-history-item span {
+.builder-history-list span {
   min-width: 0;
   overflow: hidden;
   color: var(--text-primary, #111827);
@@ -3204,142 +3180,6 @@ button {
   white-space: nowrap;
 }
 
-.builder-history-item small {
-  color: var(--text-secondary, #64748b);
-  font-size: 10px;
-  white-space: nowrap;
-}
-
-.builder-history-delete {
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 1px solid var(--border, #e5e7eb);
-  border-radius: 7px;
-  background: #fff;
-  color: var(--text-secondary, #64748b);
-  font-size: 14px;
-  font-weight: 800;
-}
-
-.builder-history-delete:hover {
-  border-color: var(--error, #dc2626);
-  color: var(--error, #dc2626);
-}
-
 .fw-statusbar .fw-clear-btn + .fw-clear-btn {
   margin-left: 0;
-}
-
-.fw-monitor-status {
-  display: inline-flex;
-  align-items: center;
-  margin-left: 6px;
-  padding: 2px 7px;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-.fw-monitor-status.editing {
-  background: #fef3c7;
-  color: #b45309;
-}
-
-.fw-monitor-status.active {
-  background: #dcfce7;
-  color: #15803d;
-}
-
-.fw-monitor-status.paused {
-  background: #e0e7ff;
-  color: #4338ca;
-}
-
-.fw-monitor-actions {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.fw-monitor-run,
-.fw-monitor-pause {
-  border: 0;
-  border-radius: 6px;
-  padding: 5px 8px;
-  color: #fff;
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.fw-monitor-run { background: #16a34a; }
-.fw-monitor-pause { background: #4f46e5; }
-
-.fw-monitor-run:disabled,
-.fw-monitor-pause:disabled {
-  cursor: default;
-  opacity: 0.45;
-}
-
-.fw-monitor-prelaunch-note {
-  display: grid;
-  gap: 4px;
-  padding: 10px 12px;
-  border: 1px solid #fde68a;
-  border-radius: 9px;
-  background: #fffbeb;
-  color: #92400e;
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.fw-monitor-prelaunch-note strong {
-  font-size: 12px;
-}
-
-.fw-monitor-funnel {
-  display: grid;
-  gap: 7px;
-}
-
-.fw-monitor-funnel-step {
-  display: grid;
-  gap: 4px;
-  padding: 7px 9px;
-  border: 1px solid var(--border, #e5e7eb);
-  border-radius: 8px;
-  background: var(--surface-secondary, #f9fafb);
-}
-
-.fw-monitor-funnel-main {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 12px;
-}
-
-.fw-monitor-funnel-main span {
-  color: var(--text-secondary);
-}
-
-.fw-monitor-funnel-main strong {
-  color: var(--text-primary);
-  font-size: 13px;
-}
-
-.fw-monitor-funnel-bar {
-  height: 7px;
-  border-radius: 999px;
-  overflow: hidden;
-  background: var(--border, #e5e7eb);
-}
-
-.fw-monitor-funnel-bar div {
-  height: 100%;
-  border-radius: inherit;
-  transition: width 0.5s ease;
 }

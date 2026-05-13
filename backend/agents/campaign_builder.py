@@ -517,14 +517,34 @@ async def update_existing_flow_with_business_transaction(
     operation_id: str,
 ) -> str:
     """Добавить BusinessTransactionActivity после последней communication-ноды существующего flow."""
-    try:
-        flow = _parse_flow_json(flow_json)
-        if not flow:
-            raise ValueError("flow_json должен содержать валидный JSON с activities[]")
-        updated_flow = _add_business_transaction_to_flow(flow, offer_template_id, operation_id)
-        return json.dumps(updated_flow, ensure_ascii=False)
-    except Exception as e:
-        return _api_error("update_existing_flow_with_business_transaction", e)
+    flow = json.loads(flow_json)
+    activities = flow.get("activities") if isinstance(flow, dict) else None
+    if not isinstance(activities, list) or not activities:
+        raise ValueError("flow_json должен содержать activities[]")
+
+    communication_indexes = [
+        i
+        for i, activity in enumerate(activities)
+        if isinstance(activity, dict)
+        and activity.get("type") in {"PushCommunicationActivity", "PullCommunicationActivity"}
+    ]
+    insert_index = (communication_indexes[-1] + 1) if communication_indexes else len(activities)
+
+    # Не дублируем транзакцию, если следующая активность уже использует тот же шаблон/операцию.
+    next_activity = activities[insert_index] if insert_index < len(activities) else None
+    if (
+        isinstance(next_activity, dict)
+        and next_activity.get("type") == "BusinessTransactionActivity"
+        and next_activity.get("offerTemplateId") == offer_template_id
+        and (next_activity.get("businessOperation") or {}).get("id") == operation_id
+    ):
+        return json.dumps(assemble_flow(activities), ensure_ascii=False)
+
+    activities.insert(
+        insert_index,
+        make_business_transaction_activity(offer_template_id, operation_id, []),
+    )
+    return json.dumps(assemble_flow(activities), ensure_ascii=False)
 
 
 # ── API инструменты ───────────────────────────────────────────────────────────
@@ -696,11 +716,23 @@ async def _flow_from_tool_args(tool_name: str, args: dict) -> dict | None:
         if tool_name == "update_existing_flow_with_business_transaction" and args.get("flow_json"):
             flow_data = json.loads(args["flow_json"]) if isinstance(args["flow_json"], str) else args["flow_json"]
             if isinstance(flow_data, dict) and isinstance(flow_data.get("activities"), list):
-                return _add_business_transaction_to_flow(
-                    flow_data,
-                    int(args["offer_template_id"]),
-                    str(args["operation_id"]),
+                activities = list(flow_data["activities"])
+                communication_indexes = [
+                    i
+                    for i, activity in enumerate(activities)
+                    if isinstance(activity, dict)
+                    and activity.get("type") in {"PushCommunicationActivity", "PullCommunicationActivity"}
+                ]
+                insert_index = (communication_indexes[-1] + 1) if communication_indexes else len(activities)
+                activities.insert(
+                    insert_index,
+                    make_business_transaction_activity(
+                        int(args["offer_template_id"]),
+                        str(args["operation_id"]),
+                        [],
+                    ),
                 )
+                return assemble_flow(activities)
         if tool_name in {"validate_flow_tool", "create_campaign_tool"} and args.get("flow_json"):
             flow_data = json.loads(args["flow_json"]) if isinstance(args["flow_json"], str) else args["flow_json"]
             if isinstance(flow_data, dict):

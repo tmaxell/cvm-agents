@@ -40,7 +40,7 @@ export function MonitoringPanel({
           campaign_id: campaignId,
           draft_flow_json: draftFlowJson,
           refresh_seed: currentSeed,
-          campaign_status: statusOverride,
+          campaign_status: campaignStatus,
         }),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -62,7 +62,7 @@ export function MonitoringPanel({
       setData(null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [campaignId, draftFlowJson]);
+  }, [campaignId, draftFlowJson, campaignStatus]);
 
   const handleRefresh = () => {
     const nextSeed = seed + 1;
@@ -74,12 +74,11 @@ export function MonitoringPanel({
     onCampaignStatusChange("active");
     const nextSeed = seed + 1;
     setSeed(nextSeed);
-    fetchMonitor(nextSeed, "active");
+    fetchMonitor(nextSeed);
   };
 
   const handlePause = () => {
     onCampaignStatusChange("paused");
-    fetchMonitor(seed, "paused");
   };
 
   if (!campaignId) {
@@ -114,10 +113,10 @@ export function MonitoringPanel({
           <code className="fw-monitor-campaign-id">#{campaignId}</code>
           <span className={`fw-monitor-status ${campaignStatus}`}>
             {campaignStatus === "editing"
-              ? (lang === "en" ? "Editing" : "Редактирование")
+              ? (lang === "en" ? "Editing" : "Editing")
               : campaignStatus === "active"
-              ? (lang === "en" ? "Active" : "Активна")
-              : (lang === "en" ? "Paused" : "Пауза")}
+              ? (lang === "en" ? "Active" : "Active")
+              : (lang === "en" ? "Paused" : "Paused")}
           </span>
         </div>
         <div className="fw-monitor-actions">

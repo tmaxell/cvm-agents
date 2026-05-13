@@ -30,11 +30,6 @@ export function useChat({ endpoint, messageKey, context, extraPayload, storageKe
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setMessages(readStoredMessages(storageKey));
-    setError(null);
-  }, [storageKey]);
-
-  useEffect(() => {
     if (!storageKey || typeof window === "undefined") return;
     window.localStorage.setItem(storageKey, JSON.stringify(messages));
   }, [messages, storageKey]);

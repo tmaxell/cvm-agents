@@ -75,10 +75,6 @@ export function FloatingWidget({ onFlowUpdate, hasErrors, builderResponse }: Flo
 
   const hasMonitorData = builderResponse?.campaign_id != null;
 
-  useEffect(() => {
-    setCampaignStatus("editing");
-  }, [builderResponse?.campaign_id]);
-
   const handleBuilderResponse = useCallback((response: BuilderResponse | null) => {
     onFlowUpdate(response);
   }, [onFlowUpdate]);

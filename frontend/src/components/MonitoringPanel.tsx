@@ -40,7 +40,7 @@ export function MonitoringPanel({
           campaign_id: campaignId,
           draft_flow_json: draftFlowJson,
           refresh_seed: currentSeed,
-          campaign_status: campaignStatus,
+          campaign_status: statusOverride,
         }),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);

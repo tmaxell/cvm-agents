@@ -1,5 +1,6 @@
 """Pydantic-схемы для запросов/ответов агентов."""
 
+from datetime import datetime
 from typing import Any
 from pydantic import BaseModel, Field
 
@@ -48,6 +49,7 @@ class BuilderRequest(BaseModel):
     goal: str                           # «хочу кампанию по утилизации пакета данных»
     context: AgentContext = AgentContext()
     history: list[dict[str, str]] = []
+    session_id: str | None = None          # id backend-сессии Builder для продолжения диалога
     # Контекст текущей сессии — передаётся при follow-up запросах
     session_campaign_id: int | None = None    # campaignId из предыдущего ответа
     session_flow_json: str | None = None      # JSON flow из предыдущего ответа
@@ -56,10 +58,48 @@ class BuilderRequest(BaseModel):
 
 class BuilderResponse(BaseModel):
     message: str                        # ответ агента для чата
+    session_id: str | None = None       # backend-сессия, к которой сохранён ответ
     campaign_id: int | None = None      # если кампания уже создана
     draft_flow: dict[str, Any] | None = None  # черновик flow, если ещё не создан
     validation_errors: list[dict] = []
     status: str = "in_progress"         # "in_progress" | "created" | "started" | "error"
+
+
+# ── Builder sessions ─────────────────────────────────────────────────────────
+
+class Message(BaseModel):
+    id: str
+    session_id: str
+    role: str
+    content: str
+    created_at: datetime
+    metadata: dict[str, Any] | None = None
+
+
+class Session(BaseModel):
+    id: str
+    campaign_id: int | None = None
+    title: str
+    created_at: datetime
+    updated_at: datetime
+    status: str = "in_progress"
+
+
+class SessionDetail(Session):
+    messages: list[Message] = []
+
+
+class SessionCreate(BaseModel):
+    session_id: str | None = None
+    campaign_id: int | None = None
+    title: str | None = None
+    status: str = "in_progress"
+
+
+class MessageCreate(BaseModel):
+    role: str
+    content: str
+    metadata: dict[str, Any] | None = None
 
 
 # ── F3: Campaign Monitor ──────────────────────────────────────────────────────

@@ -5,10 +5,19 @@
  * Это даёт эффект «AI собирает кампанию прямо в интерфейсе AdTarget».
  */
 
-import { useState, useRef, useEffect } from "react";
-import type { BuilderPreferences, BuilderResponse, AgentContext } from "../types/api";
+import { useState, useRef, useEffect, useCallback } from "react";
+import type {
+  AgentContext,
+  BuilderPreferences,
+  BuilderResponse,
+  BuilderSession,
+  BuilderSessionDetail,
+  ChatMessage,
+} from "../types/api";
 import { useChat } from "../hooks/useChat";
 import { MarkdownText } from "./MarkdownText";
+
+const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
 const DEFAULT_CONTEXT: AgentContext = {
   screen: "campaign_wizard",
@@ -18,6 +27,7 @@ const DEFAULT_CONTEXT: AgentContext = {
 const BUILDER_MESSAGES_KEY = "cvm.builder.messages.v1";
 const BUILDER_RESPONSE_KEY = "cvm.builder.lastResponse.v1";
 const BUILDER_PREFS_KEY = "cvm.builder.preferences.v1";
+const BUILDER_SESSION_KEY = "cvm.builder.sessionId.v1";
 
 const SUGGESTIONS: Record<"ru" | "en", string[]> = {
   ru: [
@@ -71,24 +81,58 @@ function readStoredJson<T>(key: string, fallback: T): T {
   }
 }
 
+function readStoredString(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(key);
+}
+
 function hasPreferences(preferences: BuilderPreferences): boolean {
   return Object.values(preferences).some((value) => Boolean(value?.trim()));
+}
+
+function formatDate(value: string, lang: "ru" | "en"): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(lang === "en" ? "en-US" : "ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function responseFromSession(session: BuilderSessionDetail): BuilderResponse | null {
+  const lastAssistant = [...session.messages].reverse().find((message) => message.role === "assistant");
+  const metadata = lastAssistant?.metadata ?? {};
+  return {
+    message: lastAssistant?.content ?? "",
+    session_id: session.id,
+    campaign_id: typeof metadata.campaign_id === "number" ? metadata.campaign_id : session.campaign_id ?? null,
+    draft_flow: metadata.draft_flow as BuilderResponse["draft_flow"] ?? null,
+    validation_errors: Array.isArray(metadata.validation_errors) ? metadata.validation_errors : [],
+    status: session.status as BuilderResponse["status"],
+  };
 }
 
 export function CampaignBuilderChat({ onResponse, lang = "ru" }: Props) {
   const [lastResponse, setLastResponse] = useState<BuilderResponse | null>(() =>
     readStoredJson<BuilderResponse | null>(BUILDER_RESPONSE_KEY, null),
   );
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(() => readStoredString(BUILDER_SESSION_KEY));
+  const [sessions, setSessions] = useState<BuilderSession[]>([]);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [preferences, setPreferences] = useState<BuilderPreferences>(() =>
     readStoredJson<BuilderPreferences>(BUILDER_PREFS_KEY, {}),
   );
 
-  const { messages, loading, error, send, clear } = useChat({
+  const { messages, loading, error, send, clear, replaceMessages } = useChat({
     endpoint: "/api/builder",
     messageKey: "goal",
     context: DEFAULT_CONTEXT,
     storageKey: BUILDER_MESSAGES_KEY,
     extraPayload: () => ({
+      session_id: currentSessionId,
       session_campaign_id: lastResponse?.campaign_id ?? null,
       session_flow_json: lastResponse?.draft_flow
         ? JSON.stringify(lastResponse.draft_flow)
@@ -99,6 +143,24 @@ export function CampaignBuilderChat({ onResponse, lang = "ru" }: Props) {
 
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  const refreshSessions = useCallback(async () => {
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const response = await fetch(`${API_BASE}/api/sessions`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setSessions(await response.json() as BuilderSession[]);
+    } catch (err) {
+      setHistoryError(err instanceof Error ? err.message : "Failed to load sessions");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshSessions();
+  }, [refreshSessions]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -116,6 +178,15 @@ export function CampaignBuilderChat({ onResponse, lang = "ru" }: Props) {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (currentSessionId) {
+      window.localStorage.setItem(BUILDER_SESSION_KEY, currentSessionId);
+    } else {
+      window.localStorage.removeItem(BUILDER_SESSION_KEY);
+    }
+  }, [currentSessionId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
     window.localStorage.setItem(BUILDER_PREFS_KEY, JSON.stringify(preferences));
   }, [preferences]);
 
@@ -129,7 +200,27 @@ export function CampaignBuilderChat({ onResponse, lang = "ru" }: Props) {
     setInput("");
     const data = await send(text);
     if (data) {
-      setLastResponse(data as BuilderResponse);
+      const builderResponse = data as BuilderResponse;
+      setLastResponse(builderResponse);
+      setCurrentSessionId(builderResponse.session_id ?? currentSessionId);
+      refreshSessions();
+    }
+  };
+
+  const handleOpenSession = async (sessionId: string) => {
+    setHistoryError(null);
+    try {
+      const response = await fetch(`${API_BASE}/api/sessions/${sessionId}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const session = await response.json() as BuilderSessionDetail;
+      const loadedMessages: ChatMessage[] = session.messages
+        .filter((message) => message.role === "user" || message.role === "assistant")
+        .map((message) => ({ role: message.role as "user" | "assistant", content: message.content }));
+      replaceMessages(loadedMessages);
+      setCurrentSessionId(session.id);
+      setLastResponse(responseFromSession(session));
+    } catch (err) {
+      setHistoryError(err instanceof Error ? err.message : "Failed to load session");
     }
   };
 
@@ -142,9 +233,11 @@ export function CampaignBuilderChat({ onResponse, lang = "ru" }: Props) {
 
   const handleClear = () => {
     clear();
+    setCurrentSessionId(null);
     setLastResponse(null);
     if (typeof window !== "undefined") {
       window.localStorage.removeItem(BUILDER_RESPONSE_KEY);
+      window.localStorage.removeItem(BUILDER_SESSION_KEY);
     }
   };
 
@@ -181,15 +274,15 @@ export function CampaignBuilderChat({ onResponse, lang = "ru" }: Props) {
             />
           </label>
           <label>
-            {lang === "en" ? "Preferred channels" : "Желаемые каналы"}
+            {lang === "en" ? "Channels" : "Каналы"}
             <input
               value={preferences.channels ?? ""}
               onChange={(e) => handlePreferenceChange("channels", e.target.value)}
-              placeholder={lang === "en" ? "SMS, Email, Push" : "SMS, Email, Push"}
+              placeholder={lang === "en" ? "SMS, Push, Email…" : "SMS, Push, Email…"}
             />
           </label>
           <label>
-            {lang === "en" ? "Target groups" : "Таргет-группы"}
+            {lang === "en" ? "Target groups" : "Целевые группы"}
             <input
               value={preferences.targetGroups ?? ""}
               onChange={(e) => handlePreferenceChange("targetGroups", e.target.value)}
@@ -219,22 +312,28 @@ export function CampaignBuilderChat({ onResponse, lang = "ru" }: Props) {
 
       <details className="builder-history-panel">
         <summary>
-          {lang === "en" ? "Dialog history" : "История диалога"}
-          <span>{messages.length}</span>
+          {lang === "en" ? "Dialog sessions" : "Диалоги Builder"}
+          <span>{sessions.length}</span>
         </summary>
-        {messages.length === 0 ? (
-          <p>{lang === "en" ? "No saved messages yet." : "Пока нет сохранённых сообщений."}</p>
+        {historyError && <p style={{ color: "var(--error)" }}>{historyError}</p>}
+        {historyLoading && sessions.length === 0 ? (
+          <p>{lang === "en" ? "Loading sessions…" : "Загружаем диалоги…"}</p>
+        ) : sessions.length === 0 ? (
+          <p>{lang === "en" ? "No backend sessions yet. Local messages are used as offline fallback." : "Пока нет backend-сессий. Локальные сообщения используются как offline fallback."}</p>
         ) : (
           <div className="builder-history-list">
-            {messages.map((message, index) => (
+            {sessions.map((session) => (
               <button
-                key={`${message.role}-${index}`}
+                key={session.id}
                 type="button"
-                onClick={() => setInput(message.content)}
-                title={message.content}
+                onClick={() => handleOpenSession(session.id)}
+                title={session.title}
+                className={session.id === currentSessionId ? "active" : undefined}
               >
-                <strong>{message.role === "user" ? (lang === "en" ? "You" : "Вы") : "AI"}</strong>
-                <span>{message.content}</span>
+                <strong>{session.title}</strong>
+                <span>
+                  Campaign {session.campaign_id ? `#${session.campaign_id}` : "—"} · {STATUS_LABELS[lang][session.status] ?? session.status} · {formatDate(session.updated_at, lang)}
+                </span>
               </button>
             ))}
           </div>
@@ -310,10 +409,12 @@ export function CampaignBuilderChat({ onResponse, lang = "ru" }: Props) {
                 {STATUS_LABELS[lang][lastResponse.status] ?? lastResponse.status}
               </span>
             </>
+          ) : currentSessionId ? (
+            <span>{lang === "en" ? "Backend dialog is loaded" : "Backend-диалог загружен"}</span>
           ) : (
-            <span>{lang === "en" ? "Draft context is saved" : "Черновой контекст сохранён"}</span>
+            <span>{lang === "en" ? "Draft context is saved locally" : "Черновой контекст сохранён локально"}</span>
           )}
-          <button className="fw-clear-btn" onClick={handleClear}>{lang === "en" ? "Clear chat" : "Очистить чат"}</button>
+          <button className="fw-clear-btn" onClick={handleClear}>{lang === "en" ? "New chat" : "Новый чат"}</button>
           <button className="fw-clear-btn" onClick={handleClearAll}>{lang === "en" ? "Clear all" : "Очистить всё"}</button>
         </div>
       )}

@@ -46,11 +46,35 @@ export interface BuilderPreferences {
 
 export interface BuilderRequest {
   goal: string;
+  session_id?: string | null;
   context?: AgentContext;
   history?: { role: "user" | "assistant"; content: string }[];
   session_campaign_id?: number | null;
   session_flow_json?: string | null;
   builder_preferences?: BuilderPreferences;
+}
+
+
+export interface BuilderSessionMessage {
+  id: string;
+  session_id: string;
+  role: "user" | "assistant" | string;
+  content: string;
+  created_at: string;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface BuilderSession {
+  id: string;
+  campaign_id?: number | null;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  status: "in_progress" | "created" | "started" | "error" | string;
+}
+
+export interface BuilderSessionDetail extends BuilderSession {
+  messages: BuilderSessionMessage[];
 }
 
 export interface FlowContentParameter {
@@ -105,6 +129,7 @@ export type CampaignRuntimeStatus = "editing" | "active" | "paused";
 
 export interface BuilderResponse {
   message: string;
+  session_id?: string | null;
   campaign_id?: number | null;
   draft_flow?: CampaignFlow | null;
   validation_errors?: unknown[];

@@ -33,3 +33,40 @@ def test_realtime_check_without_add_marker_still_targets_realtime_activity():
     assert intent.action == "add_activity"
     assert intent.activity_type == "RealTimeCheckActivity"
     assert intent.anchor_activity_type is None
+
+
+def test_update_existing_flow_with_activity_inserts_response_after_anchor():
+    import asyncio
+    import json
+
+    from agents.campaign_builder import update_existing_flow_with_activity
+    from tools.flow_builder import (
+        assemble_flow,
+        make_common_activity,
+        make_push_communication_activity,
+        make_target_group_activity,
+    )
+
+    flow = assemble_flow([
+        make_common_activity("Generic edit"),
+        make_target_group_activity(101),
+        make_push_communication_activity(201, "EmailContent", "Ответьте на письмо."),
+    ])
+
+    result_json = asyncio.run(update_existing_flow_with_activity.ainvoke({
+        "flow_json": json.dumps(flow, ensure_ascii=False),
+        "activity_type": "ResponseActivity",
+        "activity_params": {"response_code": "EmailReply"},
+        "anchor_type": "PushCommunicationActivity",
+        "position": "after",
+    }))
+    result = json.loads(result_json)
+
+    assert [activity["type"] for activity in result["activities"]] == [
+        "CommonActivity",
+        "TargetGroupActivity",
+        "PushCommunicationActivity",
+        "ResponseActivity",
+    ]
+    assert result["activities"][3]["responseCode"] == "EmailReply"
+    assert result["activities"][2]["nextActivityId"] == result["activities"][3]["id"]

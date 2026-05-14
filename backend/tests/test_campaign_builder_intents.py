@@ -35,6 +35,37 @@ def test_realtime_check_without_add_marker_still_targets_realtime_activity():
     assert intent.anchor_activity_type is None
 
 
+def test_add_realtime_check_after_transaction_keeps_existing_transaction_position():
+    from agents.campaign_builder import _add_activity_to_flow, _parse_flow_edit_intent
+    from tools.flow_builder import (
+        assemble_flow,
+        make_business_transaction_activity,
+        make_push_communication_activity,
+    )
+
+    flow = assemble_flow([
+        make_push_communication_activity(201, "EmailContent", "Письмо с предложением."),
+        make_business_transaction_activity(301, "ActivateOffer", []),
+    ])
+    intent = _parse_flow_edit_intent("добавь после транзакции real-time check")
+    assert intent is not None
+
+    result = _add_activity_to_flow(
+        flow,
+        intent.activity_type,
+        anchor_activity_type=intent.anchor_activity_type,
+        anchor_position="after",
+    )
+
+    assert [activity["type"] for activity in result["activities"]] == [
+        "PushCommunicationActivity",
+        "BusinessTransactionActivity",
+        "RealTimeCheckActivity",
+    ]
+    assert result["activities"][1]["nextActivityId"] == result["activities"][2]["id"]
+    assert result["activities"][2]["nextActivityId"] is None
+
+
 def test_update_existing_flow_with_activity_inserts_response_after_anchor():
     import asyncio
     import json

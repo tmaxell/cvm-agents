@@ -258,6 +258,7 @@ def _normalize_special_turn_plan(plan: dict) -> dict:
 
     normalized.setdefault("activity_type", None)
     normalized.setdefault("anchor_type", None)
+    normalized.setdefault("anchor_id", None)
     normalized.setdefault("anchor_position", None)
     normalized.setdefault("activity_params", {})
     normalized.setdefault("assistant_message", "")
@@ -313,7 +314,7 @@ async def _llm_plan_special_turn(
                 "Ты планировщик Campaign Builder. Верни только JSON без markdown. "
                 "Схема: {\"action\": \"remember_context|add_activity|continue_agent\", "
                 "\"activity_type\": string|null, \"anchor_type\": string|null, "
-                "\"anchor_position\": \"before|after|null\", "
+                "\"anchor_id\": string|null, \"anchor_position\": \"before|after|null\", "
                 "\"activity_params\": object, \"assistant_message\": string}. "
                 f"Поддержанные activity_type: {SUPPORTED_ACTIVITY_TYPES_TEXT}. "
                 "Если пользователь только просит запомнить вводные — action=remember_context. "
@@ -321,7 +322,8 @@ async def _llm_plan_special_turn(
                 "activity_type заполни точным типом активности, даже если тип не входит в поддержанный список. "
                 "Для BusinessTransactionActivity выбери лучший оффер из available_offers и положи "
                 "offer_template_id и operation_id в activity_params. "
-                "anchor_type — тип существующей активности-якоря, anchor_position — before/after/null. "
+                "anchor_id — id существующей активности-якоря, если пользователь указал конкретный узел; "
+                "иначе anchor_type — тип существующей активности-якоря, anchor_position — before/after/null. "
                 "Если это не запоминание и не правка flow, action=continue_agent. "
                 "assistant_message всегда по-русски."
             )),
@@ -403,6 +405,89 @@ def _select_offer_template(ref: dict, goal: str, preferences: dict | None = None
     return offers[0]
 
 
+def _find_activity_anchor_index(
+    activities: list[dict],
+    *,
+    anchor_type: str | None = None,
+    anchor_id: str | None = None,
+) -> int | None:
+    """Find an anchor by id first, otherwise the last activity with matching type."""
+    if anchor_id:
+        return next(
+            (
+                index
+                for index, activity in enumerate(activities)
+                if isinstance(activity, dict) and activity.get("id") == anchor_id
+            ),
+            None,
+        )
+
+    if anchor_type:
+        for index in range(len(activities) - 1, -1, -1):
+            activity = activities[index]
+            if isinstance(activity, dict) and activity.get("type") == anchor_type:
+                return index
+
+    return None
+
+
+def _find_anchor_insert_index(
+    activities: list[dict],
+    *,
+    anchor_type: str | None = None,
+    anchor_id: str | None = None,
+    position: str = "after",
+) -> int:
+    """Return insertion index around an anchor, or append when no anchor is found."""
+    if position not in {"after", "before", "end"}:
+        raise ValueError('position должен быть "after", "before" или "end"')
+    if position == "end":
+        return len(activities)
+
+    anchor_index = _find_activity_anchor_index(
+        activities,
+        anchor_type=anchor_type,
+        anchor_id=anchor_id,
+    )
+    if anchor_index is None:
+        return len(activities)
+    return anchor_index + 1 if position == "after" else anchor_index
+
+
+def _insert_activity_into_flow(
+    flow: dict,
+    new_activity: dict,
+    anchor_type: str | None = None,
+    anchor_id: str | None = None,
+    position: str = "after",
+) -> dict:
+    """Insert activity before/after an anchor and rebuild links and positions."""
+    activities = list(flow.get("activities") or [])
+    if not activities:
+        raise ValueError("flow должен содержать activities[]")
+
+    insert_index = _find_anchor_insert_index(
+        activities,
+        anchor_type=anchor_type,
+        anchor_id=anchor_id,
+        position=position,
+    )
+    updated_activities = list(activities)
+    updated_activities.insert(insert_index, new_activity)
+    return assemble_flow(updated_activities)
+
+
+def _last_communication_activity_id(activities: list[dict]) -> str | None:
+    for activity in reversed(activities):
+        if (
+            isinstance(activity, dict)
+            and activity.get("type") in {"PushCommunicationActivity", "PullCommunicationActivity"}
+        ):
+            activity_id = activity.get("id")
+            return str(activity_id) if activity_id else None
+    return None
+
+
 def _add_business_transaction_to_flow(
     flow: dict,
     offer_template_id: int,
@@ -415,16 +500,13 @@ def _add_business_transaction_to_flow(
     if not activities:
         raise ValueError("flow должен содержать activities[]")
 
-    if anchor_activity_type:
-        insert_index = _anchor_insert_index(activities, anchor_activity_type)
-    else:
-        communication_indexes = [
-            i
-            for i, activity in enumerate(activities)
-            if isinstance(activity, dict)
-            and activity.get("type") in {"PushCommunicationActivity", "PullCommunicationActivity"}
-        ]
-        insert_index = (communication_indexes[-1] + 1) if communication_indexes else len(activities)
+    anchor_id = None if anchor_activity_type else _last_communication_activity_id(activities)
+    insert_index = _find_anchor_insert_index(
+        activities,
+        anchor_type=anchor_activity_type,
+        anchor_id=anchor_id,
+        position="after" if (anchor_activity_type or anchor_id) else "end",
+    )
 
     next_activity = activities[insert_index] if insert_index < len(activities) else None
     if (
@@ -435,21 +517,13 @@ def _add_business_transaction_to_flow(
     ):
         return assemble_flow(activities)
 
-    activities.insert(
-        insert_index,
+    return _insert_activity_into_flow(
+        flow,
         make_business_transaction_activity(offer_template_id, operation_id, []),
+        anchor_type=anchor_activity_type,
+        anchor_id=anchor_id,
+        position="after" if (anchor_activity_type or anchor_id) else "end",
     )
-    return assemble_flow(activities)
-
-
-def _anchor_insert_index(activities: list[dict], anchor_activity_type: str | None) -> int:
-    """Return insertion index after the last matching anchor, or at the end."""
-    if anchor_activity_type:
-        for index in range(len(activities) - 1, -1, -1):
-            activity = activities[index]
-            if isinstance(activity, dict) and activity.get("type") == anchor_activity_type:
-                return index + 1
-    return len(activities)
 
 
 def _add_activity_to_flow(
@@ -458,25 +532,19 @@ def _add_activity_to_flow(
     *,
     activity_params: dict[str, Any] | None = None,
     anchor_activity_type: str | None = None,
+    anchor_id: str | None = None,
     anchor_position: str | None = "after",
 ) -> dict:
     """Add a supported activity to an existing flow relative to an optional positional anchor."""
-    activities = list(flow.get("activities") or [])
-    if not activities:
-        raise ValueError("flow должен содержать activities[]")
-
     new_activity = _make_activity_from_params(activity_type, activity_params or {})
-    position = anchor_position or ("after" if anchor_activity_type else "end")
-    if anchor_activity_type:
-        insert_index = _find_anchor_insert_index(
-            activities,
-            anchor_type=anchor_activity_type,
-            position=position,
-        )
-    else:
-        insert_index = len(activities)
-    activities.insert(insert_index, new_activity)
-    return assemble_flow(activities)
+    position = anchor_position or ("after" if (anchor_activity_type or anchor_id) else "end")
+    return _insert_activity_into_flow(
+        flow,
+        new_activity,
+        anchor_type=anchor_activity_type,
+        anchor_id=anchor_id,
+        position=position,
+    )
 
 
 def _parse_activity_params(activity_params: dict[str, Any] | str | None) -> dict[str, Any]:
@@ -544,35 +612,6 @@ def _make_activity_from_params(activity_type: str, activity_params: dict[str, An
         return make_or_join_activity()
     raise ValueError(f"Неподдерживаемый тип активности: {activity_type}")
 
-
-def _find_anchor_insert_index(
-    activities: list[dict],
-    *,
-    anchor_type: str | None = None,
-    anchor_id: str | None = None,
-    position: str = "after",
-) -> int:
-    if position not in {"after", "before", "end"}:
-        raise ValueError('position должен быть "after", "before" или "end"')
-    if position == "end":
-        return len(activities)
-
-    anchor_index = None
-    if anchor_id:
-        anchor_index = next(
-            (i for i, activity in enumerate(activities) if isinstance(activity, dict) and activity.get("id") == anchor_id),
-            None,
-        )
-    elif anchor_type:
-        for i in range(len(activities) - 1, -1, -1):
-            activity = activities[i]
-            if isinstance(activity, dict) and activity.get("type") == anchor_type:
-                anchor_index = i
-                break
-
-    if anchor_index is None:
-        return len(activities)
-    return anchor_index + 1 if position == "after" else anchor_index
 
 
 # ── Reference data pre-fetch (injected into prompt, no tool round-trips) ─────
@@ -844,33 +883,8 @@ async def update_existing_flow_with_business_transaction(
 ) -> str:
     """Добавить BusinessTransactionActivity после последней communication-ноды существующего flow."""
     flow = json.loads(flow_json)
-    activities = flow.get("activities") if isinstance(flow, dict) else None
-    if not isinstance(activities, list) or not activities:
-        raise ValueError("flow_json должен содержать activities[]")
-
-    communication_indexes = [
-        i
-        for i, activity in enumerate(activities)
-        if isinstance(activity, dict)
-        and activity.get("type") in {"PushCommunicationActivity", "PullCommunicationActivity"}
-    ]
-    insert_index = (communication_indexes[-1] + 1) if communication_indexes else len(activities)
-
-    # Не дублируем транзакцию, если следующая активность уже использует тот же шаблон/операцию.
-    next_activity = activities[insert_index] if insert_index < len(activities) else None
-    if (
-        isinstance(next_activity, dict)
-        and next_activity.get("type") == "BusinessTransactionActivity"
-        and next_activity.get("offerTemplateId") == offer_template_id
-        and (next_activity.get("businessOperation") or {}).get("id") == operation_id
-    ):
-        return json.dumps(assemble_flow(activities), ensure_ascii=False)
-
-    activities.insert(
-        insert_index,
-        make_business_transaction_activity(offer_template_id, operation_id, []),
-    )
-    return json.dumps(assemble_flow(activities), ensure_ascii=False)
+    updated_flow = _add_business_transaction_to_flow(flow, offer_template_id, operation_id)
+    return json.dumps(updated_flow, ensure_ascii=False)
 
 
 @tool
@@ -895,17 +909,15 @@ async def update_existing_flow_with_activity(
         raise ValueError("flow_json должен содержать activities[]")
 
     params = _parse_activity_params(activity_params)
-    new_activity = _make_activity_from_params(activity_type, params)
-    insert_index = _find_anchor_insert_index(
-        list(activities),
-        anchor_type=anchor_type,
+    updated_flow = _add_activity_to_flow(
+        flow,
+        activity_type,
+        activity_params=params,
+        anchor_activity_type=anchor_type,
         anchor_id=anchor_id,
-        position=position,
+        anchor_position=position,
     )
-
-    updated_activities = list(activities)
-    updated_activities.insert(insert_index, new_activity)
-    return json.dumps(assemble_flow(updated_activities), ensure_ascii=False)
+    return json.dumps(updated_flow, ensure_ascii=False)
 
 
 # ── API инструменты ───────────────────────────────────────────────────────────
@@ -1377,6 +1389,7 @@ async def run(request: BuilderRequest) -> BuilderResponse:
                 str(activity_type),
                 activity_params=activity_params,
                 anchor_activity_type=planned_flow_edit.get("anchor_type"),
+                anchor_id=planned_flow_edit.get("anchor_id"),
                 anchor_position=planned_flow_edit.get("anchor_position"),
             )
         except Exception as e:

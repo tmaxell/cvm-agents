@@ -102,6 +102,18 @@ class MessageCreate(BaseModel):
     metadata: dict[str, Any] | None = None
 
 
+# ── Runtime campaign actions ──────────────────────────────────────────────────
+
+class CampaignActionRequest(BaseModel):
+    campaign_id: int
+
+
+class CampaignActionResponse(BaseModel):
+    campaign_id: int
+    status: str
+    result: Any
+
+
 # ── F3: Campaign Monitor ──────────────────────────────────────────────────────
 
 class MonitorRequest(BaseModel):

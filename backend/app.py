@@ -15,7 +15,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -31,11 +31,14 @@ from schemas import (
     SessionDetail,
     Message,
     MessageCreate,
+    CampaignActionRequest,
+    CampaignActionResponse,
 )
 from agents.qa_copilot import answer as copilot_answer
 from agents.campaign_builder import run as builder_run
 from agents.campaign_monitor import run as monitor_run
 from db import DatabaseSessionStore, init_db
+from tools import adtarget
 
 app = FastAPI(title="CVM Agents API", version="0.1.0")
 session_store = DatabaseSessionStore()
@@ -183,6 +186,42 @@ async def builder(request: BuilderRequest) -> BuilderResponse:
         runtime_status=response.status,
     )
     return response
+
+
+@app.post("/api/campaigns/{campaign_id}/start", response_model=CampaignActionResponse)
+async def start_campaign(
+    campaign_id: int,
+    request: CampaignActionRequest | None = Body(default=None),
+) -> CampaignActionResponse:
+    """Запускает кампанию в AdTarget и возвращает результат runtime-действия."""
+    _validate_campaign_action_request(campaign_id, request)
+    try:
+        result = await adtarget.start_campaign(campaign_id)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"AdTarget start failed: {str(e)[:300]}")
+    return CampaignActionResponse(campaign_id=campaign_id, status="active", result=result)
+
+
+@app.post("/api/campaigns/{campaign_id}/pause", response_model=CampaignActionResponse)
+async def pause_campaign(
+    campaign_id: int,
+    request: CampaignActionRequest | None = Body(default=None),
+) -> CampaignActionResponse:
+    """Ставит кампанию на паузу/останавливает её в AdTarget."""
+    _validate_campaign_action_request(campaign_id, request)
+    try:
+        result = await adtarget.pause_campaign(campaign_id)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"AdTarget pause failed: {str(e)[:300]}")
+    return CampaignActionResponse(campaign_id=campaign_id, status="paused", result=result)
+
+
+def _validate_campaign_action_request(
+    campaign_id: int,
+    request: CampaignActionRequest | None,
+) -> None:
+    if request is not None and request.campaign_id != campaign_id:
+        raise HTTPException(status_code=400, detail="campaign_id in path and body must match")
 
 
 @app.post("/api/monitor", response_model=MonitorResponse)

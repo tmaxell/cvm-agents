@@ -2857,6 +2857,43 @@ button {
   line-height: 1.5;
 }
 
+.fw-monitor-prelaunch-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.fw-monitor-prelaunch-note strong {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  max-width: 112px;
+  padding: 2px 7px;
+  border: 1px solid #93c5fd;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-transform: uppercase;
+  letter-spacing: 0.2px;
+}
+
+.fw-monitor-prelaunch-note span {
+  display: block;
+  min-width: 0;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
 /* Metrics grid */
 .fw-monitor-metrics {
   display: grid;

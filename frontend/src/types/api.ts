@@ -146,6 +146,8 @@ export interface MonitorMetrics {
   click_rate: number;
   sent_count?: number;
   delivered_count?: number;
+  opened_count?: number;
+  clicked_count?: number;
   activation_count?: number;
   channel_deliveries?: ChannelDeliveryMetric[];
   control_group?: ControlGroupComparison | null;

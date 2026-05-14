@@ -2924,6 +2924,57 @@ button {
   color: var(--text-primary);
 }
 
+
+.fw-monitor-funnel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fw-monitor-funnel-step {
+  padding: 8px 10px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  background: var(--surface-secondary, #f9fafb);
+}
+
+.fw-monitor-funnel-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.fw-monitor-funnel-main span {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.fw-monitor-funnel-main strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.fw-monitor-funnel-conversion {
+  margin-top: 2px;
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.fw-monitor-funnel-bar {
+  height: 5px;
+  margin-top: 6px;
+  background: var(--border, #e5e7eb);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.fw-monitor-funnel-bar div {
+  height: 100%;
+  border-radius: inherit;
+}
+
 .fw-monitor-channel-list {
   display: flex;
   flex-direction: column;

@@ -298,16 +298,22 @@ function MetricCard({ label, value, color, benchmark, lang = "ru" }: {
 function Funnel({ metrics, lang }: { metrics: MonitorMetrics; lang: "ru" | "en" }) {
   const sent = metrics.sent_count ?? 0;
   const delivered = metrics.delivered_count ?? 0;
-  const opened = Math.round(delivered * (metrics.open_rate ?? 0) / 100);
-  const clicked = Math.round(opened * (metrics.click_rate ?? 0) / 100);
+  const opened = metrics.opened_count ?? 0;
+  const clicked = metrics.clicked_count ?? 0;
   const activated = metrics.activation_count ?? 0;
+  const hasClickStage = (metrics.click_rate ?? 0) > 0 || clicked > 0;
   const max = Math.max(sent, delivered, opened, clicked, activated, 1);
+
+  const formatStageRate = (value: number, previous: number) => (
+    previous > 0 ? `${Math.round(value / previous * 100)}%` : "—"
+  );
+
   const steps = [
-    { label: lang === "en" ? "Sent" : "Отправлено", value: sent, color: "#64748b" },
-    { label: lang === "en" ? "Delivered" : "Доставлено", value: delivered, color: "#22c55e" },
-    { label: lang === "en" ? "Read/opened" : "Прочитано", value: opened, color: "#3b82f6" },
-    { label: lang === "en" ? "Clicked" : "Переходы", value: clicked, color: "#f59e0b" },
-    { label: lang === "en" ? "Activated" : "Активации", value: activated, color: "#8b5cf6" },
+    { label: lang === "en" ? "Sent" : "Отправлено", value: sent, color: "#64748b", conversion: lang === "en" ? "Base stage" : "Базовый шаг" },
+    { label: lang === "en" ? "Delivered" : "Доставлено", value: delivered, color: "#22c55e", conversion: `${formatStageRate(delivered, sent)} ${lang === "en" ? "Delivered / Sent" : "Доставлено / Отправлено"}` },
+    { label: lang === "en" ? "Read/opened" : "Прочитано", value: opened, color: "#3b82f6", conversion: `${formatStageRate(opened, delivered)} ${lang === "en" ? "Opened / Delivered" : "Прочитано / Доставлено"}` },
+    { label: lang === "en" ? "Clicked" : "Переходы", value: clicked, color: "#f59e0b", conversion: hasClickStage ? `${formatStageRate(clicked, opened)} ${lang === "en" ? "Clicked / Opened" : "Переходы / Прочитано"}` : (lang === "en" ? "Not applicable for this channel" : "Не применяется для канала") },
+    { label: lang === "en" ? "Activated" : "Активации", value: activated, color: "#8b5cf6", conversion: `${formatStageRate(activated, hasClickStage ? clicked : delivered)} ${hasClickStage ? (lang === "en" ? "Activated / Clicked" : "Активации / Переходы") : (lang === "en" ? "Activated / Delivered" : "Активации / Доставлено")}` },
   ];
 
   return (
@@ -322,6 +328,7 @@ function Funnel({ metrics, lang }: { metrics: MonitorMetrics; lang: "ru" | "en" 
               <span>{step.label}</span>
               <strong>{formatNumber(step.value)}</strong>
             </div>
+            <div className="fw-monitor-funnel-conversion">{step.conversion}</div>
             <div className="fw-monitor-funnel-bar">
               <div
                 style={{

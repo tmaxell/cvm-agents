@@ -45,6 +45,20 @@ from tools.flow_builder import (
     assemble_flow,
 )
 
+SUPPORTED_ACTIVITY_TYPES = {
+    "PushCommunicationActivity",
+    "PullCommunicationActivity",
+    "EventActivity",
+    "WaitActivity",
+    "BusinessTransactionActivity",
+    "RealTimeCheckActivity",
+    "ResponseActivity",
+    "InteractiveResponseActivity",
+    "OrJoinActivity",
+}
+
+SUPPORTED_ACTIVITY_TYPES_TEXT = ", ".join(sorted(SUPPORTED_ACTIVITY_TYPES))
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -187,7 +201,7 @@ def _parse_flow_edit_intent(goal: str) -> FlowEditIntent | None:
         target_text,
     ):
         return FlowEditIntent(
-            action="add_business_transaction",
+            action="add_activity",
             activity_type="BusinessTransactionActivity",
             anchor_activity_type=anchor_activity_type,
         )
@@ -225,6 +239,54 @@ def _extract_json_object(text: str) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
+def _normalize_special_turn_plan(plan: dict) -> dict:
+    """Normalize planner output and legacy actions into the current add_activity schema."""
+    normalized = dict(plan)
+    if normalized.get("action") == "add_business_transaction":
+        activity_params = normalized.get("activity_params")
+        if not isinstance(activity_params, dict):
+            activity_params = {}
+        if normalized.get("offer_template_id") is not None:
+            activity_params.setdefault("offer_template_id", normalized.get("offer_template_id"))
+        if normalized.get("operation_id") is not None:
+            activity_params.setdefault("operation_id", normalized.get("operation_id"))
+        normalized.update({
+            "action": "add_activity",
+            "activity_type": "BusinessTransactionActivity",
+            "activity_params": activity_params,
+        })
+
+    normalized.setdefault("activity_type", None)
+    normalized.setdefault("anchor_type", None)
+    normalized.setdefault("anchor_position", None)
+    normalized.setdefault("activity_params", {})
+    normalized.setdefault("assistant_message", "")
+    if not isinstance(normalized.get("activity_params"), dict):
+        normalized["activity_params"] = {}
+    return normalized
+
+
+def _unsupported_activity_message(activity_type: str | None) -> str:
+    requested = activity_type or "не указан"
+    return (
+        f"Не могу добавить активность типа {requested}: этот тип не поддержан Campaign Builder. "
+        f"Поддержанные типы: {SUPPORTED_ACTIVITY_TYPES_TEXT}."
+    )
+
+
+def _is_supported_activity_type(activity_type: str | None) -> bool:
+    return bool(activity_type) and activity_type in SUPPORTED_ACTIVITY_TYPES
+
+
+def _looks_like_flow_activity_edit(goal: str) -> bool:
+    text = _normalize_text(goal)
+    if not text:
+        return False
+    edit_markers = ("добав", "встав", "add", "append", "insert")
+    activity_markers = ("activity", "активност", "ноду", "узел", "check", "проверк", "транзакц")
+    return any(marker in text for marker in edit_markers) and any(marker in text for marker in activity_markers)
+
+
 async def _llm_plan_special_turn(
     goal: str,
     *,
@@ -249,13 +311,19 @@ async def _llm_plan_special_turn(
         response = await llm.ainvoke([
             SystemMessage(content=(
                 "Ты планировщик Campaign Builder. Верни только JSON без markdown. "
-                "Схема: {\"action\": \"remember_context|add_business_transaction|continue_agent\", "
-                "\"offer_template_id\": number|null, \"operation_id\": string|null, "
-                "\"assistant_message\": string}. "
+                "Схема: {\"action\": \"remember_context|add_activity|continue_agent\", "
+                "\"activity_type\": string|null, \"anchor_type\": string|null, "
+                "\"anchor_position\": \"before|after|null\", "
+                "\"activity_params\": object, \"assistant_message\": string}. "
+                f"Поддержанные activity_type: {SUPPORTED_ACTIVITY_TYPES_TEXT}. "
                 "Если пользователь только просит запомнить вводные — action=remember_context. "
-                "Если просит добавить бизнес-транзакцию/активацию в текущий flow — "
-                "action=add_business_transaction и выбери лучший оффер из списка. "
-                "Иначе action=continue_agent. assistant_message всегда по-русски."
+                "Если просит добавить активность в текущий flow — action=add_activity; "
+                "activity_type заполни точным типом активности, даже если тип не входит в поддержанный список. "
+                "Для BusinessTransactionActivity выбери лучший оффер из available_offers и положи "
+                "offer_template_id и operation_id в activity_params. "
+                "anchor_type — тип существующей активности-якоря, anchor_position — before/after/null. "
+                "Если это не запоминание и не правка flow, action=continue_agent. "
+                "assistant_message всегда по-русски."
             )),
             HumanMessage(content=json.dumps({
                 "user_goal": goal,
@@ -273,9 +341,41 @@ async def _llm_plan_special_turn(
         plan = _extract_json_object(content if isinstance(content, str) else str(content))
         if not plan:
             return None, "LLM-планировщик вернул не-JSON ответ."
-        return plan, None
+        return _normalize_special_turn_plan(plan), None
     except Exception as e:
         return None, f"LLM-планировщик недоступен: {type(e).__name__}: {e}"
+
+
+def _resolve_business_transaction_activity_params(
+    activity_params: dict[str, Any] | None,
+    ref: dict,
+    goal: str,
+    preferences: dict | None = None,
+) -> tuple[dict[str, Any] | None, dict | None, str | None]:
+    """Resolve BusinessTransactionActivity params from planner output or reference fallback."""
+    params = dict(activity_params or {})
+    offer = None
+    warning = None
+
+    if params.get("offer_template_id") is not None:
+        try:
+            plan_offer_id = int(params["offer_template_id"])
+            offer = next((item for item in ref.get("offers", []) if item.get("id") == plan_offer_id), None)
+        except (TypeError, ValueError):
+            offer = None
+
+    if not offer:
+        offer = _select_offer_template(ref, goal, preferences)
+        if offer:
+            warning = "LLM-планировщик не выбрал валидный offer_template_id; использован ближайший шаблон из справочника."
+
+    if not offer:
+        return None, None, None
+
+    params["offer_template_id"] = int(offer["id"])
+    params["operation_id"] = str(params.get("operation_id") or offer["operationId"])
+    params.setdefault("operation_params", [])
+    return params, offer, warning
 
 
 def _select_offer_template(ref: dict, goal: str, preferences: dict | None = None) -> dict | None:
@@ -356,16 +456,25 @@ def _add_activity_to_flow(
     flow: dict,
     activity_type: str,
     *,
+    activity_params: dict[str, Any] | None = None,
     anchor_activity_type: str | None = None,
+    anchor_position: str | None = "after",
 ) -> dict:
-    """Add a supported activity to an existing flow after an optional positional anchor."""
+    """Add a supported activity to an existing flow relative to an optional positional anchor."""
     activities = list(flow.get("activities") or [])
     if not activities:
         raise ValueError("flow должен содержать activities[]")
 
-    new_activity = _make_activity_from_params(activity_type, {})
-
-    insert_index = _anchor_insert_index(activities, anchor_activity_type)
+    new_activity = _make_activity_from_params(activity_type, activity_params or {})
+    position = anchor_position or ("after" if anchor_activity_type else "end")
+    if anchor_activity_type:
+        insert_index = _find_anchor_insert_index(
+            activities,
+            anchor_type=anchor_activity_type,
+            position=position,
+        )
+    else:
+        insert_index = len(activities)
     activities.insert(insert_index, new_activity)
     return assemble_flow(activities)
 
@@ -386,6 +495,8 @@ def _parse_activity_params(activity_params: dict[str, Any] | str | None) -> dict
 
 
 def _make_activity_from_params(activity_type: str, activity_params: dict[str, Any] | None = None) -> dict[str, Any]:
+    if activity_type not in SUPPORTED_ACTIVITY_TYPES:
+        raise ValueError(f"Неподдерживаемый тип активности: {activity_type}")
     params = activity_params or {}
     if activity_type == "RealTimeCheckActivity":
         return make_real_time_check_activity(filters=params.get("filters"))
@@ -1180,7 +1291,52 @@ async def run(request: BuilderRequest) -> BuilderResponse:
           f"{len(ref_full.get('events', []))}→{len(ref['events'])} events, "
           f"{len(ref_full.get('offers', []))}→{len(ref['offers'])} offers")
 
+    planned_flow_edit: dict | None = None
+    planned_flow_edit_warning: str | None = None
+
     if flow_edit_intent and flow_edit_intent.action == "add_activity":
+        planned_flow_edit = {
+            "action": "add_activity",
+            "activity_type": flow_edit_intent.activity_type,
+            "anchor_type": flow_edit_intent.anchor_activity_type,
+            "anchor_position": "after" if flow_edit_intent.anchor_activity_type else None,
+            "activity_params": {},
+            "assistant_message": "",
+        }
+        if existing_flow and flow_edit_intent.activity_type == "BusinessTransactionActivity":
+            planner_plan, planned_flow_edit_warning = await _llm_plan_special_turn(
+                request.goal,
+                preferences=request.builder_preferences,
+                existing_flow=existing_flow,
+                ref=ref_full,
+            )
+            if planner_plan and planner_plan.get("action") == "add_activity":
+                planner_plan.setdefault("activity_type", "BusinessTransactionActivity")
+                if not planner_plan.get("anchor_type"):
+                    planner_plan["anchor_type"] = flow_edit_intent.anchor_activity_type
+                if not planner_plan.get("anchor_position") and flow_edit_intent.anchor_activity_type:
+                    planner_plan["anchor_position"] = "after"
+                planned_flow_edit = planner_plan
+    elif existing_flow and _looks_like_flow_activity_edit(request.goal):
+        planned_flow_edit, planned_flow_edit_warning = await _llm_plan_special_turn(
+            request.goal,
+            preferences=request.builder_preferences,
+            existing_flow=existing_flow,
+            ref=ref_full,
+        )
+        if planned_flow_edit and planned_flow_edit.get("action") != "add_activity":
+            planned_flow_edit = None
+
+    if planned_flow_edit and planned_flow_edit.get("action") == "add_activity":
+        activity_type = planned_flow_edit.get("activity_type")
+        if not _is_supported_activity_type(activity_type):
+            return BuilderResponse(
+                message=_unsupported_activity_message(activity_type),
+                campaign_id=request.session_campaign_id,
+                draft_flow=existing_flow,
+                status="error",
+            )
+
         if not existing_flow:
             return BuilderResponse(
                 message=(
@@ -1192,11 +1348,36 @@ async def run(request: BuilderRequest) -> BuilderResponse:
                 status="error",
             )
 
+        activity_params = dict(planned_flow_edit.get("activity_params") or {})
+        offer = None
+        if activity_type == "BusinessTransactionActivity":
+            resolved_params, offer, fallback_warning = _resolve_business_transaction_activity_params(
+                activity_params,
+                ref_full,
+                request.goal,
+                request.builder_preferences,
+            )
+            if fallback_warning and not planned_flow_edit_warning:
+                planned_flow_edit_warning = fallback_warning
+            if not resolved_params:
+                return BuilderResponse(
+                    message=(
+                        "Не удалось выбрать шаблон оффера для бизнес-транзакции: справочник офферов пуст "
+                        "или недоступен. Укажите offer_template_id и operation_id или проверьте доступ к AdTarget API."
+                    ),
+                    campaign_id=request.session_campaign_id,
+                    draft_flow=existing_flow,
+                    status="error",
+                )
+            activity_params = resolved_params
+
         try:
             updated_flow = _add_activity_to_flow(
                 existing_flow,
-                str(flow_edit_intent.activity_type),
-                anchor_activity_type=flow_edit_intent.anchor_activity_type,
+                str(activity_type),
+                activity_params=activity_params,
+                anchor_activity_type=planned_flow_edit.get("anchor_type"),
+                anchor_position=planned_flow_edit.get("anchor_position"),
             )
         except Exception as e:
             return BuilderResponse(
@@ -1206,85 +1387,20 @@ async def run(request: BuilderRequest) -> BuilderResponse:
                 status="error",
             )
 
-        anchor_text = (
-            f" после {flow_edit_intent.anchor_activity_type}"
-            if flow_edit_intent.anchor_activity_type
-            else " в конец flow"
-        )
-        return BuilderResponse(
-            message=f"Добавил {flow_edit_intent.activity_type}{anchor_text}.",
-            campaign_id=request.session_campaign_id,
-            draft_flow=updated_flow,
-            status="created" if request.session_campaign_id else "in_progress",
-        )
-
-    # LLM-planned follow-up edit: planner selects the offer, backend applies validated flow update.
-    if flow_edit_intent and flow_edit_intent.action == "add_business_transaction":
-        if not existing_flow:
-            return BuilderResponse(
-                message=(
-                    "Не нашёл текущий flow для доработки. Сначала соберите кампанию, "
-                    "затем повторите запрос на добавление бизнес-транзакции."
-                ),
-                campaign_id=request.session_campaign_id,
-                draft_flow=None,
-                status="error",
+        anchor_type = planned_flow_edit.get("anchor_type")
+        anchor_position = planned_flow_edit.get("anchor_position") or "after"
+        if anchor_type:
+            anchor_text = f" {anchor_position} {anchor_type}"
+        else:
+            anchor_text = " в конец flow"
+        message = planned_flow_edit.get("assistant_message") or f"Добавил {activity_type}{anchor_text}."
+        if offer:
+            message += (
+                f"\n\nШаблон оффера: **{offer.get('name', offer['id'])}** "
+                f"(id={offer['id']}, operationId={activity_params['operation_id']})."
             )
-
-        plan, plan_warning = await _llm_plan_special_turn(
-            request.goal,
-            preferences=request.builder_preferences,
-            existing_flow=existing_flow,
-            ref=ref_full,
-        )
-
-        offer = None
-        if plan and plan.get("action") == "add_business_transaction" and plan.get("offer_template_id"):
-            plan_offer_id = int(plan["offer_template_id"])
-            offer = next((item for item in ref_full.get("offers", []) if item.get("id") == plan_offer_id), None)
-        if not offer:
-            offer = _select_offer_template(ref_full, request.goal, request.builder_preferences)
-            if offer and not plan_warning:
-                plan_warning = "LLM-планировщик не выбрал валидный offer_template_id; использован ближайший шаблон из справочника."
-
-        if not offer:
-            return BuilderResponse(
-                message=(
-                    "Не удалось выбрать шаблон оффера для бизнес-транзакции: справочник офферов пуст "
-                    "или недоступен. Укажите offer_template_id и operation_id или проверьте доступ к AdTarget API."
-                ),
-                campaign_id=request.session_campaign_id,
-                draft_flow=existing_flow,
-                status="error",
-            )
-
-        operation_id = str(plan.get("operation_id") or offer["operationId"]) if plan else str(offer["operationId"])
-        try:
-            updated_flow = _add_business_transaction_to_flow(
-                existing_flow,
-                int(offer["id"]),
-                operation_id,
-                anchor_activity_type=flow_edit_intent.anchor_activity_type,
-            )
-        except Exception as e:
-            return BuilderResponse(
-                message=f"Не удалось добавить бизнес-транзакцию в текущий flow: {type(e).__name__}: {e}",
-                campaign_id=request.session_campaign_id,
-                draft_flow=existing_flow,
-                status="error",
-            )
-
-        message = (
-            plan.get("assistant_message")
-            if plan and plan.get("assistant_message")
-            else "Добавил BusinessTransactionActivity в конец коммуникационной цепочки."
-        )
-        message += (
-            f"\n\nШаблон оффера: **{offer.get('name', offer['id'])}** "
-            f"(id={offer['id']}, operationId={operation_id})."
-        )
-        if plan_warning:
-            message += f"\n\n⚠️ {plan_warning}"
+        if planned_flow_edit_warning:
+            message += f"\n\n⚠️ {planned_flow_edit_warning}"
 
         return BuilderResponse(
             message=message,

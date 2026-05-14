@@ -7,11 +7,14 @@
  */
 
 import { useState } from "react";
-import type { CampaignFlow, CampaignOffer, FlowActivity } from "../types/api";
+import type { CampaignFlow, CampaignOffer, CampaignRuntimeStatus, FlowActivity } from "../types/api";
 
 interface Props {
   flow: CampaignFlow | null;
   campaignId?: number | null;
+  campaignStatus: CampaignRuntimeStatus;
+  onStartCampaign: () => void;
+  onPauseCampaign: () => void;
 }
 
 // ── Node type metadata ────────────────────────────────────────────────────────
@@ -146,11 +149,17 @@ function computeBounds(positions: Map<string, Pos>): { width: number; height: nu
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function AdTargetMock({ flow, campaignId }: Props) {
+export function AdTargetMock({ flow, campaignId, campaignStatus, onStartCampaign, onPauseCampaign }: Props) {
   return (
     <div className="adt-shell">
       <AdtTopNav />
-      <AdtCampaignBar flow={flow} campaignId={campaignId} />
+      <AdtCampaignBar
+        flow={flow}
+        campaignId={campaignId}
+        campaignStatus={campaignStatus}
+        onStartCampaign={onStartCampaign}
+        onPauseCampaign={onPauseCampaign}
+      />
       <AdtTabBar />
       <div className="adt-body">
         <AdtSidebar />
@@ -206,9 +215,29 @@ function AdtTopNav() {
 
 // ── Campaign breadcrumb bar ───────────────────────────────────────────────────
 
-function AdtCampaignBar({ flow, campaignId }: { flow: CampaignFlow | null; campaignId?: number | null }) {
+function AdtCampaignBar({
+  flow,
+  campaignId,
+  campaignStatus,
+  onStartCampaign,
+  onPauseCampaign,
+}: {
+  flow: CampaignFlow | null;
+  campaignId?: number | null;
+  campaignStatus: CampaignRuntimeStatus;
+  onStartCampaign: () => void;
+  onPauseCampaign: () => void;
+}) {
   const name = flow?.activities?.find(a => a.type === "CommonActivity")?.name ?? "Demo campaign";
   const idStr = campaignId ? ` | ${campaignId}` : "";
+  const statusLabels: Record<CampaignRuntimeStatus, string> = {
+    editing: "Редактирование",
+    active: "Активна",
+    paused: "На паузе",
+  };
+  const canStart = Boolean(campaignId) && (campaignStatus === "editing" || campaignStatus === "paused");
+  const canPause = campaignStatus === "active";
+
   return (
     <div className="adt-campaign-bar">
       <div className="adt-campaign-bar-left">
@@ -216,15 +245,30 @@ function AdtCampaignBar({ flow, campaignId }: { flow: CampaignFlow | null; campa
         <span className="adt-campaign-crumb">Campaigns</span>
         <span className="adt-crumb-sep">/</span>
         <span className="adt-campaign-name">{name}{idStr}</span>
-        <span className="adt-campaign-status">
+        <span className={`adt-campaign-status ${campaignStatus}`}>
           <span className="adt-status-dot" />
-          Editing
+          {statusLabels[campaignStatus]}
         </span>
       </div>
       <div className="adt-campaign-bar-right">
-        {["▶","⏸","⏹","🗓","⚙"].map(icon => (
-          <button key={icon} className="adt-toolbar-btn">{icon}</button>
-        ))}
+        <button
+          type="button"
+          className="adt-toolbar-btn adt-toolbar-btn-start"
+          onClick={onStartCampaign}
+          disabled={!canStart}
+          title={campaignId ? "Запустить кампанию" : "Сначала создайте кампанию"}
+        >
+          ▶ Запустить
+        </button>
+        <button
+          type="button"
+          className="adt-toolbar-btn adt-toolbar-btn-pause"
+          onClick={onPauseCampaign}
+          disabled={!canPause}
+          title="Поставить кампанию на паузу"
+        >
+          ⏸ Пауза
+        </button>
       </div>
     </div>
   );

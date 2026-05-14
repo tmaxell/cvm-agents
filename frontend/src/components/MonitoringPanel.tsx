@@ -12,7 +12,6 @@ interface Props {
   campaignId: number | null;
   draftFlowJson: string | null;
   campaignStatus: CampaignRuntimeStatus;
-  onCampaignStatusChange: (status: CampaignRuntimeStatus) => void;
   lang?: "ru" | "en";
 }
 
@@ -20,7 +19,6 @@ export function MonitoringPanel({
   campaignId,
   draftFlowJson,
   campaignStatus,
-  onCampaignStatusChange,
   lang = "ru",
 }: Props) {
   const [data, setData] = useState<MonitorResponse | null>(null);
@@ -70,17 +68,6 @@ export function MonitoringPanel({
     fetchMonitor(nextSeed);
   };
 
-  const handleStart = () => {
-    onCampaignStatusChange("active");
-    const nextSeed = seed + 1;
-    setSeed(nextSeed);
-    fetchMonitor(nextSeed);
-  };
-
-  const handlePause = () => {
-    onCampaignStatusChange("paused");
-  };
-
   if (!campaignId) {
     return (
       <div className="fw-monitor-empty">
@@ -113,29 +100,13 @@ export function MonitoringPanel({
           <code className="fw-monitor-campaign-id">#{campaignId}</code>
           <span className={`fw-monitor-status ${campaignStatus}`}>
             {campaignStatus === "editing"
-              ? (lang === "en" ? "Editing" : "Editing")
+              ? (lang === "en" ? "Editing" : "Редактирование")
               : campaignStatus === "active"
-              ? (lang === "en" ? "Active" : "Active")
-              : (lang === "en" ? "Paused" : "Paused")}
+              ? (lang === "en" ? "Active" : "Активна")
+              : (lang === "en" ? "Paused" : "На паузе")}
           </span>
         </div>
         <div className="fw-monitor-actions">
-          <button
-            className="fw-monitor-run"
-            onClick={handleStart}
-            disabled={loading || campaignStatus === "active"}
-            title={lang === "en" ? "Start campaign" : "Запустить кампанию"}
-          >
-            ▶ {lang === "en" ? "Start" : "Запуск"}
-          </button>
-          <button
-            className="fw-monitor-pause"
-            onClick={handlePause}
-            disabled={campaignStatus !== "active"}
-            title={lang === "en" ? "Pause campaign" : "Поставить на паузу"}
-          >
-            ⏸ {lang === "en" ? "Pause" : "Пауза"}
-          </button>
           <button
             className="fw-monitor-refresh"
             onClick={handleRefresh}

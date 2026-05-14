@@ -22,6 +22,7 @@ interface FloatingWidgetProps {
   onFlowUpdate: (response: BuilderResponse | null) => void;
   hasErrors: boolean;
   builderResponse: BuilderResponse | null;
+  campaignStatus: CampaignRuntimeStatus;
 }
 
 type Tab = "copilot" | "builder" | "monitoring";
@@ -53,12 +54,11 @@ const COPILOT_PLACEHOLDER: Record<Lang, string> = {
   en: "Ask about campaigns, errors, settings…",
 };
 
-export function FloatingWidget({ onFlowUpdate, hasErrors, builderResponse }: FloatingWidgetProps) {
+export function FloatingWidget({ onFlowUpdate, hasErrors, builderResponse, campaignStatus }: FloatingWidgetProps) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("copilot");
   const [size, setSize] = useState<Size>("normal");
   const [lang, setLang] = useState<Lang>("ru");
-  const [campaignStatus, setCampaignStatus] = useState<CampaignRuntimeStatus>("editing");
   const panelRef = useRef<HTMLDivElement>(null);
 
   // Close on outside click
@@ -161,7 +161,6 @@ export function FloatingWidget({ onFlowUpdate, hasErrors, builderResponse }: Flo
                 campaignId={builderResponse?.campaign_id ?? null}
                 draftFlowJson={monitorFlowJson}
                 campaignStatus={campaignStatus}
-                onCampaignStatusChange={setCampaignStatus}
                 lang={lang}
               />
             </div>

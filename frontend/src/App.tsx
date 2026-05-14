@@ -11,19 +11,24 @@
 import { useState, useCallback } from "react";
 import { AdTargetMock } from "./components/AdTargetMock";
 import { FloatingWidget } from "./components/FloatingWidget";
-import type { BuilderResponse, CampaignFlow } from "./types/api";
+import type { BuilderResponse, CampaignFlow, CampaignRuntimeStatus } from "./types/api";
 
 export function App() {
   const [currentFlow, setCurrentFlow] = useState<CampaignFlow | null>(null);
   const [currentResponse, setCurrentResponse] = useState<BuilderResponse | null>(null);
   const [hasErrors, setHasErrors] = useState(false);
+  const [campaignStatus, setCampaignStatus] = useState<CampaignRuntimeStatus>("editing");
 
   const handleFlowUpdate = useCallback((response: BuilderResponse | null) => {
     if (!response) {
       setCurrentFlow(null);
       setCurrentResponse(null);
       setHasErrors(false);
+      setCampaignStatus("editing");
       return;
+    }
+    if (currentResponse?.campaign_id !== response.campaign_id) {
+      setCampaignStatus("editing");
     }
     setCurrentResponse(response);
     if (response.draft_flow) {
@@ -33,7 +38,7 @@ export function App() {
       ) ?? false;
       setHasErrors(anyErrors || response.status === "error");
     }
-  }, []);
+  }, [currentResponse?.campaign_id]);
 
   return (
     <>
@@ -41,6 +46,9 @@ export function App() {
       <AdTargetMock
         flow={currentFlow}
         campaignId={currentResponse?.campaign_id ?? null}
+        campaignStatus={campaignStatus}
+        onStartCampaign={() => setCampaignStatus("active")}
+        onPauseCampaign={() => setCampaignStatus("paused")}
       />
 
       {/* Floating AI widget */}
@@ -48,6 +56,7 @@ export function App() {
         onFlowUpdate={handleFlowUpdate}
         hasErrors={hasErrors}
         builderResponse={currentResponse}
+        campaignStatus={campaignStatus}
       />
     </>
   );

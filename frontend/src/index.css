@@ -1970,12 +1970,42 @@ button {
   font-weight: 500;
 }
 
+.adt-campaign-status.editing {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #475569;
+}
+
+.adt-campaign-status.active {
+  background: #ecfdf5;
+  border-color: #86efac;
+  color: #15803d;
+}
+
+.adt-campaign-status.paused {
+  background: #fffbeb;
+  border-color: #fcd34d;
+  color: #b45309;
+}
+
 .adt-status-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: #0ea5e9;
   flex-shrink: 0;
+}
+
+.adt-campaign-status.editing .adt-status-dot {
+  background: #94a3b8;
+}
+
+.adt-campaign-status.active .adt-status-dot {
+  background: #22c55e;
+}
+
+.adt-campaign-status.paused .adt-status-dot {
+  background: #f59e0b;
 }
 
 .adt-campaign-bar-right {
@@ -1985,17 +2015,42 @@ button {
 }
 
 .adt-toolbar-btn {
-  width: 28px;
+  min-width: 28px;
   height: 28px;
+  padding: 0 10px;
   border: 1px solid var(--adt-border);
   border-radius: 5px;
   background: var(--adt-surface);
   color: var(--adt-text-secondary);
   font-size: 12px;
+  font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: default;
+  gap: 4px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.adt-toolbar-btn:hover:not(:disabled) {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: var(--adt-accent);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+.adt-toolbar-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.adt-toolbar-btn-start:not(:disabled) {
+  color: #15803d;
+}
+
+.adt-toolbar-btn-pause:not(:disabled) {
+  color: #b45309;
 }
 
 /* ── Tab bar ─────────────────────────────────────────────────── */
@@ -2677,6 +2732,37 @@ button {
   font-size: 12px;
   font-weight: 700;
   margin-left: 4px;
+}
+
+.fw-monitor-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fw-monitor-status {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.fw-monitor-status.active {
+  background: #ecfdf5;
+  border-color: #86efac;
+  color: #15803d;
+}
+
+.fw-monitor-status.paused {
+  background: #fffbeb;
+  border-color: #fcd34d;
+  color: #b45309;
 }
 
 .fw-monitor-refresh {

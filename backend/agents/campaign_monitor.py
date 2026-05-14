@@ -32,7 +32,10 @@ CHANNEL_LABELS = {
     "CustomContent": "Push",
     "UssdContent": "USSD",
     "FlashSmsContent": "Flash SMS",
+    "JsonContent": "Push",
 }
+
+CLICK_BASED_CONTENT_TYPES = {"EmailContent", "CustomContent", "JsonContent"}
 
 
 # ── Детерминированная генерация метрик ────────────────────────────────────────
@@ -95,8 +98,18 @@ def _generate_metrics(campaign_id: int, refresh_seed: int, activities: list[dict
         open_base = (45, 72)
         click_base = (8, 18) if has_click_based_channel else (0, 0)
 
-    # Event-triggered кампании обычно релевантнее
-    if has_event:
+    click_base = (3, 9) if has_email else (8, 18) if has_click_based_flow else (0, 0)
+
+    # Event-triggered кампании обычно релевантнее. Для click-based flow конверсия
+    # считается от кликнувших, поэтому диапазон выше, чем для delivered-based flow.
+    if has_click_based_flow:
+        if has_event:
+            conv_base = (28, 58)
+        elif has_bt:
+            conv_base = (22, 48)
+        else:
+            conv_base = (16, 36)
+    elif has_event:
         conv_base = (12, 28)
     elif has_bt:
         conv_base = (8, 20)
@@ -147,7 +160,8 @@ def _generate_metrics(campaign_id: int, refresh_seed: int, activities: list[dict
         # Контрольная группа обычно ниже тестовой: нет/меньше воздействия кампании.
         delta = rng.uniform(1.5, 5.5)
         control_conversion_rate = round(max(0.5, conversion_rate - delta), 1)
-        control_activations = round(control_group_size * control_conversion_rate / 100)
+        control_conversion_base_count = round(control_group_size * conversion_base_count / test_group_size) if test_group_size else 0
+        control_activations = min(control_conversion_base_count, round(control_conversion_base_count * control_conversion_rate / 100))
         uplift_pp = round(conversion_rate - control_conversion_rate, 1)
         uplift_percent = round((uplift_pp / control_conversion_rate * 100), 1) if control_conversion_rate else 0.0
         control_group = ControlGroupComparison(
@@ -314,11 +328,11 @@ async def run(request: MonitorRequest) -> MonitorResponse:
         f"{json.dumps(flow_summary, ensure_ascii=False, indent=2)}\n\n"
         f"Текущие метрики:\n"
         f"- Отправлено всего: {metrics.sent_count}\n"
-        f"- Доставлено всего: {metrics.delivered_count} ({metrics.delivery_rate}%)\n"
+        f"- Доставлено всего: {metrics.delivered_count} ({metrics.delivery_rate}% от отправленных)\n"
+        f"- Прочитано/открыто: {metrics.opened_count} ({metrics.open_rate}% от доставленных)\n"
+        f"- Переходы: {metrics.clicked_count} ({metrics.click_rate}% от открывших; 0 для каналов без кликов)\n"
         f"- Активации: {metrics.activation_count}\n"
-        f"- Прочтения/Открытия: {metrics.open_rate}%\n"
-        f"- Переходы: {metrics.click_rate}%\n"
-        f"- Конверсия/активации: {metrics.conversion_rate}%\n"
+        f"- Конверсия/активации: {metrics.conversion_rate}% от кликнувших для click-based flow, иначе от доставленных\n"
         f"- Доставки по каналам: {json.dumps([c.model_dump() for c in metrics.channel_deliveries], ensure_ascii=False)}\n"
         f"- Контрольная группа: {json.dumps(metrics.control_group.model_dump() if metrics.control_group else None, ensure_ascii=False)}\n\n"
         f"Дай оценку, отдельно рекомендации по структуре кампании, похожим прошлым действиям и рекомендации после запуска. "

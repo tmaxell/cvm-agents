@@ -2012,6 +2012,8 @@ button {
   display: flex;
   align-items: center;
   gap: 4px;
+  /* Re-enable runtime action clicks inside the non-interactive mock shell. */
+  pointer-events: auto;
 }
 
 .adt-action-error {

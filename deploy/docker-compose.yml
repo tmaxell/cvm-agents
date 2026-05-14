@@ -1,4 +1,19 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cvm-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cvm_agents}
+      POSTGRES_USER: ${POSTGRES_USER:-cvm_agents}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cvm_agents}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   backend:
     build:
       context: ..
@@ -13,6 +28,10 @@ services:
       - ../docs:/app/docs
     environment:
       - ADTARGET_MOCK=${ADTARGET_MOCK:-true}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-cvm_agents}:${POSTGRES_PASSWORD:-cvm_agents}@postgres:5432/${POSTGRES_DB:-cvm_agents}
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   frontend:
     build:
@@ -30,3 +49,6 @@ services:
       - VITE_API_PROXY=http://backend:8000
     depends_on:
       - backend
+
+volumes:
+  postgres_data:

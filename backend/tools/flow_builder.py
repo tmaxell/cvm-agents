@@ -230,12 +230,102 @@ def make_business_transaction_activity(
     }
 
 
-def make_realtime_check_activity(
+def make_pull_communication_activity(
+    channel_id: int,
+    content_type: str,
+    message_text: str,
+    *,
+    next_id: str | None = None,
+    sender: str | None = None,
+) -> dict[str, Any]:
+    """PullCommunicationActivity — входящая коммуникация через канал."""
+    activity = make_push_communication_activity(
+        channel_id,
+        content_type,
+        message_text,
+        next_id=next_id,
+        sender=sender,
+    )
+    activity["type"] = "PullCommunicationActivity"
+    activity["name"] = content_type.replace("Content", " pull").strip()
+    return activity
+
+
+def make_response_activity(
+    response_code: str | None = None,
+    *,
+    next_id: str | None = None,
+    relevance_minutes: int = 15,
+    filters: list | None = None,
+) -> dict[str, Any]:
+    """ResponseActivity — обработка отклика клиента."""
+    return {
+        "type": "ResponseActivity",
+        "id": new_id(),
+        "name": response_code or "Response",
+        "position": {"left": 120, "top": 262},
+        "nextActivityId": next_id,
+        "tagIds": [],
+        "errors": [],
+        "warnings": [],
+        "responseCode": response_code,
+        "responseRelevanceInMinutes": str(relevance_minutes),
+        "filters": filters or [],
+        "cases": {},
+        "defaultSuccessActivityId": None,
+        "defaultFailActivityId": None,
+        "timeoutParameters": None,
+        "haveToCheckSchedule": False,
+    }
+
+
+def make_interactive_response_activity(
+    response_code: str | None = None,
+    *,
+    next_id: str | None = None,
+    relevance_minutes: int = 15,
+    filters: list | None = None,
+) -> dict[str, Any]:
+    """InteractiveResponseActivity — интерактивный отклик клиента."""
+    activity = make_response_activity(
+        response_code,
+        next_id=next_id,
+        relevance_minutes=relevance_minutes,
+        filters=filters,
+    )
+    activity["type"] = "InteractiveResponseActivity"
+    activity["name"] = response_code or "Interactive response"
+    return activity
+
+
+def make_or_join_activity(
+    *,
+    next_id: str | None = None,
+) -> dict[str, Any]:
+    """OrJoinActivity — объединение нескольких веток flow."""
+    return {
+        "type": "OrJoinActivity",
+        "id": new_id(),
+        "name": "OR join",
+        "position": {"left": 120, "top": 262},
+        "nextActivityId": next_id,
+        "tagIds": [],
+        "errors": [],
+        "warnings": [],
+    }
+
+
+def make_real_time_check_activity(
     *,
     next_id: str | None = None,
     filters: list | None = None,
 ) -> dict[str, Any]:
-    """RealTimeCheckActivity — real-time проверка параметров клиента."""
+    """RealTimeCheckActivity — real-time проверка параметров клиента.
+
+    В репозитории нет валидного экспортированного примера AdTarget для этой
+    активности, поэтому сохраняем минимальную структуру, уже используемую
+    прототипом, до получения точного образца от аналитика.
+    """
     return {
         "type": "RealTimeCheckActivity",
         "id": new_id(),
@@ -250,6 +340,15 @@ def make_realtime_check_activity(
         "defaultSuccessActivityId": None,
         "defaultFailActivityId": None,
     }
+
+
+def make_realtime_check_activity(
+    *,
+    next_id: str | None = None,
+    filters: list | None = None,
+) -> dict[str, Any]:
+    """Backward-compatible alias for make_real_time_check_activity."""
+    return make_real_time_check_activity(next_id=next_id, filters=filters)
 
 
 def _content_parameter_value(activity: dict[str, Any], name: str) -> Any:

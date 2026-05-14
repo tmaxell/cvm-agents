@@ -18,7 +18,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, Any
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage, trim_messages
 from langgraph.graph import StateGraph, END
@@ -37,7 +37,11 @@ from tools.flow_builder import (
     make_event_activity,
     make_business_transaction_activity,
     make_wait_activity,
-    make_realtime_check_activity,
+    make_real_time_check_activity,
+    make_response_activity,
+    make_pull_communication_activity,
+    make_or_join_activity,
+    make_interactive_response_activity,
     assemble_flow,
 )
 
@@ -359,14 +363,105 @@ def _add_activity_to_flow(
     if not activities:
         raise ValueError("flow должен содержать activities[]")
 
-    if activity_type == "RealTimeCheckActivity":
-        new_activity = make_realtime_check_activity()
-    else:
-        raise ValueError(f"Неподдерживаемый тип активности: {activity_type}")
+    new_activity = _make_activity_from_params(activity_type, {})
 
     insert_index = _anchor_insert_index(activities, anchor_activity_type)
     activities.insert(insert_index, new_activity)
     return assemble_flow(activities)
+
+
+def _parse_activity_params(activity_params: dict[str, Any] | str | None) -> dict[str, Any]:
+    if activity_params is None:
+        return {}
+    if isinstance(activity_params, str):
+        if not activity_params.strip():
+            return {}
+        parsed = json.loads(activity_params)
+        if not isinstance(parsed, dict):
+            raise ValueError("activity_params должен быть JSON-объектом")
+        return parsed
+    if isinstance(activity_params, dict):
+        return activity_params
+    raise ValueError("activity_params должен быть dict или JSON-строкой")
+
+
+def _make_activity_from_params(activity_type: str, activity_params: dict[str, Any] | None = None) -> dict[str, Any]:
+    params = activity_params or {}
+    if activity_type == "RealTimeCheckActivity":
+        return make_real_time_check_activity(filters=params.get("filters"))
+    if activity_type == "ResponseActivity":
+        return make_response_activity(
+            params.get("response_code") or params.get("responseCode"),
+            relevance_minutes=int(params.get("relevance_minutes") or params.get("responseRelevanceInMinutes") or 15),
+            filters=params.get("filters"),
+        )
+    if activity_type == "InteractiveResponseActivity":
+        return make_interactive_response_activity(
+            params.get("response_code") or params.get("responseCode"),
+            relevance_minutes=int(params.get("relevance_minutes") or params.get("responseRelevanceInMinutes") or 15),
+            filters=params.get("filters"),
+        )
+    if activity_type == "PullCommunicationActivity":
+        return make_pull_communication_activity(
+            int(params["channel_id"]),
+            str(params.get("content_type") or params.get("contentType") or "SmsContent"),
+            str(params.get("message_text") or params.get("text") or ""),
+            sender=params.get("sender"),
+        )
+    if activity_type == "PushCommunicationActivity":
+        return make_push_communication_activity(
+            int(params["channel_id"]),
+            str(params.get("content_type") or params.get("contentType") or "SmsContent"),
+            str(params.get("message_text") or params.get("text") or ""),
+            sender=params.get("sender"),
+        )
+    if activity_type == "EventActivity":
+        return make_event_activity(
+            str(params["event_code"]),
+            relevance_minutes=int(params.get("relevance_minutes") or 15),
+            filters=params.get("filters"),
+        )
+    if activity_type == "WaitActivity":
+        return make_wait_activity(int(params.get("wait_days") or params.get("days") or 1))
+    if activity_type == "BusinessTransactionActivity":
+        return make_business_transaction_activity(
+            int(params["offer_template_id"]),
+            str(params["operation_id"]),
+            list(params.get("operation_params") or []),
+        )
+    if activity_type == "OrJoinActivity":
+        return make_or_join_activity()
+    raise ValueError(f"Неподдерживаемый тип активности: {activity_type}")
+
+
+def _find_anchor_insert_index(
+    activities: list[dict],
+    *,
+    anchor_type: str | None = None,
+    anchor_id: str | None = None,
+    position: str = "after",
+) -> int:
+    if position not in {"after", "before", "end"}:
+        raise ValueError('position должен быть "after", "before" или "end"')
+    if position == "end":
+        return len(activities)
+
+    anchor_index = None
+    if anchor_id:
+        anchor_index = next(
+            (i for i, activity in enumerate(activities) if isinstance(activity, dict) and activity.get("id") == anchor_id),
+            None,
+        )
+    elif anchor_type:
+        for i in range(len(activities) - 1, -1, -1):
+            activity = activities[i]
+            if isinstance(activity, dict) and activity.get("type") == anchor_type:
+                anchor_index = i
+                break
+
+    if anchor_index is None:
+        return len(activities)
+    return anchor_index + 1 if position == "after" else anchor_index
 
 
 # ── Reference data pre-fetch (injected into prompt, no tool round-trips) ─────
@@ -484,7 +579,9 @@ Rules:
 - Work step-by-step: if the user only describes product, content, audience, goal, or offer preferences, acknowledge and keep these details in conversation; ask for missing inputs instead of forcing campaign creation.
 - Build/create only when the user asks to build/create/assemble, or when enough concrete inputs are available and the intent is clearly campaign creation.
 - For a new campaign: pick the right build_*_flow tool, then validate_flow_tool, then create_campaign_tool. Use start_campaign_tool only if user says to launch.
-- For follow-up edits to an existing flow (for example: "добавь бизнес-транзакцию", "добавь активацию оффера"), use session_flow_json and update_existing_flow_with_business_transaction instead of starting from scratch.
+- For follow-up edits to an existing flow, use session_flow_json and update_existing_flow_with_activity instead of starting from scratch for all supported activity types: PushCommunicationActivity, PullCommunicationActivity, EventActivity, WaitActivity, BusinessTransactionActivity, RealTimeCheckActivity, ResponseActivity, InteractiveResponseActivity, OrJoinActivity.
+- You may still use update_existing_flow_with_business_transaction for the legacy business-transaction-only edit path when only offer_template_id and operation_id are needed.
+- For update_existing_flow_with_activity, pass anchor_type/anchor_id and position=after|before|end when the user asks to place an activity relative to any existing node.
 - Prefer explicit Builder UI preferences when present (desired channels, target groups, offer recommendations, product/content/goal).
 - Reply in Russian. SMS text must be concrete and in Russian.
 """
@@ -663,6 +760,41 @@ async def update_existing_flow_with_business_transaction(
         make_business_transaction_activity(offer_template_id, operation_id, []),
     )
     return json.dumps(assemble_flow(activities), ensure_ascii=False)
+
+
+@tool
+async def update_existing_flow_with_activity(
+    flow_json: str,
+    activity_type: str,
+    activity_params: dict[str, Any] | str | None = None,
+    anchor_type: str | None = None,
+    anchor_id: str | None = None,
+    position: str = "after",
+) -> str:
+    """Добавить поддержанную activity в существующий flow рядом с anchor_type/anchor_id.
+
+    activity_params можно передать dict или JSON-строкой. Поддержаны:
+    PushCommunicationActivity, PullCommunicationActivity, EventActivity, WaitActivity,
+    BusinessTransactionActivity, RealTimeCheckActivity, ResponseActivity,
+    InteractiveResponseActivity и OrJoinActivity. position: after|before|end.
+    """
+    flow = json.loads(flow_json) if isinstance(flow_json, str) else flow_json
+    activities = flow.get("activities") if isinstance(flow, dict) else None
+    if not isinstance(activities, list) or not activities:
+        raise ValueError("flow_json должен содержать activities[]")
+
+    params = _parse_activity_params(activity_params)
+    new_activity = _make_activity_from_params(activity_type, params)
+    insert_index = _find_anchor_insert_index(
+        list(activities),
+        anchor_type=anchor_type,
+        anchor_id=anchor_id,
+        position=position,
+    )
+
+    updated_activities = list(activities)
+    updated_activities.insert(insert_index, new_activity)
+    return json.dumps(assemble_flow(updated_activities), ensure_ascii=False)
 
 
 # ── API инструменты ───────────────────────────────────────────────────────────
@@ -851,6 +983,21 @@ async def _flow_from_tool_args(tool_name: str, args: dict) -> dict | None:
                     ),
                 )
                 return assemble_flow(activities)
+        if tool_name == "update_existing_flow_with_activity" and args.get("flow_json"):
+            flow_data = json.loads(args["flow_json"]) if isinstance(args["flow_json"], str) else args["flow_json"]
+            if isinstance(flow_data, dict) and isinstance(flow_data.get("activities"), list):
+                activities = list(flow_data["activities"])
+                params = _parse_activity_params(args.get("activity_params"))
+                activities.insert(
+                    _find_anchor_insert_index(
+                        activities,
+                        anchor_type=args.get("anchor_type"),
+                        anchor_id=args.get("anchor_id"),
+                        position=args.get("position") or "after",
+                    ),
+                    _make_activity_from_params(str(args["activity_type"]), params),
+                )
+                return assemble_flow(activities)
         if tool_name in {"validate_flow_tool", "create_campaign_tool"} and args.get("flow_json"):
             flow_data = json.loads(args["flow_json"]) if isinstance(args["flow_json"], str) else args["flow_json"]
             if isinstance(flow_data, dict):
@@ -899,6 +1046,7 @@ TOOLS = [
     build_event_sms_with_bt_flow,
     build_sms_with_wait_flow,
     update_existing_flow_with_business_transaction,
+    update_existing_flow_with_activity,
     # API
     validate_flow_tool,
     create_campaign_tool,

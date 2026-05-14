@@ -93,80 +93,82 @@ export function FloatingWidget({ onFlowUpdate, hasErrors, builderResponse, campa
   return (
     <div className="fw-root" ref={panelRef}>
       {/* ── Widget Panel ─────────────────────────────────────────── */}
-      {open && (
-        <div className="fw-panel" style={{ width, height }}>
-          {/* Header */}
-          <div className="fw-header">
-            <div className="fw-tabs">
-              <button
-                className={`fw-tab${tab === "copilot" ? " active" : ""}`}
-                onClick={() => setTab("copilot")}
-              >
-                💬 Copilot
-              </button>
-              <button
-                className={`fw-tab${tab === "builder" ? " active" : ""}`}
-                onClick={() => setTab("builder")}
-              >
-                🛠 Builder
-              </button>
-              <button
-                className={`fw-tab${tab === "monitoring" ? " active" : ""}`}
-                onClick={() => setTab("monitoring")}
-                style={{ position: "relative" }}
-              >
-                📊 Monitor
-                {hasMonitorData && tab !== "monitoring" && (
-                  <span className="fw-tab-badge" />
-                )}
-              </button>
-            </div>
-
-            {/* Header action buttons */}
-            <div className="fw-header-actions">
-              <button
-                className="fw-action-btn"
-                onClick={() => setLang(l => l === "ru" ? "en" : "ru")}
-                title={lang === "ru" ? "Switch to English" : "Переключить на русский"}
-              >
-                {lang === "ru" ? "EN" : "RU"}
-              </button>
-              <button
-                className="fw-action-btn"
-                onClick={() => setSize(s => s === "normal" ? "large" : "normal")}
-                title={size === "normal" ? (lang === "en" ? "Expand" : "Развернуть") : (lang === "en" ? "Collapse" : "Свернуть")}
-              >
-                {size === "normal" ? "⤢" : "⤡"}
-              </button>
-              <button className="fw-close" onClick={() => setOpen(false)} title={lang === "en" ? "Close" : "Закрыть"}>✕</button>
-            </div>
+      <div
+        className={open ? "fw-panel" : "fw-panel fw-panel-hidden"}
+        style={{ width, height }}
+        aria-hidden={!open}
+      >
+        {/* Header */}
+        <div className="fw-header">
+          <div className="fw-tabs">
+            <button
+              className={`fw-tab${tab === "copilot" ? " active" : ""}`}
+              onClick={() => setTab("copilot")}
+            >
+              💬 Copilot
+            </button>
+            <button
+              className={`fw-tab${tab === "builder" ? " active" : ""}`}
+              onClick={() => setTab("builder")}
+            >
+              🛠 Builder
+            </button>
+            <button
+              className={`fw-tab${tab === "monitoring" ? " active" : ""}`}
+              onClick={() => setTab("monitoring")}
+              style={{ position: "relative" }}
+            >
+              📊 Monitor
+              {hasMonitorData && tab !== "monitoring" && (
+                <span className="fw-tab-badge" />
+              )}
+            </button>
           </div>
 
-          {/* Content — all panels always mounted; hidden via display:none to preserve state */}
-          <div className="fw-body">
-            <div style={{ display: tab === "copilot" ? "contents" : "none" }}>
-              <ChatPanel
-                title="CVM Copilot"
-                endpoint="/api/copilot"
-                messageKey="question"
-                placeholder={COPILOT_PLACEHOLDER[lang]}
-                suggestions={COPILOT_SUGGESTIONS[lang]}
-              />
-            </div>
-            <div style={{ display: tab === "builder" ? "contents" : "none" }}>
-              <CampaignBuilderChat onResponse={handleBuilderResponse} lang={lang} />
-            </div>
-            <div style={{ display: tab === "monitoring" ? "contents" : "none" }}>
-              <MonitoringPanel
-                campaignId={builderResponse?.campaign_id ?? null}
-                draftFlowJson={monitorFlowJson}
-                campaignStatus={campaignStatus}
-                lang={lang}
-              />
-            </div>
+          {/* Header action buttons */}
+          <div className="fw-header-actions">
+            <button
+              className="fw-action-btn"
+              onClick={() => setLang(l => l === "ru" ? "en" : "ru")}
+              title={lang === "ru" ? "Switch to English" : "Переключить на русский"}
+            >
+              {lang === "ru" ? "EN" : "RU"}
+            </button>
+            <button
+              className="fw-action-btn"
+              onClick={() => setSize(s => s === "normal" ? "large" : "normal")}
+              title={size === "normal" ? (lang === "en" ? "Expand" : "Развернуть") : (lang === "en" ? "Collapse" : "Свернуть")}
+            >
+              {size === "normal" ? "⤢" : "⤡"}
+            </button>
+            <button className="fw-close" onClick={() => setOpen(false)} title={lang === "en" ? "Close" : "Закрыть"}>✕</button>
           </div>
         </div>
-      )}
+
+        {/* Content — all panels always mounted; hidden via display:none to preserve state */}
+        <div className="fw-body">
+          <div style={{ display: tab === "copilot" ? "contents" : "none" }}>
+            <ChatPanel
+              title="CVM Copilot"
+              endpoint="/api/copilot"
+              messageKey="question"
+              placeholder={COPILOT_PLACEHOLDER[lang]}
+              suggestions={COPILOT_SUGGESTIONS[lang]}
+            />
+          </div>
+          <div style={{ display: tab === "builder" ? "contents" : "none" }}>
+            <CampaignBuilderChat onResponse={handleBuilderResponse} lang={lang} />
+          </div>
+          <div style={{ display: tab === "monitoring" ? "contents" : "none" }}>
+            <MonitoringPanel
+              campaignId={builderResponse?.campaign_id ?? null}
+              draftFlowJson={monitorFlowJson}
+              campaignStatus={campaignStatus}
+              lang={lang}
+            />
+          </div>
+        </div>
+      </div>
 
       {/* ── Toggle Button ─────────────────────────────────────────── */}
       <button

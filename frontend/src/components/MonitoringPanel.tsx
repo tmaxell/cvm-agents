@@ -275,10 +275,6 @@ function Funnel({ metrics, lang }: { metrics: MonitorMetrics; lang: "ru" | "en" 
   const hasClickStage = (metrics.click_rate ?? 0) > 0 || clicked > 0;
   const max = Math.max(sent, delivered, opened, clicked, activated, 1);
 
-  const formatStageRate = (value: number, previous: number) => (
-    previous > 0 ? `${Math.round(value / previous * 100)}%` : "—"
-  );
-
   const steps = [
     {
       label: lang === "en" ? "Sent" : "Отправлено",

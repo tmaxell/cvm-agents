@@ -2014,6 +2014,20 @@ button {
   gap: 4px;
 }
 
+.adt-action-error {
+  max-width: 360px;
+  padding: 5px 9px;
+  border: 1px solid rgba(239, 68, 68, 0.28);
+  border-radius: 5px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .adt-toolbar-btn {
   min-width: 28px;
   height: 28px;

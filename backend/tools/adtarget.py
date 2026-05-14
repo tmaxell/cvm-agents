@@ -182,6 +182,16 @@ async def update_campaign_flow(campaign_id: int, flow: dict) -> dict:
         return {"campaignId": campaign_id, "errors": [], "warnings": []}
 
 
+def _use_mock_for_runtime_action(error: httpx.HTTPError) -> None:
+    """Switch runtime actions to prototype/mock mode after API/auth HTTP failures."""
+    status_code = error.response.status_code if isinstance(error, httpx.HTTPStatusError) else None
+    if status_code is None:
+        print(f"[adtarget] runtime action HTTP error: {error.__class__.__name__}")
+    else:
+        print(f"[adtarget] runtime action HTTP status error: {status_code}")
+    _enable_auto_mock()
+
+
 async def start_campaign(campaign_id: int) -> list:
     """PUT /Campaigns/start — запуск кампании."""
     if _is_mock():
@@ -197,8 +207,8 @@ async def start_campaign(campaign_id: int) -> list:
                 "campaignIdsInfo.campaignIds": str(campaign_id),
             },
         )
-    except (httpx.ConnectError, httpx.ConnectTimeout):
-        _enable_auto_mock()
+    except httpx.HTTPError as e:
+        _use_mock_for_runtime_action(e)
         from tools.mock_data import make_mock_start_result
         return make_mock_start_result(campaign_id)
 
@@ -218,8 +228,8 @@ async def pause_campaign(campaign_id: int) -> list:
                 "campaignIdsInfo.campaignIds": str(campaign_id),
             },
         )
-    except (httpx.ConnectError, httpx.ConnectTimeout):
-        _enable_auto_mock()
+    except httpx.HTTPError as e:
+        _use_mock_for_runtime_action(e)
         from tools.mock_data import make_mock_pause_result
         return make_mock_pause_result(campaign_id)
 

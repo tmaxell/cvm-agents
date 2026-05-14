@@ -14,6 +14,7 @@ interface Props {
   campaignId?: number | null;
   campaignStatus: CampaignRuntimeStatus;
   isActionPending?: boolean;
+  actionError?: string | null;
   onStartCampaign: () => void | Promise<void>;
   onPauseCampaign: () => void | Promise<void>;
 }
@@ -155,6 +156,7 @@ export function AdTargetMock({
   campaignId,
   campaignStatus,
   isActionPending = false,
+  actionError,
   onStartCampaign,
   onPauseCampaign,
 }: Props) {
@@ -166,6 +168,7 @@ export function AdTargetMock({
         campaignId={campaignId}
         campaignStatus={campaignStatus}
         isActionPending={isActionPending}
+        actionError={actionError}
         onStartCampaign={onStartCampaign}
         onPauseCampaign={onPauseCampaign}
       />
@@ -229,6 +232,7 @@ function AdtCampaignBar({
   campaignId,
   campaignStatus,
   isActionPending = false,
+  actionError,
   onStartCampaign,
   onPauseCampaign,
 }: {
@@ -236,6 +240,7 @@ function AdtCampaignBar({
   campaignId?: number | null;
   campaignStatus: CampaignRuntimeStatus;
   isActionPending?: boolean;
+  actionError?: string | null;
   onStartCampaign: () => void | Promise<void>;
   onPauseCampaign: () => void | Promise<void>;
 }) {
@@ -264,6 +269,7 @@ function AdtCampaignBar({
         </span>
       </div>
       <div className="adt-campaign-bar-right">
+        {actionError && <span className="adt-action-error" title={actionError}>{actionError}</span>}
         <button
           type="button"
           className="adt-toolbar-btn adt-toolbar-btn-start"

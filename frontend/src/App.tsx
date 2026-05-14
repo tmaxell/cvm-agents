@@ -26,6 +26,7 @@ export function App() {
   const [hasErrors, setHasErrors] = useState(false);
   const [campaignStatus, setCampaignStatus] = useState<CampaignRuntimeStatus>("editing");
   const [campaignActionPending, setCampaignActionPending] = useState(false);
+  const [campaignActionError, setCampaignActionError] = useState<string | null>(null);
 
   const handleCampaignAction = useCallback(async (action: "start" | "pause") => {
     const campaignId = currentResponse?.campaign_id;
@@ -34,6 +35,7 @@ export function App() {
     }
 
     setCampaignActionPending(true);
+    setCampaignActionError(null);
     try {
       const response = await fetch(`${API_BASE}/api/campaigns/${campaignId}/${action}`, {
         method: "POST",
@@ -41,18 +43,13 @@ export function App() {
         body: JSON.stringify({ campaign_id: campaignId }),
       });
       if (!response.ok) {
-        const detail = await response.text();
-        throw new Error(detail || `Campaign ${action} failed`);
+        throw new Error(await extractCampaignActionError(response, action));
       }
       const data = await response.json() as CampaignActionResponse;
       setCampaignStatus(data.status);
     } catch (error) {
       console.error(`Failed to ${action} campaign`, error);
-      window.alert(
-        action === "start"
-          ? "Не удалось запустить кампанию"
-          : "Не удалось поставить кампанию на паузу"
-      );
+      setCampaignActionError(error instanceof Error ? error.message : getDefaultActionError(action));
     } finally {
       setCampaignActionPending(false);
     }
@@ -64,10 +61,12 @@ export function App() {
       setCurrentResponse(null);
       setHasErrors(false);
       setCampaignStatus("editing");
+      setCampaignActionError(null);
       return;
     }
     if (currentResponse?.campaign_id !== response.campaign_id) {
       setCampaignStatus("editing");
+      setCampaignActionError(null);
     }
     setCurrentResponse(response);
     if (response.draft_flow) {
@@ -87,6 +86,7 @@ export function App() {
         campaignId={currentResponse?.campaign_id ?? null}
         campaignStatus={campaignStatus}
         isActionPending={campaignActionPending}
+        actionError={campaignActionError}
         onStartCampaign={() => handleCampaignAction("start")}
         onPauseCampaign={() => handleCampaignAction("pause")}
       />
@@ -100,6 +100,57 @@ export function App() {
       />
     </>
   );
+}
+
+async function extractCampaignActionError(response: Response, action: "start" | "pause"): Promise<string> {
+  const fallback = getDefaultActionError(action);
+  const text = await response.text();
+  if (!text) {
+    return fallback;
+  }
+
+  try {
+    const payload = JSON.parse(text) as { detail?: unknown };
+    return formatErrorDetail(payload.detail) || text;
+  } catch {
+    return text;
+  }
+}
+
+function formatErrorDetail(detail: unknown): string | null {
+  if (!detail) {
+    return null;
+  }
+  if (typeof detail === "string") {
+    return detail;
+  }
+  if (typeof detail !== "object") {
+    return String(detail);
+  }
+
+  const value = detail as { message?: unknown; errors?: unknown };
+  const message = typeof value.message === "string" ? value.message : null;
+  const errors = Array.isArray(value.errors)
+    ? value.errors
+        .flatMap(item => {
+          if (item && typeof item === "object" && Array.isArray((item as { errors?: unknown }).errors)) {
+            return (item as { errors: unknown[] }).errors.map(String);
+          }
+          return [String(item)];
+        })
+        .filter(Boolean)
+    : [];
+
+  if (message && errors.length > 0) {
+    return `${message}: ${errors.join("; ")}`;
+  }
+  return message ?? (errors.length > 0 ? errors.join("; ") : JSON.stringify(detail));
+}
+
+function getDefaultActionError(action: "start" | "pause"): string {
+  return action === "start"
+    ? "Не удалось запустить кампанию"
+    : "Не удалось поставить кампанию на паузу";
 }
 
 export default App;

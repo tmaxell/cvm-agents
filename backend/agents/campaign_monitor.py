@@ -82,8 +82,11 @@ def _generate_metrics(campaign_id: int, refresh_seed: int, activities: list[dict
     has_bt = "BusinessTransactionActivity" in activity_types
     channel_activities = _extract_channel_activities(activities)
     has_email = any(a.get("contentType") == "EmailContent" or "Email" in a.get("name", "") for a in channel_activities)
-    has_push = any(a.get("contentType") == "CustomContent" or "Push" in a.get("name", "") for a in channel_activities)
-    has_click_based_channel = has_email or has_push
+    has_click_based_channel = any(
+        (a.get("contentType") in CLICK_BASED_CONTENT_TYPES)
+        or any(label in a.get("name", "") for label in ("Email", "Push"))
+        for a in channel_activities
+    )
 
     test_group_size, control_group_size = _extract_audience_and_control(activities, rng)
 
@@ -98,11 +101,11 @@ def _generate_metrics(campaign_id: int, refresh_seed: int, activities: list[dict
         open_base = (45, 72)
         click_base = (8, 18) if has_click_based_channel else (0, 0)
 
-    click_base = (3, 9) if has_email else (8, 18) if has_click_based_flow else (0, 0)
+    click_base = (3, 9) if has_email else (8, 18) if has_click_based_channel else (0, 0)
 
     # Event-triggered кампании обычно релевантнее. Для click-based flow конверсия
     # считается от кликнувших, поэтому диапазон выше, чем для delivered-based flow.
-    if has_click_based_flow:
+    if has_click_based_channel:
         if has_event:
             conv_base = (28, 58)
         elif has_bt:
@@ -160,7 +163,7 @@ def _generate_metrics(campaign_id: int, refresh_seed: int, activities: list[dict
         # Контрольная группа обычно ниже тестовой: нет/меньше воздействия кампании.
         delta = rng.uniform(1.5, 5.5)
         control_conversion_rate = round(max(0.5, conversion_rate - delta), 1)
-        control_conversion_base_count = round(control_group_size * conversion_base_count / test_group_size) if test_group_size else 0
+        control_conversion_base_count = round(control_group_size * conversion_base / test_group_size) if test_group_size else 0
         control_activations = min(control_conversion_base_count, round(control_conversion_base_count * control_conversion_rate / 100))
         uplift_pp = round(conversion_rate - control_conversion_rate, 1)
         uplift_percent = round((uplift_pp / control_conversion_rate * 100), 1) if control_conversion_rate else 0.0

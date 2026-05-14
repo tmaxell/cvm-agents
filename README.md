@@ -15,6 +15,8 @@ AI-агенты для платформы AdTarget CVM.
 cvm-agents/
 ├── backend/
 │   ├── app.py                   # FastAPI: POST /api/copilot, /api/builder
+│   ├── db.py                    # Async SQLAlchemy engine + repository
+│   ├── models.py                # Таблицы sessions, messages, campaign_states
 │   ├── schemas.py               # Pydantic модели + AgentContext
 │   ├── agents/
 │   │   ├── qa_copilot.py        # F1: RAG chain (LangChain LCEL)
@@ -55,6 +57,12 @@ python -m rag.indexer
 uvicorn app:app --reload --port 8000
 ```
 
+По умолчанию локальный backend работает в demo-режиме с SQLite: файл истории создаётся в
+`backend/data/cvm_agents.sqlite3`. Для подключения внешней БД задайте `DATABASE_URL`, например
+`postgresql+asyncpg://cvm_agents:cvm_agents@localhost:5432/cvm_agents`. Таблицы создаются при
+старте приложения (`sessions`, `messages`, `campaign_states`); зависимость Alembic добавлена для
+перехода на управляемые миграции.
+
 ### Frontend
 
 ```bash
@@ -76,3 +84,27 @@ npm run dev
 - **F1** использует LangChain LCEL chain: retriever → prompt → LLM → parser
 - **F2** использует LangGraph ReAct loop: agent ↔ tools (AdTarget API)
 - **LLM:** Claude (claude-sonnet-4-5) через `langchain-anthropic`
+
+
+### Docker Compose
+
+Production-like стек использует PostgreSQL:
+
+```bash
+cd deploy
+docker compose up --build
+```
+
+Compose поднимает сервис `postgres`, затем `backend` с `DATABASE_URL=postgresql+asyncpg://...`,
+и `frontend`. История Campaign Builder хранится в PostgreSQL volume `postgres_data`:
+
+- `sessions` — сессии диалогов, `campaign_id`, текущий runtime `status`;
+- `messages` — входящие user messages и assistant responses с metadata;
+- `campaign_states` — последний `campaign_id`, `draft_flow_json` и runtime status кампании.
+
+Чтобы удалить историю demo-стека, остановите compose и удалите volume:
+
+```bash
+cd deploy
+docker compose down -v
+```

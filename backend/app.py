@@ -11,18 +11,34 @@ Endpoints:
 from dotenv import load_dotenv
 load_dotenv()
 
+import json
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from schemas import CopilotRequest, CopilotResponse, BuilderRequest, BuilderResponse, MonitorRequest, MonitorResponse
+from schemas import (
+    CopilotRequest,
+    CopilotResponse,
+    BuilderRequest,
+    BuilderResponse,
+    MonitorRequest,
+    MonitorResponse,
+    Session,
+    SessionCreate,
+    SessionDetail,
+    Message,
+    MessageCreate,
+)
 from agents.qa_copilot import answer as copilot_answer
 from agents.campaign_builder import run as builder_run
 from agents.campaign_monitor import run as monitor_run
+from db import DatabaseSessionStore, init_db
 
 app = FastAPI(title="CVM Agents API", version="0.1.0")
+session_store = DatabaseSessionStore()
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,6 +61,11 @@ for _docs_dir, _mount_name in [
         app.mount(f"/{_mount_name}", StaticFiles(directory=str(_docs_dir), follow_symlink=True), name=_mount_name)
 
 
+@app.on_event("startup")
+async def startup() -> None:
+    await init_db()
+
+
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "version": "0.1.0"}
@@ -59,13 +80,109 @@ async def copilot(request: CopilotRequest) -> CopilotResponse:
         _handle_llm_error(e)
 
 
+@app.get("/api/sessions", response_model=list[Session])
+async def list_sessions() -> list[Session]:
+    """Список backend-сессий Campaign Builder."""
+    return await session_store.list_sessions()
+
+
+@app.get("/api/sessions/{session_id}", response_model=SessionDetail)
+async def get_session(session_id: str) -> SessionDetail:
+    """Полная история одного диалога Campaign Builder."""
+    session = await session_store.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session
+
+
+@app.post("/api/sessions", response_model=Session)
+async def create_or_continue_session(request: SessionCreate) -> Session:
+    """Создаёт новую или возвращает существующую Builder-сессию."""
+    return await session_store.ensure_session(
+        session_id=request.session_id,
+        title=request.title or "Новый диалог Builder",
+        campaign_id=request.campaign_id,
+        status=request.status,
+    )
+
+
+@app.post("/api/sessions/{session_id}/messages", response_model=Message)
+async def add_session_message(session_id: str, request: MessageCreate) -> Message:
+    """Добавляет сообщение в Builder-сессию без запуска агента."""
+    try:
+        return await session_store.add_message(
+            session_id=session_id,
+            role=request.role,
+            content=request.content,
+            metadata=request.metadata,
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+
 @app.post("/api/builder", response_model=BuilderResponse)
 async def builder(request: BuilderRequest) -> BuilderResponse:
     """F2 Campaign Builder — автономно создаёт кампанию из описания цели."""
+    session = await session_store.ensure_session(
+        session_id=request.session_id,
+        title=_make_session_title(request.goal),
+        campaign_id=request.session_campaign_id,
+    )
+    stored_session = await session_store.get_session(session.id)
+    stored_history = [
+        {"role": message.role, "content": message.content}
+        for message in (stored_session.messages if stored_session else [])
+        if message.role in {"user", "assistant"}
+    ]
+    effective_request = request.model_copy(update={"session_id": session.id, "history": stored_history})
+
+    await session_store.add_message(
+        session_id=session.id,
+        role="user",
+        content=request.goal,
+        metadata={
+            "builder_preferences": request.builder_preferences,
+            "campaign_id": request.session_campaign_id,
+            "draft_flow_json": _parse_flow_json(request.session_flow_json),
+            "status": "in_progress",
+        },
+    )
+
     try:
-        return await builder_run(request)
+        response = await builder_run(effective_request)
     except Exception as e:
+        await session_store.update_session(session.id, status="error")
+        await session_store.upsert_campaign_state(
+            session_id=session.id,
+            campaign_id=request.session_campaign_id,
+            draft_flow_json=_parse_flow_json(request.session_flow_json),
+            runtime_status="error",
+        )
         _handle_llm_error(e)
+
+    response.session_id = session.id
+    persisted_campaign_id = response.campaign_id or request.session_campaign_id or session.campaign_id
+    persisted_flow_json = response.draft_flow or _parse_flow_json(request.session_flow_json)
+    response.campaign_id = persisted_campaign_id
+    response.draft_flow = persisted_flow_json
+    await session_store.add_message(
+        session_id=session.id,
+        role="assistant",
+        content=response.message,
+        metadata={
+            "campaign_id": persisted_campaign_id,
+            "status": response.status,
+            "draft_flow_json": persisted_flow_json,
+            "validation_errors": response.validation_errors,
+        },
+    )
+    await session_store.upsert_campaign_state(
+        session_id=session.id,
+        campaign_id=persisted_campaign_id,
+        draft_flow_json=persisted_flow_json,
+        runtime_status=response.status,
+    )
+    return response
 
 
 @app.post("/api/monitor", response_model=MonitorResponse)
@@ -75,6 +192,25 @@ async def monitor(request: MonitorRequest) -> MonitorResponse:
         return await monitor_run(request)
     except Exception as e:
         _handle_llm_error(e)
+
+
+def _parse_flow_json(flow_json: str | None) -> dict[str, Any] | None:
+    """Parse a stored frontend flow JSON string for campaign state persistence."""
+    if not flow_json:
+        return None
+    try:
+        parsed = json.loads(flow_json)
+    except json.JSONDecodeError:
+        return {"raw": flow_json}
+    return parsed if isinstance(parsed, dict) else {"value": parsed}
+
+
+def _make_session_title(goal: str) -> str:
+    """Builds a compact title from the first user prompt."""
+    title = " ".join(goal.strip().split())
+    if not title:
+        return "Новый диалог Builder"
+    return title[:77] + "..." if len(title) > 80 else title
 
 
 def _handle_llm_error(e: Exception) -> None:

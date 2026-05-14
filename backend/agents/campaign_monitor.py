@@ -82,19 +82,21 @@ def _generate_metrics(campaign_id: int, refresh_seed: int, activities: list[dict
     has_bt = "BusinessTransactionActivity" in activity_types
     channel_activities = _extract_channel_activities(activities)
     has_email = any(a.get("contentType") == "EmailContent" or "Email" in a.get("name", "") for a in channel_activities)
-    has_click_based_flow = any(a.get("contentType") in CLICK_BASED_CONTENT_TYPES for a in channel_activities)
+    has_push = any(a.get("contentType") == "CustomContent" or "Push" in a.get("name", "") for a in channel_activities)
+    has_click_based_channel = has_email or has_push
 
     test_group_size, control_group_size = _extract_audience_and_control(activities, rng)
 
-    # Базовые диапазоны по типу канала. Семантика процентов фиксирована:
-    # open_rate — от доставленных, click_rate — от открывших, conversion_rate —
-    # от кликнувших для click-based flow и от доставленных для SMS/event flow.
+    # Базовые диапазоны по типу канала. Проценты в MonitorMetrics считаются от
+    # предыдущей стадии воронки: open_rate от доставленных, click_rate от
+    # открытых, conversion_rate от кликов для click-flow или от доставленных
+    # для каналов/сценариев без кликов.
     if has_email:
         open_base = (18, 34)
-    elif has_click_based_flow:
-        open_base = (45, 72)
+        click_base = (3, 9)
     else:
-        open_base = (60, 88)
+        open_base = (45, 72)
+        click_base = (8, 18) if has_click_based_channel else (0, 0)
 
     click_base = (3, 9) if has_email else (8, 18) if has_click_based_flow else (0, 0)
 
@@ -145,13 +147,13 @@ def _generate_metrics(campaign_id: int, refresh_seed: int, activities: list[dict
         ))
 
     delivery_rate = round(delivered_total / sent_total * 100, 1) if sent_total else 0.0
-    open_rate = round(rng.uniform(*open_base), 1)
-    opened_count = min(delivered_total, round(delivered_total * open_rate / 100))
-    click_rate = round(rng.uniform(*click_base), 1) if has_click_based_flow else 0.0
-    clicked_count = min(opened_count, round(opened_count * click_rate / 100)) if has_click_based_flow else 0
-    conversion_rate = round(rng.uniform(*conv_base), 1)
-    conversion_base_count = clicked_count if has_click_based_flow else delivered_total
-    activation_count = min(conversion_base_count, round(conversion_base_count * conversion_rate / 100))
+    open_rate = round(rng.uniform(*open_base), 1) if delivered_total else 0.0
+    opened_count = round(delivered_total * open_rate / 100)
+    click_rate = round(rng.uniform(*click_base), 1) if has_click_based_channel and opened_count else 0.0
+    clicked_count = round(opened_count * click_rate / 100) if has_click_based_channel else 0
+    conversion_base = clicked_count if has_click_based_channel else delivered_total
+    conversion_rate = round(rng.uniform(*conv_base), 1) if conversion_base else 0.0
+    activation_count = min(conversion_base, round(conversion_base * conversion_rate / 100))
 
     control_group = None
     if control_group_size > 0:

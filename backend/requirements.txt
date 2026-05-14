@@ -41,3 +41,9 @@ langchain-gigachat>=0.3.0           # Официальная LangChain-инте�
 langchain-groq>=0.1.0              # Groq provider selected in backend/.env
 langchain-google-genai>=1.0.0      # Optional Gemini provider
 langchain-ollama>=0.1.0            # Optional local Ollama provider
+# ── SQL persistence (Campaign Builder history) ───────────────────────────────
+sqlalchemy>=2.0
+alembic>=1.13
+asyncpg>=0.29
+aiosqlite>=0.19
+

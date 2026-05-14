@@ -1,5 +1,6 @@
 """Pydantic-схемы для запросов/ответов агентов."""
 
+from datetime import datetime
 from typing import Any
 from pydantic import BaseModel, Field
 
@@ -48,6 +49,7 @@ class BuilderRequest(BaseModel):
     goal: str                           # «хочу кампанию по утилизации пакета данных»
     context: AgentContext = AgentContext()
     history: list[dict[str, str]] = []
+    session_id: str | None = None          # id backend-сессии Builder для продолжения диалога
     # Контекст текущей сессии — передаётся при follow-up запросах
     session_campaign_id: int | None = None    # campaignId из предыдущего ответа
     session_flow_json: str | None = None      # JSON flow из предыдущего ответа
@@ -56,10 +58,48 @@ class BuilderRequest(BaseModel):
 
 class BuilderResponse(BaseModel):
     message: str                        # ответ агента для чата
+    session_id: str | None = None       # backend-сессия, к которой сохранён ответ
     campaign_id: int | None = None      # если кампания уже создана
     draft_flow: dict[str, Any] | None = None  # черновик flow, если ещё не создан
     validation_errors: list[dict] = []
     status: str = "in_progress"         # "in_progress" | "created" | "started" | "error"
+
+
+# ── Builder sessions ─────────────────────────────────────────────────────────
+
+class Message(BaseModel):
+    id: str
+    session_id: str
+    role: str
+    content: str
+    created_at: datetime
+    metadata: dict[str, Any] | None = None
+
+
+class Session(BaseModel):
+    id: str
+    campaign_id: int | None = None
+    title: str
+    created_at: datetime
+    updated_at: datetime
+    status: str = "in_progress"
+
+
+class SessionDetail(Session):
+    messages: list[Message] = []
+
+
+class SessionCreate(BaseModel):
+    session_id: str | None = None
+    campaign_id: int | None = None
+    title: str | None = None
+    status: str = "in_progress"
+
+
+class MessageCreate(BaseModel):
+    role: str
+    content: str
+    metadata: dict[str, Any] | None = None
 
 
 # ── F3: Campaign Monitor ──────────────────────────────────────────────────────
@@ -92,14 +132,14 @@ class ControlGroupComparison(BaseModel):
 
 
 class MonitorMetrics(BaseModel):
-    delivery_rate: float                # 0–100, % доставленных от отправленных
-    open_rate: float                    # 0–100, % открытий / прочтений от доставленных
-    conversion_rate: float              # 0–100, % целевых действий: от кликнувших для click-based flow, иначе от доставленных
-    click_rate: float                   # 0–100, % переходов от открывших (для push/email); 0 для каналов без кликов
+    delivery_rate: float                # 0–100, доставлено / отправлено
+    open_rate: float                    # 0–100, открыто / доставлено
+    conversion_rate: float              # 0–100, активации / клики для click-flow, иначе активации / доставки
+    click_rate: float                   # 0–100, клики / открытия (для push/email; 0 для каналов без кликов)
     sent_count: int = 0                 # всего отправлено по всем каналам
     delivered_count: int = 0            # всего доставлено по всем каналам
-    opened_count: int = 0               # всего открыто / прочитано (open_rate от delivered_count)
-    clicked_count: int = 0              # всего переходов (click_rate от opened_count для push/email)
+    opened_count: int = 0               # всего открыто / прочитано
+    clicked_count: int = 0              # всего переходов (для push/email)
     activation_count: int = 0           # количество активаций / целевых действий
     channel_deliveries: list[ChannelDeliveryMetric] = Field(default_factory=list)
     control_group: ControlGroupComparison | None = None

@@ -12,7 +12,6 @@ interface Props {
   campaignId: number | null;
   draftFlowJson: string | null;
   campaignStatus: CampaignRuntimeStatus;
-  onCampaignStatusChange: (status: CampaignRuntimeStatus) => void;
   lang?: "ru" | "en";
 }
 
@@ -20,7 +19,6 @@ export function MonitoringPanel({
   campaignId,
   draftFlowJson,
   campaignStatus,
-  onCampaignStatusChange,
   lang = "ru",
 }: Props) {
   const [data, setData] = useState<MonitorResponse | null>(null);
@@ -70,17 +68,6 @@ export function MonitoringPanel({
     fetchMonitor(nextSeed);
   };
 
-  const handleStart = () => {
-    onCampaignStatusChange("active");
-    const nextSeed = seed + 1;
-    setSeed(nextSeed);
-    fetchMonitor(nextSeed);
-  };
-
-  const handlePause = () => {
-    onCampaignStatusChange("paused");
-  };
-
   if (!campaignId) {
     return (
       <div className="fw-monitor-empty">
@@ -113,29 +100,13 @@ export function MonitoringPanel({
           <code className="fw-monitor-campaign-id">#{campaignId}</code>
           <span className={`fw-monitor-status ${campaignStatus}`}>
             {campaignStatus === "editing"
-              ? (lang === "en" ? "Editing" : "Editing")
+              ? (lang === "en" ? "Editing" : "Редактирование")
               : campaignStatus === "active"
-              ? (lang === "en" ? "Active" : "Active")
-              : (lang === "en" ? "Paused" : "Paused")}
+              ? (lang === "en" ? "Active" : "Активна")
+              : (lang === "en" ? "Paused" : "На паузе")}
           </span>
         </div>
         <div className="fw-monitor-actions">
-          <button
-            className="fw-monitor-run"
-            onClick={handleStart}
-            disabled={loading || campaignStatus === "active"}
-            title={lang === "en" ? "Start campaign" : "Запустить кампанию"}
-          >
-            ▶ {lang === "en" ? "Start" : "Запуск"}
-          </button>
-          <button
-            className="fw-monitor-pause"
-            onClick={handlePause}
-            disabled={campaignStatus !== "active"}
-            title={lang === "en" ? "Pause campaign" : "Поставить на паузу"}
-          >
-            ⏸ {lang === "en" ? "Pause" : "Пауза"}
-          </button>
           <button
             className="fw-monitor-refresh"
             onClick={handleRefresh}
@@ -309,11 +280,41 @@ function Funnel({ metrics, lang }: { metrics: MonitorMetrics; lang: "ru" | "en" 
   );
 
   const steps = [
-    { label: lang === "en" ? "Sent" : "Отправлено", value: sent, color: "#64748b", conversion: lang === "en" ? "Base stage" : "Базовый шаг" },
-    { label: lang === "en" ? "Delivered" : "Доставлено", value: delivered, color: "#22c55e", conversion: `${formatStageRate(delivered, sent)} ${lang === "en" ? "Delivered / Sent" : "Доставлено / Отправлено"}` },
-    { label: lang === "en" ? "Read/opened" : "Прочитано", value: opened, color: "#3b82f6", conversion: `${formatStageRate(opened, delivered)} ${lang === "en" ? "Opened / Delivered" : "Прочитано / Доставлено"}` },
-    { label: lang === "en" ? "Clicked" : "Переходы", value: clicked, color: "#f59e0b", conversion: hasClickStage ? `${formatStageRate(clicked, opened)} ${lang === "en" ? "Clicked / Opened" : "Переходы / Прочитано"}` : (lang === "en" ? "Not applicable for this channel" : "Не применяется для канала") },
-    { label: lang === "en" ? "Activated" : "Активации", value: activated, color: "#8b5cf6", conversion: `${formatStageRate(activated, hasClickStage ? clicked : delivered)} ${hasClickStage ? (lang === "en" ? "Activated / Clicked" : "Активации / Переходы") : (lang === "en" ? "Activated / Delivered" : "Активации / Доставлено")}` },
+    {
+      label: lang === "en" ? "Sent" : "Отправлено",
+      value: sent,
+      color: "#64748b",
+    },
+    {
+      label: lang === "en" ? "Delivered" : "Доставлено",
+      value: delivered,
+      color: "#22c55e",
+      conversionLabel: lang === "en" ? "Delivered / Sent" : "Доставлено / Отправлено",
+      previousValue: sent,
+    },
+    {
+      label: lang === "en" ? "Read/opened" : "Прочитано",
+      value: opened,
+      color: "#3b82f6",
+      conversionLabel: lang === "en" ? "Opened / Delivered" : "Прочитано / Доставлено",
+      previousValue: delivered,
+    },
+    {
+      label: lang === "en" ? "Clicked" : "Переходы",
+      value: clicked,
+      color: "#f59e0b",
+      conversionLabel: lang === "en" ? "Clicked / Opened" : "Переходы / Прочитано",
+      previousValue: opened,
+    },
+    {
+      label: lang === "en" ? "Activated" : "Активации",
+      value: activated,
+      color: "#8b5cf6",
+      conversionLabel: hasClickStage
+        ? (lang === "en" ? "Activated / Clicked" : "Активации / Переходы")
+        : (lang === "en" ? "Activated / Delivered" : "Активации / Доставлено"),
+      previousValue: hasClickStage ? clicked : delivered,
+    },
   ];
 
   return (
@@ -322,23 +323,34 @@ function Funnel({ metrics, lang }: { metrics: MonitorMetrics; lang: "ru" | "en" 
         <span>🪄 {lang === "en" ? "Campaign funnel" : "Воронка кампании"}</span>
       </div>
       <div className="fw-monitor-funnel">
-        {steps.map((step) => (
-          <div className="fw-monitor-funnel-step" key={step.label}>
-            <div className="fw-monitor-funnel-main">
-              <span>{step.label}</span>
-              <strong>{formatNumber(step.value)}</strong>
+        {steps.map((step) => {
+          const stageConversion = step.previousValue === undefined || step.previousValue === 0
+            ? null
+            : Math.round(step.value / step.previousValue * 1000) / 10;
+
+          return (
+            <div className="fw-monitor-funnel-step" key={step.label}>
+              <div className="fw-monitor-funnel-main">
+                <span>{step.label}</span>
+                <strong>{formatNumber(step.value)}</strong>
+              </div>
+              {stageConversion !== null && (
+                <div className="fw-monitor-funnel-conversion">
+                  <span>{step.conversionLabel}</span>
+                  <strong>{stageConversion}%</strong>
+                </div>
+              )}
+              <div className="fw-monitor-funnel-bar">
+                <div
+                  style={{
+                    width: `${Math.max(4, Math.round(step.value / max * 100))}%`,
+                    background: step.color,
+                  }}
+                />
+              </div>
             </div>
-            <div className="fw-monitor-funnel-conversion">{step.conversion}</div>
-            <div className="fw-monitor-funnel-bar">
-              <div
-                style={{
-                  width: `${Math.max(4, Math.round(step.value / max * 100))}%`,
-                  background: step.color,
-                }}
-              />
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );

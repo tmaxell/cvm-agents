@@ -1,3 +1,5 @@
 .claude
 .DS_Store
 backend/__pycache__
+backend/data/*.json
+backend/data/*.tmp

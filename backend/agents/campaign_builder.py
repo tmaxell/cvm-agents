@@ -16,6 +16,8 @@ LangGraph ReAct-агент с tool use.
 
 import json
 import os
+import re
+from dataclasses import dataclass
 from typing import Annotated
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage, trim_messages
@@ -35,6 +37,7 @@ from tools.flow_builder import (
     make_event_activity,
     make_business_transaction_activity,
     make_wait_activity,
+    make_realtime_check_activity,
     assemble_flow,
 )
 
@@ -98,15 +101,94 @@ def _is_memory_only_request(goal: str) -> bool:
     return text.startswith(memory_markers) and not any(marker in text for marker in build_markers)
 
 
-def _wants_business_transaction_update(goal: str) -> bool:
-    """Follow-up намерение: добавить business transaction к текущему flow."""
-    text = _normalize_text(goal)
-    transaction_markers = (
-        "бизнес-транзак", "бизнес транзак", "business transaction",
-        "транзакци", "transaction", "активаци", "activation",
+@dataclass(frozen=True)
+class FlowEditIntent:
+    """Parsed follow-up edit intent for an existing campaign flow."""
+
+    action: str
+    activity_type: str | None = None
+    anchor_activity_type: str | None = None
+
+
+def _extract_position_anchor(text: str) -> str | None:
+    """Extracts a positional anchor like "после транзакции" from normalized text."""
+    anchor_patterns = (
+        (
+            r"\b(?:после|after)\s+"
+            r"(?:бизнес[-\s]?транзакц\w*|транзакц\w*|business\s+transaction|transaction)\b",
+            "BusinessTransactionActivity",
+        ),
+        (
+            r"\b(?:после|after)\s+(?:e-?mail|email|им[еэ]йл\w*|письм\w*)\b",
+            "PushCommunicationActivity",
+        ),
+        (r"\b(?:после|after)\s+(?:событ\w*|event)\b", "EventActivity"),
     )
-    add_markers = ("добав", "добавь", "add", "append", "в конец", "конце")
-    return any(marker in text for marker in transaction_markers) and any(marker in text for marker in add_markers)
+    for pattern, activity_type in anchor_patterns:
+        if re.search(pattern, text):
+            return activity_type
+    return None
+
+
+def _strip_position_anchors(text: str) -> str:
+    """Removes positional anchor phrases before detecting the entity to add."""
+    patterns = (
+        r"\b(?:после|after)\s+(?:бизнес[-\s]?транзакц\w*|транзакц\w*|business\s+transaction|transaction)\b",
+        r"\b(?:после|after)\s+(?:e-?mail|email|им[еэ]йл\w*|письм\w*)\b",
+        r"\b(?:после|after)\s+(?:событ\w*|event)\b",
+    )
+    result = text
+    for pattern in patterns:
+        result = re.sub(pattern, " ", result)
+    return result
+
+
+def _parse_flow_edit_intent(goal: str) -> FlowEditIntent | None:
+    """Parse follow-up intent into target activity and optional positional anchor.
+
+    Priority matters: explicit real-time-check wording wins over nearby
+    transaction words because "транзакция" can be an anchor, not the entity
+    being added.
+    """
+    text = _normalize_text(goal)
+    if not text:
+        return None
+
+    anchor_activity_type = _extract_position_anchor(text)
+
+    realtime_markers = (
+        "real-time",
+        "real time",
+        "реал-тайм",
+        "реал тайм",
+        "rt check",
+        "проверк",
+        "realtimecheckactivity",
+    )
+    if any(marker in text for marker in realtime_markers):
+        return FlowEditIntent(
+            action="add_activity",
+            activity_type="RealTimeCheckActivity",
+            anchor_activity_type=anchor_activity_type,
+        )
+
+    add_pattern = r"(?:\badd\b|\bappend\b|добав\w*|в конец|конце)"
+    target_text = _strip_position_anchors(text)
+    business_transaction_pattern = (
+        r"(?:бизнес[-\s]?транзакц\w*|транзакц\w*|business\s+transaction|"
+        r"\btransaction\b|активац\w*\s+оффер\w*|offer\s+activation)"
+    )
+    if re.search(add_pattern, target_text) and re.search(
+        business_transaction_pattern,
+        target_text,
+    ):
+        return FlowEditIntent(
+            action="add_business_transaction",
+            activity_type="BusinessTransactionActivity",
+            anchor_activity_type=anchor_activity_type,
+        )
+
+    return None
 
 
 def _parse_flow_json(flow_json: str | None) -> dict | None:
@@ -221,19 +303,24 @@ def _add_business_transaction_to_flow(
     flow: dict,
     offer_template_id: int,
     operation_id: str,
+    *,
+    anchor_activity_type: str | None = None,
 ) -> dict:
-    """Возвращает новый flow с BusinessTransactionActivity после последней communication-ноды."""
+    """Add BusinessTransactionActivity after an anchor or the last communication node."""
     activities = list(flow.get("activities") or [])
     if not activities:
         raise ValueError("flow должен содержать activities[]")
 
-    communication_indexes = [
-        i
-        for i, activity in enumerate(activities)
-        if isinstance(activity, dict)
-        and activity.get("type") in {"PushCommunicationActivity", "PullCommunicationActivity"}
-    ]
-    insert_index = (communication_indexes[-1] + 1) if communication_indexes else len(activities)
+    if anchor_activity_type:
+        insert_index = _anchor_insert_index(activities, anchor_activity_type)
+    else:
+        communication_indexes = [
+            i
+            for i, activity in enumerate(activities)
+            if isinstance(activity, dict)
+            and activity.get("type") in {"PushCommunicationActivity", "PullCommunicationActivity"}
+        ]
+        insert_index = (communication_indexes[-1] + 1) if communication_indexes else len(activities)
 
     next_activity = activities[insert_index] if insert_index < len(activities) else None
     if (
@@ -248,6 +335,37 @@ def _add_business_transaction_to_flow(
         insert_index,
         make_business_transaction_activity(offer_template_id, operation_id, []),
     )
+    return assemble_flow(activities)
+
+
+def _anchor_insert_index(activities: list[dict], anchor_activity_type: str | None) -> int:
+    """Return insertion index after the last matching anchor, or at the end."""
+    if anchor_activity_type:
+        for index in range(len(activities) - 1, -1, -1):
+            activity = activities[index]
+            if isinstance(activity, dict) and activity.get("type") == anchor_activity_type:
+                return index + 1
+    return len(activities)
+
+
+def _add_activity_to_flow(
+    flow: dict,
+    activity_type: str,
+    *,
+    anchor_activity_type: str | None = None,
+) -> dict:
+    """Add a supported activity to an existing flow after an optional positional anchor."""
+    activities = list(flow.get("activities") or [])
+    if not activities:
+        raise ValueError("flow должен содержать activities[]")
+
+    if activity_type == "RealTimeCheckActivity":
+        new_activity = make_realtime_check_activity()
+    else:
+        raise ValueError(f"Неподдерживаемый тип активности: {activity_type}")
+
+    insert_index = _anchor_insert_index(activities, anchor_activity_type)
+    activities.insert(insert_index, new_activity)
     return assemble_flow(activities)
 
 
@@ -877,6 +995,7 @@ def get_graph():
 async def run(request: BuilderRequest) -> BuilderResponse:
     """Запускает один шаг агента и возвращает ответ."""
     existing_flow = _parse_flow_json(request.session_flow_json)
+    flow_edit_intent = _parse_flow_edit_intent(request.goal)
 
     # Context-only turns go through an LLM planner, but never create a campaign.
     if _is_memory_only_request(request.goal):
@@ -913,8 +1032,46 @@ async def run(request: BuilderRequest) -> BuilderResponse:
           f"{len(ref_full.get('events', []))}→{len(ref['events'])} events, "
           f"{len(ref_full.get('offers', []))}→{len(ref['offers'])} offers")
 
+    if flow_edit_intent and flow_edit_intent.action == "add_activity":
+        if not existing_flow:
+            return BuilderResponse(
+                message=(
+                    "Не нашёл текущий flow для доработки. Сначала соберите кампанию, "
+                    "затем повторите запрос на добавление активности."
+                ),
+                campaign_id=request.session_campaign_id,
+                draft_flow=None,
+                status="error",
+            )
+
+        try:
+            updated_flow = _add_activity_to_flow(
+                existing_flow,
+                str(flow_edit_intent.activity_type),
+                anchor_activity_type=flow_edit_intent.anchor_activity_type,
+            )
+        except Exception as e:
+            return BuilderResponse(
+                message=f"Не удалось добавить активность в текущий flow: {type(e).__name__}: {e}",
+                campaign_id=request.session_campaign_id,
+                draft_flow=existing_flow,
+                status="error",
+            )
+
+        anchor_text = (
+            f" после {flow_edit_intent.anchor_activity_type}"
+            if flow_edit_intent.anchor_activity_type
+            else " в конец flow"
+        )
+        return BuilderResponse(
+            message=f"Добавил {flow_edit_intent.activity_type}{anchor_text}.",
+            campaign_id=request.session_campaign_id,
+            draft_flow=updated_flow,
+            status="created" if request.session_campaign_id else "in_progress",
+        )
+
     # LLM-planned follow-up edit: planner selects the offer, backend applies validated flow update.
-    if _wants_business_transaction_update(request.goal):
+    if flow_edit_intent and flow_edit_intent.action == "add_business_transaction":
         if not existing_flow:
             return BuilderResponse(
                 message=(
@@ -959,6 +1116,7 @@ async def run(request: BuilderRequest) -> BuilderResponse:
                 existing_flow,
                 int(offer["id"]),
                 operation_id,
+                anchor_activity_type=flow_edit_intent.anchor_activity_type,
             )
         except Exception as e:
             return BuilderResponse(

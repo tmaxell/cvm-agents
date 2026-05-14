@@ -230,6 +230,28 @@ def make_business_transaction_activity(
     }
 
 
+def make_realtime_check_activity(
+    *,
+    next_id: str | None = None,
+    filters: list | None = None,
+) -> dict[str, Any]:
+    """RealTimeCheckActivity — real-time проверка параметров клиента."""
+    return {
+        "type": "RealTimeCheckActivity",
+        "id": new_id(),
+        "name": "RT Check",
+        "position": {"left": 120, "top": 262},
+        "nextActivityId": next_id,
+        "tagIds": [],
+        "errors": [],
+        "warnings": [],
+        "filters": filters or [],
+        "cases": {},
+        "defaultSuccessActivityId": None,
+        "defaultFailActivityId": None,
+    }
+
+
 def _content_parameter_value(activity: dict[str, Any], name: str) -> Any:
     """Возвращает значение content-параметра коммуникации по имени."""
     content = activity.get("content")

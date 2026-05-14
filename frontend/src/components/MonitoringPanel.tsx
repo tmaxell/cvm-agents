@@ -298,16 +298,47 @@ function MetricCard({ label, value, color, benchmark, lang = "ru" }: {
 function Funnel({ metrics, lang }: { metrics: MonitorMetrics; lang: "ru" | "en" }) {
   const sent = metrics.sent_count ?? 0;
   const delivered = metrics.delivered_count ?? 0;
-  const opened = Math.round(delivered * (metrics.open_rate ?? 0) / 100);
-  const clicked = Math.round(opened * (metrics.click_rate ?? 0) / 100);
+  const opened = metrics.opened_count ?? 0;
+  const clicked = metrics.clicked_count ?? 0;
   const activated = metrics.activation_count ?? 0;
+  const hasClickStage = (metrics.click_rate ?? 0) > 0 || clicked > 0;
   const max = Math.max(sent, delivered, opened, clicked, activated, 1);
   const steps = [
-    { label: lang === "en" ? "Sent" : "Отправлено", value: sent, color: "#64748b" },
-    { label: lang === "en" ? "Delivered" : "Доставлено", value: delivered, color: "#22c55e" },
-    { label: lang === "en" ? "Read/opened" : "Прочитано", value: opened, color: "#3b82f6" },
-    { label: lang === "en" ? "Clicked" : "Переходы", value: clicked, color: "#f59e0b" },
-    { label: lang === "en" ? "Activated" : "Активации", value: activated, color: "#8b5cf6" },
+    {
+      label: lang === "en" ? "Sent" : "Отправлено",
+      value: sent,
+      color: "#64748b",
+    },
+    {
+      label: lang === "en" ? "Delivered" : "Доставлено",
+      value: delivered,
+      color: "#22c55e",
+      conversionLabel: lang === "en" ? "Delivered / Sent" : "Доставлено / Отправлено",
+      previousValue: sent,
+    },
+    {
+      label: lang === "en" ? "Read/opened" : "Прочитано",
+      value: opened,
+      color: "#3b82f6",
+      conversionLabel: lang === "en" ? "Opened / Delivered" : "Прочитано / Доставлено",
+      previousValue: delivered,
+    },
+    {
+      label: lang === "en" ? "Clicked" : "Переходы",
+      value: clicked,
+      color: "#f59e0b",
+      conversionLabel: lang === "en" ? "Clicked / Opened" : "Переходы / Прочитано",
+      previousValue: opened,
+    },
+    {
+      label: lang === "en" ? "Activated" : "Активации",
+      value: activated,
+      color: "#8b5cf6",
+      conversionLabel: hasClickStage
+        ? (lang === "en" ? "Activated / Clicked" : "Активации / Переходы")
+        : (lang === "en" ? "Activated / Delivered" : "Активации / Доставлено"),
+      previousValue: hasClickStage ? clicked : delivered,
+    },
   ];
 
   return (
@@ -316,22 +347,34 @@ function Funnel({ metrics, lang }: { metrics: MonitorMetrics; lang: "ru" | "en" 
         <span>🪄 {lang === "en" ? "Campaign funnel" : "Воронка кампании"}</span>
       </div>
       <div className="fw-monitor-funnel">
-        {steps.map((step) => (
-          <div className="fw-monitor-funnel-step" key={step.label}>
-            <div className="fw-monitor-funnel-main">
-              <span>{step.label}</span>
-              <strong>{formatNumber(step.value)}</strong>
+        {steps.map((step) => {
+          const stageConversion = step.previousValue === undefined || step.previousValue === 0
+            ? null
+            : Math.round(step.value / step.previousValue * 1000) / 10;
+
+          return (
+            <div className="fw-monitor-funnel-step" key={step.label}>
+              <div className="fw-monitor-funnel-main">
+                <span>{step.label}</span>
+                <strong>{formatNumber(step.value)}</strong>
+              </div>
+              {stageConversion !== null && (
+                <div className="fw-monitor-funnel-conversion">
+                  <span>{step.conversionLabel}</span>
+                  <strong>{stageConversion}%</strong>
+                </div>
+              )}
+              <div className="fw-monitor-funnel-bar">
+                <div
+                  style={{
+                    width: `${Math.max(4, Math.round(step.value / max * 100))}%`,
+                    background: step.color,
+                  }}
+                />
+              </div>
             </div>
-            <div className="fw-monitor-funnel-bar">
-              <div
-                style={{
-                  width: `${Math.max(4, Math.round(step.value / max * 100))}%`,
-                  background: step.color,
-                }}
-              />
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );

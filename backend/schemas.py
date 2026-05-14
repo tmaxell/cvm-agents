@@ -92,12 +92,14 @@ class ControlGroupComparison(BaseModel):
 
 
 class MonitorMetrics(BaseModel):
-    delivery_rate: float                # 0–100, % доставки
-    open_rate: float                    # 0–100, % открытий / прочтений
-    conversion_rate: float              # 0–100, % целевых действий
-    click_rate: float                   # 0–100, % переходов (для push/email)
+    delivery_rate: float                # 0–100, доставлено / отправлено
+    open_rate: float                    # 0–100, открыто / доставлено
+    conversion_rate: float              # 0–100, активации / клики для click-flow, иначе активации / доставки
+    click_rate: float                   # 0–100, клики / открытия (для push/email; 0 для каналов без кликов)
     sent_count: int = 0                 # всего отправлено по всем каналам
     delivered_count: int = 0            # всего доставлено по всем каналам
+    opened_count: int = 0               # всего открыто / прочитано
+    clicked_count: int = 0              # всего переходов (для push/email)
     activation_count: int = 0           # количество активаций / целевых действий
     channel_deliveries: list[ChannelDeliveryMetric] = Field(default_factory=list)
     control_group: ControlGroupComparison | None = None

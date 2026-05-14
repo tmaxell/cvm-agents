@@ -3010,6 +3010,60 @@ button {
   color: var(--text-primary);
 }
 
+
+.fw-monitor-funnel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fw-monitor-funnel-step {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 10px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  background: var(--surface-secondary, #f9fafb);
+}
+
+.fw-monitor-funnel-main,
+.fw-monitor-funnel-conversion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.fw-monitor-funnel-main {
+  font-size: 12px;
+}
+
+.fw-monitor-funnel-main strong {
+  font-size: 13px;
+}
+
+.fw-monitor-funnel-conversion {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.fw-monitor-funnel-conversion strong {
+  color: var(--text-primary);
+}
+
+.fw-monitor-funnel-bar {
+  height: 5px;
+  background: var(--border, #e5e7eb);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.fw-monitor-funnel-bar div {
+  height: 100%;
+  border-radius: inherit;
+}
+
 .fw-monitor-channel-list {
   display: flex;
   flex-direction: column;

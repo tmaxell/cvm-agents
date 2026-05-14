@@ -199,6 +199,7 @@ async def start_campaign(
         result = await adtarget.start_campaign(campaign_id)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"AdTarget start failed: {str(e)[:300]}")
+    _raise_for_failed_campaign_action(result, "start")
     return CampaignActionResponse(campaign_id=campaign_id, status="active", result=result)
 
 
@@ -213,8 +214,32 @@ async def pause_campaign(
         result = await adtarget.pause_campaign(campaign_id)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"AdTarget pause failed: {str(e)[:300]}")
+    _raise_for_failed_campaign_action(result, "pause")
     return CampaignActionResponse(campaign_id=campaign_id, status="paused", result=result)
 
+
+def _raise_for_failed_campaign_action(result: Any, action: str) -> None:
+    """Return an HTTP error if AdTarget reports a failed runtime action item."""
+    if not isinstance(result, list):
+        return
+
+    failed_items: list[dict[str, Any]] = []
+    for item in result:
+        if not isinstance(item, dict):
+            continue
+        errors = item.get("errors")
+        has_errors = bool(errors)
+        if item.get("isSuccess") is False or has_errors:
+            failed_items.append(item)
+
+    if failed_items:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "message": f"AdTarget {action} failed",
+                "errors": failed_items,
+            },
+        )
 
 def _validate_campaign_action_request(
     campaign_id: int,

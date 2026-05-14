@@ -136,6 +136,16 @@ export interface BuilderResponse {
   status: "in_progress" | "created" | "started" | "error";
 }
 
+export interface CampaignActionRequest {
+  campaign_id: number;
+}
+
+export interface CampaignActionResponse {
+  campaign_id: number;
+  status: CampaignRuntimeStatus;
+  result: unknown;
+}
+
 // F3 Campaign Monitor
 export interface MonitorRequest {
   campaign_id: number;

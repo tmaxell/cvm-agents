@@ -203,6 +203,27 @@ async def start_campaign(campaign_id: int) -> list:
         return make_mock_start_result(campaign_id)
 
 
+async def pause_campaign(campaign_id: int) -> list:
+    """PUT /Campaigns/stop — пауза/остановка кампании."""
+    if _is_mock():
+        from tools.mock_data import make_mock_pause_result
+        return make_mock_pause_result(campaign_id)
+
+    try:
+        return await _put(
+            "/Campaigns/stop",
+            body=None,
+            params={
+                "campaignIdsInfo.except": "false",
+                "campaignIdsInfo.campaignIds": str(campaign_id),
+            },
+        )
+    except (httpx.ConnectError, httpx.ConnectTimeout):
+        _enable_auto_mock()
+        from tools.mock_data import make_mock_pause_result
+        return make_mock_pause_result(campaign_id)
+
+
 # ── Справочники ───────────────────────────────────────────────────────────────
 
 async def list_target_groups(page: int = 1, page_size: int = 50) -> dict:

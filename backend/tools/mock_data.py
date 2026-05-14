@@ -182,7 +182,11 @@ MOCK_VALIDATION_OK = {
     "warnings": [],
 }
 
-# ── Результат запуска ─────────────────────────────────────────────────────────
+# ── Результаты runtime-действий ───────────────────────────────────────────────
 
 def make_mock_start_result(campaign_id: int) -> list:
+    return [{"id": campaign_id, "isSuccess": True, "errors": []}]
+
+
+def make_mock_pause_result(campaign_id: int) -> list:
     return [{"id": campaign_id, "isSuccess": True, "errors": []}]

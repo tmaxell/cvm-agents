@@ -13,8 +13,9 @@ interface Props {
   flow: CampaignFlow | null;
   campaignId?: number | null;
   campaignStatus: CampaignRuntimeStatus;
-  onStartCampaign: () => void;
-  onPauseCampaign: () => void;
+  isActionPending?: boolean;
+  onStartCampaign: () => void | Promise<void>;
+  onPauseCampaign: () => void | Promise<void>;
 }
 
 // ── Node type metadata ────────────────────────────────────────────────────────
@@ -149,7 +150,14 @@ function computeBounds(positions: Map<string, Pos>): { width: number; height: nu
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function AdTargetMock({ flow, campaignId, campaignStatus, onStartCampaign, onPauseCampaign }: Props) {
+export function AdTargetMock({
+  flow,
+  campaignId,
+  campaignStatus,
+  isActionPending = false,
+  onStartCampaign,
+  onPauseCampaign,
+}: Props) {
   return (
     <div className="adt-shell">
       <AdtTopNav />
@@ -157,6 +165,7 @@ export function AdTargetMock({ flow, campaignId, campaignStatus, onStartCampaign
         flow={flow}
         campaignId={campaignId}
         campaignStatus={campaignStatus}
+        isActionPending={isActionPending}
         onStartCampaign={onStartCampaign}
         onPauseCampaign={onPauseCampaign}
       />
@@ -219,14 +228,16 @@ function AdtCampaignBar({
   flow,
   campaignId,
   campaignStatus,
+  isActionPending = false,
   onStartCampaign,
   onPauseCampaign,
 }: {
   flow: CampaignFlow | null;
   campaignId?: number | null;
   campaignStatus: CampaignRuntimeStatus;
-  onStartCampaign: () => void;
-  onPauseCampaign: () => void;
+  isActionPending?: boolean;
+  onStartCampaign: () => void | Promise<void>;
+  onPauseCampaign: () => void | Promise<void>;
 }) {
   const name = flow?.activities?.find(a => a.type === "CommonActivity")?.name ?? "Demo campaign";
   const idStr = campaignId ? ` | ${campaignId}` : "";
@@ -235,8 +246,10 @@ function AdtCampaignBar({
     active: "Активна",
     paused: "На паузе",
   };
-  const canStart = Boolean(campaignId) && (campaignStatus === "editing" || campaignStatus === "paused");
-  const canPause = campaignStatus === "active";
+  const canStart = Boolean(campaignId)
+    && !isActionPending
+    && (campaignStatus === "editing" || campaignStatus === "paused");
+  const canPause = !isActionPending && campaignStatus === "active";
 
   return (
     <div className="adt-campaign-bar">
@@ -258,7 +271,7 @@ function AdtCampaignBar({
           disabled={!canStart}
           title={campaignId ? "Запустить кампанию" : "Сначала создайте кампанию"}
         >
-          ▶ Запустить
+          {isActionPending ? "…" : "▶"} Запустить
         </button>
         <button
           type="button"
@@ -267,7 +280,7 @@ function AdtCampaignBar({
           disabled={!canPause}
           title="Поставить кампанию на паузу"
         >
-          ⏸ Пауза
+          {isActionPending ? "…" : "⏸"} Пауза
         </button>
       </div>
     </div>

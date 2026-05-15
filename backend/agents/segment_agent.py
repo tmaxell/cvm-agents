@@ -21,7 +21,7 @@ from tools import adtarget
 
 _MIN_HYPOTHESES = 2
 _MAX_HYPOTHESES = 3
-_MATCH_THRESHOLD = 0.72
+_MATCH_THRESHOLD = 0.55
 _MAX_TARGET_GROUPS_FOR_PROMPT = 50
 
 
@@ -83,6 +83,7 @@ async def suggest_segments(request: SegmentSuggestRequest) -> SegmentSuggestResp
         ),
         hypotheses=hypotheses[:_MAX_HYPOTHESES],
         warnings=_dedupe(warnings),
+        recommendation_only=True,
     )
 
 
@@ -163,29 +164,17 @@ def _to_segment_hypothesis(
     request: SegmentSuggestRequest,
     priority: int,
 ) -> SegmentHypothesis:
-    matched_group, match_score, match_reasons = _resolve_matched_group(raw.matched_target_group, target_groups)
-    is_existing = bool(raw.is_existing_target_group and matched_group and match_score >= _MATCH_THRESHOLD)
-
-    risk = raw.risk_or_limitation.strip()
-    if not is_existing:
-        recommendation_note = "Это только рекомендация: уверенного совпадения с существующей Target Group не найдено."
-        risk = f"{risk} {recommendation_note}".strip() if recommendation_note not in risk else risk
-        matched = None
-        matched_list: list[MatchedTargetGroup] = []
-    else:
-        matched = _matched_model(matched_group, match_score, match_reasons)
-        matched_list = [matched]
-
     selection_criteria = _normalise_selection_criteria(raw.selection_criteria, request)
+    candidate_match = _candidate_matched_model(raw.matched_target_group)
 
-    return SegmentHypothesis(
+    hypothesis = SegmentHypothesis(
         name=raw.name.strip(),
         audience_description=raw.audience_description.strip(),
         relevance_reason=raw.relevance_reason.strip(),
         selection_criteria=selection_criteria,
-        risk_or_limitation=risk,
-        matched_target_group=matched,
-        is_existing_target_group=is_existing,
+        risk_or_limitation=raw.risk_or_limitation.strip(),
+        matched_target_group=candidate_match,
+        is_existing_target_group=bool(raw.is_existing_target_group and candidate_match),
         confidence=round(max(0.0, min(raw.confidence, 1.0)), 2),
         # Legacy fields retained for the current UI/tests.
         title=raw.name.strip(),
@@ -194,46 +183,144 @@ def _to_segment_hypothesis(
         product_fit=f"Сегмент применим для продукта «{request.product}».",
         expected_effect=f"Поддерживает цель кампании: {request.campaign_goal}.",
         audience_filters=selection_criteria,
-        matched_target_groups=matched_list,
+        matched_target_groups=[],
         exclusions=_build_exclusions(request),
         priority=priority,
     )
 
-
-def _resolve_matched_group(candidate: Any, target_groups: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, float, list[str]]:
-    if not candidate or not target_groups:
-        return None, 0.0, []
-
-    candidate_id: Any = None
-    candidate_name = ""
-    if isinstance(candidate, dict):
-        candidate_id = candidate.get("id") or candidate.get("target_group_id")
-        candidate_name = str(candidate.get("name") or "")
+    matched = _match_existing_target_group(hypothesis, target_groups)
+    if matched is None:
+        recommendation_note = "Это только рекомендация: уверенного совпадения с существующей Target Group не найдено."
+        if recommendation_note not in hypothesis.risk_or_limitation:
+            hypothesis.risk_or_limitation = f"{hypothesis.risk_or_limitation} {recommendation_note}".strip()
+        hypothesis.matched_target_group = None
+        hypothesis.matched_target_groups = []
+        hypothesis.is_existing_target_group = False
     else:
-        candidate_name = str(candidate)
+        hypothesis.matched_target_group = matched
+        hypothesis.matched_target_groups = [matched]
+        hypothesis.is_existing_target_group = True
 
-    for group in target_groups:
-        if candidate_id is not None and str(group.get("id")) == str(candidate_id):
-            return group, 1.0, ["LLM указала существующий Target Group id из справочника"]
+    return hypothesis
 
-    candidate_tokens = _tokens(candidate_name)
+
+def _candidate_matched_model(candidate: Any) -> MatchedTargetGroup | None:
+    if not candidate:
+        return None
+    if isinstance(candidate, MatchedTargetGroup):
+        return candidate
+    if isinstance(candidate, dict):
+        raw_id = candidate.get("target_group_id") or candidate.get("id")
+        try:
+            target_group_id = int(raw_id) if raw_id is not None else None
+        except (TypeError, ValueError):
+            target_group_id = None
+        name = str(candidate.get("name") or candidate.get("title") or "").strip()
+        if target_group_id is None and not name:
+            return None
+        return MatchedTargetGroup(
+            target_group_id=target_group_id,
+            name=name,
+            clients_count=candidate.get("clientsCount") or candidate.get("clients_count"),
+            match_score=0.0,
+            match_reasons=[],
+        )
+    name = str(candidate).strip()
+    if not name:
+        return None
+    return MatchedTargetGroup(name=name, match_score=0.0, match_reasons=[])
+
+
+def _score_target_group_match(hypothesis: SegmentHypothesis, target_group: dict[str, Any]) -> float:
+    """Score how well a hypothesis-confirmed candidate matches one AdTarget group."""
+    group_id = target_group.get("id")
+    group_name = str(target_group.get("name") or target_group.get("title") or "")
+    candidate = hypothesis.matched_target_group
+
+    score = 0.0
+    if candidate:
+        if candidate.target_group_id is not None and group_id is not None:
+            score += 0.55 if str(candidate.target_group_id) == str(group_id) else 0.0
+        candidate_name = candidate.name or ""
+        if candidate_name and group_name:
+            if _normalize_segment_text(candidate_name) == _normalize_segment_text(group_name):
+                score += 0.55
+            else:
+                candidate_tokens = _tokens(candidate_name)
+                group_tokens = _tokens(group_name)
+                if candidate_tokens and group_tokens:
+                    score += 0.35 * (len(candidate_tokens & group_tokens) / len(candidate_tokens | group_tokens))
+
+    hypothesis_tokens = _tokens(" ".join([
+        hypothesis.name,
+        hypothesis.audience_description,
+        hypothesis.relevance_reason,
+        _stringify(hypothesis.selection_criteria),
+    ]))
+    group_tokens = _tokens(group_name)
+    if hypothesis_tokens and group_tokens:
+        score += min(0.15, 0.03 * len(hypothesis_tokens & group_tokens))
+
+    return round(max(0.0, min(score, 1.0)), 4)
+
+
+def _match_existing_target_group(
+    hypothesis: SegmentHypothesis,
+    target_groups: list[dict[str, Any]],
+) -> MatchedTargetGroup | None:
+    """Return a verified AdTarget group match, or None for recommendation-only hypotheses."""
+    candidate = hypothesis.matched_target_group
+    if not candidate or not target_groups:
+        return None
+
+    groups_by_id = {str(group.get("id")): group for group in target_groups if group.get("id") is not None}
+    candidate_name = candidate.name or ""
+
+    if candidate.target_group_id is not None:
+        group = groups_by_id.get(str(candidate.target_group_id))
+        if group is None:
+            return None
+        group_name = str(group.get("name") or group.get("title") or "")
+        if candidate_name and _normalize_segment_text(candidate_name) != _normalize_segment_text(group_name):
+            return None
+        score = _score_target_group_match(hypothesis, group)
+        if score < _MATCH_THRESHOLD:
+            return None
+        return _matched_model(group, score, ["Target Group id подтверждён справочником AdTarget"])
+
     best_group: dict[str, Any] | None = None
     best_score = 0.0
     for group in target_groups:
         group_name = str(group.get("name") or group.get("title") or "")
-        if candidate_name and _normalise_text(candidate_name) == _normalise_text(group_name):
-            return group, 0.98, ["название Target Group точно совпало со справочником"]
-        group_tokens = _tokens(group_name)
-        if not candidate_tokens or not group_tokens:
+        if not candidate_name or not group_name:
             continue
-        score = len(candidate_tokens & group_tokens) / len(candidate_tokens | group_tokens)
+        score = _score_target_group_match(hypothesis, group)
         if score > best_score:
             best_group = group
             best_score = score
 
-    if best_group and best_score >= _MATCH_THRESHOLD:
-        return best_group, best_score, ["название Target Group близко совпало со справочником"]
-    return None, best_score, []
+    if best_group is None or best_score < _MATCH_THRESHOLD:
+        return None
+    return _matched_model(best_group, best_score, ["название Target Group подтверждено справочником AdTarget"])
+
+
+def _resolve_matched_group(candidate: Any, target_groups: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, float, list[str]]:
+    candidate_match = _candidate_matched_model(candidate)
+    if not candidate_match:
+        return None, 0.0, []
+    hypothesis = SegmentHypothesis(
+        matched_target_group=candidate_match,
+        confidence=0.0,
+        priority=1,
+    )
+    matched = _match_existing_target_group(hypothesis, target_groups)
+    if not matched:
+        best_score = max((_score_target_group_match(hypothesis, group) for group in target_groups), default=0.0)
+        return None, best_score, []
+    for group in target_groups:
+        if str(group.get("id")) == str(matched.target_group_id):
+            return group, matched.match_score, matched.match_reasons
+    return None, matched.match_score, matched.match_reasons
 
 
 def _matched_model(group: dict[str, Any], score: float, reasons: list[str]) -> MatchedTargetGroup:
@@ -297,11 +384,25 @@ def _build_exclusions(request: SegmentSuggestRequest) -> list[str]:
 
 
 def _tokens(text: str) -> set[str]:
-    return set(re.findall(r"[a-zа-я0-9]+", _normalise_text(text)))
+    return set(re.findall(r"[a-zа-я0-9]+", _normalize_segment_text(text)))
+
+
+def _normalize_segment_text(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").replace("ё", "е").strip().lower())
 
 
 def _normalise_text(text: str | None) -> str:
-    return (text or "").replace("ё", "е").strip().lower()
+    return _normalize_segment_text(text or "")
+
+
+def _stringify(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, dict):
+        return " ".join(f"{key} {_stringify(item)}" for key, item in value.items())
+    if isinstance(value, (list, tuple, set)):
+        return " ".join(_stringify(item) for item in value)
+    return str(value)
 
 
 def _dedupe(items: list[str]) -> list[str]:

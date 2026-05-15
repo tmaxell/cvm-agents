@@ -111,6 +111,7 @@ class SegmentSuggestResponse(BaseModel):
     summary: str
     hypotheses: list[SegmentHypothesis] = Field(min_length=2, max_length=3)
     warnings: list[str] = Field(default_factory=list)
+    recommendation_only: bool = True
 
 
 # ── Builder sessions ─────────────────────────────────────────────────────────

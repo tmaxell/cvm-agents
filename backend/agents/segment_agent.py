@@ -13,7 +13,7 @@ import re
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
 from llm import get_llm
 from schemas import MatchedTargetGroup, SegmentHypothesis, SegmentSuggestRequest, SegmentSuggestResponse
@@ -115,30 +115,45 @@ def _compact_target_groups(target_groups: list[dict[str, Any]]) -> list[dict[str
 async def _ask_llm(request: SegmentSuggestRequest, compact_groups: list[dict[str, Any]]) -> _RawSegmentResponse:
     llm = get_llm(for_tools=False)
     response = await llm.ainvoke([
-        SystemMessage(content=(
-            "Ты CVM-аналитик и предлагаешь сегменты аудитории для маркетинговой кампании. "
-            "Верни только валидный JSON без markdown и комментариев. "
-            "Строгая схема ответа: {\"hypotheses\":[{\"name\":string,"
-            "\"audience_description\":string,\"relevance_reason\":string,"
-            "\"selection_criteria\":object|string,\"risk_or_limitation\":string,"
-            "\"matched_target_group\":object|null,\"is_existing_target_group\":boolean,"
-            "\"confidence\":number}]}. "
-            "Верни строго 2–3 гипотезы. Для matched_target_group используй только существующую Target Group "
-            "из списка и указывай минимум id и name. Если нет уверенного совпадения с Target Group, "
-            "поставь matched_target_group=null, is_existing_target_group=false и явно напиши в "
-            "risk_or_limitation, что это только рекомендация, а не существующая ЦГ. "
-            "Не выдумывай id или названия Target Groups. confidence — число от 0 до 1."
-        )),
+        SystemMessage(content=_segment_system_prompt()),
         HumanMessage(content=json.dumps({
             "request": request.model_dump(),
             "existing_target_groups": compact_groups,
         }, ensure_ascii=False)),
     ])
     content = response.content if hasattr(response, "content") else str(response)
-    return _parse_raw_response(content)
+    return _parse_raw_response(content, request, compact_groups)
 
 
-def _parse_raw_response(content: Any) -> _RawSegmentResponse:
+def _segment_system_prompt() -> str:
+    return (
+        "Ты CVM-аналитик и предлагаешь сегменты аудитории для маркетинговой кампании. "
+        "Верни только валидный JSON без markdown и комментариев. "
+        "Строгая схема ответа: {\"hypotheses\":[{\"name\":string,"
+        "\"audience_description\":string,\"relevance_reason\":string,"
+        "\"selection_criteria\":object|string,\"risk_or_limitation\":string,"
+        "\"matched_target_group\":object|null,\"is_existing_target_group\":boolean,"
+        "\"confidence\":number}]}. "
+        "Обязательные ограничения безопасности: "
+        "1) не утверждай, что новая Target Group создана, заведена или уже доступна; "
+        "2) не оценивай точный размер сегмента и не называй точное количество клиентов, если это не поле "
+        "clients_count существующей Target Group из справочника; "
+        "3) не утверждай, что проверены согласия, контактные политики, opt-out, frequency cap или юридические "
+        "ограничения — можно только указать, что они требуют отдельной проверки; "
+        "4) если Target Group не найдена в справочнике existing_target_groups, верни для этой гипотезы "
+        "matched_target_group=null, is_existing_target_group=false и текст 'только рекомендация' в risk_or_limitation; "
+        "5) всегда возвращай ровно 2–3 гипотезы; "
+        "6) для каждой гипотезы обязательно заполни risk_or_limitation конкретным риском или ограничением. "
+        "Для matched_target_group используй только существующую Target Group из списка и указывай минимум id и name. "
+        "Не выдумывай id или названия Target Groups. confidence — число от 0 до 1."
+    )
+
+
+def _parse_raw_response(
+    content: Any,
+    request: SegmentSuggestRequest | None = None,
+    compact_groups: list[dict[str, Any]] | None = None,
+) -> _RawSegmentResponse:
     if isinstance(content, list):
         content = "".join(str(part.get("text", part)) if isinstance(part, dict) else str(part) for part in content)
     text = str(content).strip()
@@ -152,10 +167,142 @@ def _parse_raw_response(content: Any) -> _RawSegmentResponse:
 
     if isinstance(payload, list):
         payload = {"hypotheses": payload}
+    normalised_payload = _normalise_raw_payload(payload, request, compact_groups or [])
+    return _RawSegmentResponse.model_validate(normalised_payload)
+
+
+def _normalise_raw_payload(
+    payload: Any,
+    request: SegmentSuggestRequest | None,
+    compact_groups: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Post-process and safely normalize imperfect LLM JSON before schema validation."""
+    if not isinstance(payload, dict):
+        payload = {}
+    hypotheses = payload.get("hypotheses")
+    if not isinstance(hypotheses, list):
+        hypotheses = []
+
+    normalised = [
+        _normalise_raw_hypothesis(item, index + 1, compact_groups)
+        for index, item in enumerate(hypotheses[:_MAX_HYPOTHESES])
+        if isinstance(item, dict)
+    ]
+
+    if len(normalised) < _MIN_HYPOTHESES:
+        fallback = _fallback_raw_response(request, compact_groups) if request else _generic_raw_response(compact_groups)
+        existing_names = {_normalise_text(item.get("name")) for item in normalised}
+        for raw in fallback.hypotheses:
+            if len(normalised) >= _MIN_HYPOTHESES:
+                break
+            raw_item = raw.model_dump()
+            if _normalise_text(raw_item.get("name")) in existing_names:
+                continue
+            normalised.append(_normalise_raw_hypothesis(raw_item, len(normalised) + 1, compact_groups))
+
+    return {"hypotheses": normalised[:_MAX_HYPOTHESES]}
+
+
+def _normalise_raw_hypothesis(
+    item: dict[str, Any],
+    index: int,
+    compact_groups: list[dict[str, Any]],
+) -> dict[str, Any]:
+    candidate = item.get("matched_target_group")
+    matched_group = _compact_group_match(candidate, compact_groups)
+    risk = _safe_text(item.get("risk_or_limitation"))
+    if not risk:
+        risk = "Требуется отдельная проверка применимости сегмента, контактных ограничений и юридических требований."
+    if matched_group is None and "только рекомендация" not in _normalise_text(risk):
+        risk = f"{risk} Это только рекомендация: Target Group не найдена в справочнике."
+
+    name = _safe_text(item.get("name")) or f"Гипотеза сегмента {index}"
+    audience_description = _safe_text(item.get("audience_description") or item.get("description"))
+    relevance_reason = _safe_text(item.get("relevance_reason") or item.get("rationale"))
+
+    return {
+        "name": name,
+        "audience_description": audience_description or "Сегмент требует дополнительного описания перед запуском кампании.",
+        "relevance_reason": relevance_reason or "Релевантность требует подтверждения на данных кампании.",
+        "selection_criteria": item.get("selection_criteria") if item.get("selection_criteria") is not None else {},
+        "risk_or_limitation": risk,
+        "matched_target_group": matched_group,
+        "is_existing_target_group": bool(matched_group),
+        "confidence": _normalise_confidence(item.get("confidence")),
+    }
+
+
+def _compact_group_match(candidate: Any, compact_groups: list[dict[str, Any]]) -> dict[str, Any] | None:
+    candidate_match = _candidate_matched_model(candidate)
+    if not candidate_match:
+        return None
+    for group in compact_groups:
+        group_id = group.get("id")
+        group_name = str(group.get("name") or "")
+        id_matches = candidate_match.target_group_id is not None and str(candidate_match.target_group_id) == str(group_id)
+        name_matches = bool(candidate_match.name and group_name and _normalise_text(candidate_match.name) == _normalise_text(group_name))
+        if id_matches and (not candidate_match.name or name_matches):
+            return {"id": group_id, "name": group_name, "clients_count": group.get("clients_count")}
+        if candidate_match.target_group_id is None and name_matches:
+            return {"id": group_id, "name": group_name, "clients_count": group.get("clients_count")}
+    return None
+
+
+def _safe_text(value: Any) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if not text:
+        return ""
+    replacements = [
+        (r"(?i)(target group|целевая группа|цг)[^.!?]{0,40}(создан[аыо]?|заведен[аыо]?|сформирован[аыо]?)",
+         "Target Group не создана автоматически; требуется отдельная настройка"),
+        (r"(?i)(создан[аыо]?|заведен[аыо]?|сформирован[аыо]?)[^.!?]{0,40}(target group|целевая группа|цг)",
+         "Target Group не создана автоматически; требуется отдельная настройка"),
+        (r"(?i)(согласия|consent|opt[- ]?out|контактн\w* политик\w*|frequency cap|юридическ\w* ограничен\w*)[^.!?]{0,40}(проверен[ыао]?|учтен[ыао]?|валидирован[ыао]?)",
+         "согласия, контактные политики и юридические ограничения требуют отдельной проверки"),
+        (r"(?i)(проверен[ыао]?|учтен[ыао]?|валидирован[ыао]?)[^.!?]{0,40}(согласия|consent|opt[- ]?out|контактн\w* политик\w*|frequency cap|юридическ\w* ограничен\w*)",
+         "согласия, контактные политики и юридические ограничения требуют отдельной проверки"),
+    ]
+    for pattern, replacement in replacements:
+        text = re.sub(pattern, replacement, text)
+    text = re.sub(
+        r"(?i)(?:точн(?:ый|ая|ое) размер сегмента|размер сегмента|сегмент (?:составит|составляет|включает))[^.!?]*(?:\d[\d\s]*(?:клиент|абонент|пользователь)[а-я]*)",
+        "размер сегмента требует отдельного расчёта",
+        text,
+    )
+    return text.strip()
+
+
+def _normalise_confidence(value: Any) -> float:
     try:
-        return _RawSegmentResponse.model_validate(payload)
-    except ValidationError as exc:
-        raise ValueError(f"LLM returned invalid segment JSON: {exc}") from exc
+        confidence = float(value)
+    except (TypeError, ValueError):
+        confidence = 0.5
+    return round(max(0.0, min(confidence, 1.0)), 2)
+
+
+def _generic_raw_response(compact_groups: list[dict[str, Any]]) -> _RawSegmentResponse:
+    return _RawSegmentResponse(hypotheses=[
+        _RawSegmentHypothesis(
+            name="Базовая рекомендательная гипотеза",
+            audience_description="Клиенты с потенциальной релевантностью к кампании.",
+            relevance_reason="Гипотеза требует подтверждения на доступных данных.",
+            selection_criteria={},
+            risk_or_limitation="Требуется отдельная проверка размера, контактных ограничений и юридических требований.",
+            matched_target_group=compact_groups[0] if compact_groups else None,
+            is_existing_target_group=bool(compact_groups),
+            confidence=0.5,
+        ),
+        _RawSegmentHypothesis(
+            name="Альтернативная рекомендательная гипотеза",
+            audience_description="Похожая аудитория для тестового запуска без автоматического создания Target Group.",
+            relevance_reason="Подходит для ручной аналитической проверки перед запуском.",
+            selection_criteria={},
+            risk_or_limitation="Это только рекомендация: Target Group должна быть подтверждена по справочнику перед использованием.",
+            matched_target_group=None,
+            is_existing_target_group=False,
+            confidence=0.45,
+        ),
+    ])
 
 
 def _to_segment_hypothesis(

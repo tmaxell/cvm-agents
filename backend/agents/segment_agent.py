@@ -33,6 +33,9 @@ class _RawSegmentHypothesis(BaseModel):
     risk_or_limitation: str
     matched_target_group: Any = None
     is_existing_target_group: bool = False
+    segment_source: str = "llm_composed_demo"
+    demo_insight: str = ""
+    estimated_reach_label: str = ""
     confidence: float = Field(ge=0.0, le=1.0)
 
 
@@ -114,11 +117,14 @@ def _compact_target_groups(target_groups: list[dict[str, Any]]) -> list[dict[str
 
 async def _ask_llm(request: SegmentSuggestRequest, compact_groups: list[dict[str, Any]]) -> _RawSegmentResponse:
     llm = get_llm(for_tools=False)
+    demo_contact_base_profile = _demo_contact_base_profile(request)
     response = await llm.ainvoke([
         SystemMessage(content=_segment_system_prompt()),
         HumanMessage(content=json.dumps({
-            "request": request.model_dump(),
+            "request": {**request.model_dump(), "demo_contact_base_profile": demo_contact_base_profile},
+            "strategy": request.strategy,
             "existing_target_groups": compact_groups,
+            "demo_contact_base_profile": demo_contact_base_profile,
         }, ensure_ascii=False)),
     ])
     content = response.content if hasattr(response, "content") else str(response)
@@ -133,6 +139,8 @@ def _segment_system_prompt() -> str:
         "\"audience_description\":string,\"relevance_reason\":string,"
         "\"selection_criteria\":object|string,\"risk_or_limitation\":string,"
         "\"matched_target_group\":object|null,\"is_existing_target_group\":boolean,"
+        "\"segment_source\":\"existing_target_group|llm_composed_demo\","
+        "\"demo_insight\":string,\"estimated_reach_label\":string,"
         "\"confidence\":number}]}. "
         "Обязательные ограничения безопасности: "
         "1) не утверждай, что новая Target Group создана, заведена или уже доступна; "
@@ -141,9 +149,15 @@ def _segment_system_prompt() -> str:
         "3) не утверждай, что проверены согласия, контактные политики, opt-out, frequency cap или юридические "
         "ограничения — можно только указать, что они требуют отдельной проверки; "
         "4) если Target Group не найдена в справочнике existing_target_groups, верни для этой гипотезы "
-        "matched_target_group=null, is_existing_target_group=false и текст 'только рекомендация' в risk_or_limitation; "
-        "5) всегда возвращай ровно 2–3 гипотезы; "
-        "6) для каждой гипотезы обязательно заполни risk_or_limitation конкретным риском или ограничением. "
+        "matched_target_group=null, is_existing_target_group=false, segment_source=llm_composed_demo "
+        "и текст 'только рекомендация' в risk_or_limitation; "
+        "5) если strategy=compose_new или strategy=hybrid, можно предложить новый сегмент на основе "
+        "demo_contact_base_profile, но это recommendation-only/demo-only гипотеза, а не созданный сегмент в AdTarget; "
+        "6) если strategy=existing_groups, опирайся только на existing_target_groups и не сочиняй новые сегменты; "
+        "7) для llm_composed_demo обязательно заполни demo_insight, estimated_reach_label одним из "
+        "'Высокий', 'Средний', 'Низкий' без точного real-data размера и явно укажи demo-only/recommendation-only; "
+        "8) всегда возвращай ровно 2–3 гипотезы; "
+        "9) для каждой гипотезы обязательно заполни risk_or_limitation конкретным риском или ограничением. "
         "Для matched_target_group используй только существующую Target Group из списка и указывай минимум id и name. "
         "Не выдумывай id или названия Target Groups. confidence — число от 0 до 1."
     )
@@ -228,6 +242,9 @@ def _normalise_raw_hypothesis(
         "risk_or_limitation": risk,
         "matched_target_group": matched_group,
         "is_existing_target_group": bool(matched_group),
+        "segment_source": _normalise_segment_source(item.get("segment_source"), bool(matched_group)),
+        "demo_insight": _safe_text(item.get("demo_insight")),
+        "estimated_reach_label": _normalise_reach_label(item.get("estimated_reach_label")),
         "confidence": _normalise_confidence(item.get("confidence")),
     }
 
@@ -292,6 +309,19 @@ def _safe_text(value: Any) -> str:
     return text.strip()
 
 
+def _normalise_segment_source(value: Any, has_matched_group: bool) -> str:
+    if has_matched_group:
+        return "existing_target_group"
+    return "llm_composed_demo"
+
+
+def _normalise_reach_label(value: Any) -> str:
+    label = _safe_text(value)
+    allowed = {"высокий": "Высокий", "средний": "Средний", "низкий": "Низкий"}
+    normalised = _normalise_text(label)
+    return allowed.get(normalised, label if label in allowed.values() else "Средний")
+
+
 def _normalise_confidence(value: Any) -> float:
     try:
         confidence = float(value)
@@ -310,6 +340,9 @@ def _generic_raw_response(compact_groups: list[dict[str, Any]]) -> _RawSegmentRe
             risk_or_limitation="Требуется отдельная проверка размера, контактных ограничений и юридических требований.",
             matched_target_group=compact_groups[0] if compact_groups else None,
             is_existing_target_group=bool(compact_groups),
+            segment_source="existing_target_group" if compact_groups else "llm_composed_demo",
+            demo_insight="Базовая эвристика без prod-интеграции.",
+            estimated_reach_label="Средний",
             confidence=0.5,
         ),
         _RawSegmentHypothesis(
@@ -320,6 +353,9 @@ def _generic_raw_response(compact_groups: list[dict[str, Any]]) -> _RawSegmentRe
             risk_or_limitation="Это только рекомендация: Target Group должна быть подтверждена по справочнику перед использованием.",
             matched_target_group=None,
             is_existing_target_group=False,
+            segment_source="llm_composed_demo",
+            demo_insight="Демо-гипотеза для ручной проверки аналитиком.",
+            estimated_reach_label="Низкий",
             confidence=0.45,
         ),
     ])
@@ -342,6 +378,9 @@ def _to_segment_hypothesis(
         risk_or_limitation=raw.risk_or_limitation.strip(),
         matched_target_group=candidate_match,
         is_existing_target_group=bool(raw.is_existing_target_group and candidate_match),
+        segment_source=raw.segment_source,
+        demo_insight=raw.demo_insight.strip(),
+        estimated_reach_label=_normalise_reach_label(raw.estimated_reach_label),
         confidence=round(max(0.0, min(raw.confidence, 1.0)), 2),
         # Legacy fields retained for the current UI/tests.
         title=raw.name.strip(),
@@ -363,10 +402,18 @@ def _to_segment_hypothesis(
         hypothesis.matched_target_group = None
         hypothesis.matched_target_groups = []
         hypothesis.is_existing_target_group = False
+        hypothesis.segment_source = "llm_composed_demo"
+        if "recommendation-only/demo-only" not in hypothesis.risk_or_limitation:
+            hypothesis.risk_or_limitation = f"{hypothesis.risk_or_limitation} recommendation-only/demo-only.".strip()
+        if not hypothesis.demo_insight:
+            hypothesis.demo_insight = "Новый демо-сегмент требует ручной сборки и валидации вне AdTarget."
     else:
         hypothesis.matched_target_group = matched
         hypothesis.matched_target_groups = [matched]
         hypothesis.is_existing_target_group = True
+        hypothesis.segment_source = "existing_target_group"
+        if not hypothesis.demo_insight:
+            hypothesis.demo_insight = "Совпадение подтверждено справочником Target Groups; дополнительные политики требуют проверки."
 
     return hypothesis
 
@@ -511,6 +558,8 @@ def _normalise_selection_criteria(criteria: Any, request: SegmentSuggestRequest)
         normalised = {}
     if request.audience_constraints:
         normalised.setdefault("request_constraints", request.audience_constraints)
+    if request.demo_contact_base_profile:
+        normalised.setdefault("demo_contact_base_profile_used", True)
     return normalised
 
 
@@ -526,6 +575,9 @@ def _fallback_raw_response(request: SegmentSuggestRequest, compact_groups: list[
             risk_or_limitation="Нужна проверка размера и частотных ограничений перед запуском.",
             matched_target_group=primary,
             is_existing_target_group=bool(primary),
+            segment_source="existing_target_group" if primary else "llm_composed_demo",
+            demo_insight="Резервная гипотеза на базе продукта и цели кампании.",
+            estimated_reach_label="Средний",
             confidence=0.68 if primary else 0.52,
         ),
         _RawSegmentHypothesis(
@@ -536,6 +588,9 @@ def _fallback_raw_response(request: SegmentSuggestRequest, compact_groups: list[
             risk_or_limitation="Это только рекомендация: уверенного совпадения с существующей Target Group не найдено.",
             matched_target_group=secondary,
             is_existing_target_group=bool(secondary),
+            segment_source="existing_target_group" if secondary else "llm_composed_demo",
+            demo_insight="Резервная demo-only гипотеза для A/B-проверки.",
+            estimated_reach_label="Низкий",
             confidence=0.6 if secondary else 0.5,
         ),
     ]
@@ -574,3 +629,13 @@ def _stringify(value: Any) -> str:
 
 def _dedupe(items: list[str]) -> list[str]:
     return list(dict.fromkeys(item for item in items if item))
+
+
+def _demo_contact_base_profile(request: SegmentSuggestRequest) -> dict[str, Any]:
+    if request.demo_contact_base_profile:
+        return request.demo_contact_base_profile
+    try:
+        from tools.mock_data import MOCK_CONTACT_BASE_PROFILE
+    except ImportError:
+        return {}
+    return MOCK_CONTACT_BASE_PROFILE

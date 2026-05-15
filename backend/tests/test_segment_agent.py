@@ -68,6 +68,48 @@ class CreatedTargetGroupFakeLLM:
         }, ensure_ascii=False))
 
 
+class ComposeNewFakeLLM:
+    def __init__(self):
+        self.messages = None
+
+    async def ainvoke(self, messages):
+        self.messages = messages
+        return SimpleNamespace(content=json.dumps({
+            "hypotheses": [
+                {
+                    "name": "Demo-only heavy data roamers",
+                    "audience_description": "Клиенты premium-тарифов с высоким data usage и occasional roaming.",
+                    "relevance_reason": "Mock contact-base profile показывает потенциал для роуминг-пакета.",
+                    "selection_criteria": {
+                        "tariff.price_tiers": ["premium"],
+                        "data_usage.package_utilisation_bands": ["high", "overage"],
+                        "roaming.international_roaming": ["occasional"],
+                    },
+                    "risk_or_limitation": "Новый сегмент является только рекомендацией и требует отдельной проверки контактности.",
+                    "matched_target_group": None,
+                    "is_existing_target_group": False,
+                    "segment_source": "llm_composed_demo",
+                    "demo_insight": "Комбинация premium-тарифа, высокой утилизации данных и роуминга из mock contact-base profile.",
+                    "estimated_reach_label": "Средний",
+                    "confidence": 0.74,
+                },
+                {
+                    "name": "Существующий высокий churn-risk",
+                    "audience_description": "Клиенты с высоким риском оттока.",
+                    "relevance_reason": "Подходит для удерживающей коммуникации.",
+                    "selection_criteria": {"churn_risk": "high"},
+                    "risk_or_limitation": "Нужно проверить согласия и frequency cap.",
+                    "matched_target_group": {"id": 107, "name": "Высокий churn-риск"},
+                    "is_existing_target_group": True,
+                    "segment_source": "existing_target_group",
+                    "demo_insight": "Есть справочная Target Group для базового сравнения.",
+                    "estimated_reach_label": "Высокий",
+                    "confidence": 0.8,
+                },
+            ]
+        }, ensure_ascii=False))
+
+
 def test_segment_agent_returns_two_to_three_hypotheses_for_product_and_goal(monkeypatch):
     from agents import segment_agent
 
@@ -262,3 +304,42 @@ def test_parse_raw_response_normalises_required_fields_and_safety_rules():
     assert "размер сегмента требует отдельного расчёта" in response.hypotheses[0].audience_description
     assert response.hypotheses[0].relevance_reason
     assert "status" not in response.model_dump()
+
+
+def test_segment_agent_allows_demo_composed_segment_without_adtarget_creation(monkeypatch):
+    from agents import segment_agent
+
+    async def fake_target_groups():
+        return {
+            "items": [
+                {"id": 107, "name": "Высокий churn-риск", "clientsCount": 31200, "status": "Active"},
+            ]
+        }
+
+    fake_llm = ComposeNewFakeLLM()
+    monkeypatch.setattr(segment_agent.adtarget, "list_target_groups", fake_target_groups)
+    monkeypatch.setattr(segment_agent, "get_llm", lambda for_tools=False: fake_llm)
+
+    response = asyncio.run(segment_agent.suggest_segments(SegmentSuggestRequest(
+        product="Роуминг-пакет",
+        campaign_goal="увеличить подключение роуминг-опций",
+        strategy="compose_new",
+        demo_contact_base_profile={
+            "tariff": {"price_tiers": ["premium"]},
+            "data_usage": {"package_utilisation_bands": ["high", "overage"]},
+            "roaming": {"international_roaming": ["occasional"]},
+        },
+    )))
+
+    composed = response.hypotheses[0]
+    assert composed.matched_target_group is None
+    assert composed.is_existing_target_group is False
+    assert composed.segment_source == "llm_composed_demo"
+    assert composed.demo_insight
+    assert composed.estimated_reach_label == "Средний"
+    assert "recommendation-only/demo-only" in composed.risk_or_limitation
+    assert response.recommendation_only is True
+
+    prompt_payload = json.loads(fake_llm.messages[1].content)
+    assert prompt_payload["strategy"] == "compose_new"
+    assert prompt_payload["demo_contact_base_profile"]["tariff"]["price_tiers"] == ["premium"]

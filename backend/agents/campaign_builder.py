@@ -102,7 +102,27 @@ def _api_error(tool_name: str, e: Exception) -> str:
 
 
 def _normalize_text(text: str | None) -> str:
-    return (text or "").strip().lower()
+    text = (text or "").replace("ё", "е")
+    # Make camelCase/PascalCase operationId values searchable as separate words.
+    text = re.sub(r"(?<=[a-zа-я0-9])(?=[A-ZА-Я])", " ", text)
+    return text.strip().lower()
+
+
+def _text_tokens(text: str | None) -> set[str]:
+    """Normalize text and split it into searchable tokens."""
+    return set(re.findall(r"[a-zа-я0-9]+", _normalize_text(text)))
+
+
+def _stringify_preference_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return " ".join(_stringify_preference_value(item) for item in value.values())
+    if isinstance(value, (list, tuple, set)):
+        return " ".join(_stringify_preference_value(item) for item in value)
+    return str(value)
 
 
 def _is_memory_only_request(goal: str) -> bool:
@@ -350,7 +370,7 @@ async def _llm_plan_special_turn(
         if ref:
             offers = [
                 {"id": offer.get("id"), "name": offer.get("name"), "operationId": offer.get("operationId")}
-                for offer in ref.get("offers", [])[:40]
+                for offer in _shortlist_offer_templates(ref, goal, preferences, limit=40)
             ]
 
         response = await llm.ainvoke([
@@ -407,20 +427,32 @@ def _resolve_business_transaction_activity_params(
     offer = None
     warning = None
 
-    if params.get("offer_template_id") is not None:
+    llm_selected_id = params.get("offer_template_id") is not None
+    if llm_selected_id:
         try:
             plan_offer_id = int(params["offer_template_id"])
             offer = next((item for item in ref.get("offers", []) if item.get("id") == plan_offer_id), None)
         except (TypeError, ValueError):
             offer = None
+        if not offer:
+            warning = (
+                "LLM-планировщик выбрал невалидный offer_template_id; "
+                "пробую подобрать шаблон детерминированно по цели и preferences."
+            )
 
     if not offer:
         offer = _select_offer_template(ref, goal, preferences)
         if offer:
-            warning = "LLM-планировщик не выбрал валидный offer_template_id; использован ближайший шаблон из справочника."
+            fallback_note = "использован ближайший шаблон из справочника по score."
+            warning = f"{warning} {fallback_note}" if warning else fallback_note
 
     if not offer:
-        return None, None, None
+        no_match_warning = (
+            "Не нашёл релевантный шаблон оффера по goal/builder_preferences с достаточным score; "
+            "первый шаблон из справочника не подставлен. Укажите offer_template_id и operation_id."
+        )
+        warning = f"{warning} {no_match_warning}" if warning else no_match_warning
+        return None, None, warning
 
     params["offer_template_id"] = int(offer["id"])
     params["operation_id"] = str(params.get("operation_id") or offer["operationId"])
@@ -428,29 +460,148 @@ def _resolve_business_transaction_activity_params(
     return params, offer, warning
 
 
-def _select_offer_template(ref: dict, goal: str, preferences: dict | None = None) -> dict | None:
-    """Выбирает шаблон оффера для deterministic follow-up без LLM.
+OFFER_SELECTION_MIN_SCORE = 30
 
-    Сначала пытаемся найти совпадение по рекомендациям/тексту, иначе берём
-    первый доступный шаблон из справочника, чтобы запрос "добавь транзакцию"
-    не падал из-за отсутствия явного id.
-    """
-    offers = ref.get("offers", [])
-    if not offers:
+
+def _offer_search_fields(offer: dict) -> tuple[str, str, set[str]]:
+    name = _normalize_text(str(offer.get("name", "")))
+    operation_id = _normalize_text(str(offer.get("operationId", "")))
+    return name, operation_id, _text_tokens(f"{name} {operation_id}")
+
+
+def _score_offer_text(offer: dict, query: str | None, *, weight: int, exact_product: bool = False) -> int:
+    query_norm = _normalize_text(query)
+    if not query_norm:
+        return 0
+
+    name, operation_id, offer_tokens = _offer_search_fields(offer)
+    query_tokens = _text_tokens(query_norm)
+    if not query_tokens:
+        return 0
+
+    score = 0
+    if exact_product and name and query_norm == name:
+        score += 120 * weight
+    if exact_product and name and (query_norm in name or name in query_norm):
+        score += 70 * weight
+    if operation_id and query_norm == operation_id:
+        score += 55 * weight
+    elif operation_id and (query_norm in operation_id or operation_id in query_norm):
+        score += 25 * weight
+
+    overlap = query_tokens & offer_tokens
+    score += len(overlap) * 12 * weight
+
+    # Give useful product tokens such as Max/Family/тариф a chance to win even
+    # when the user phrase and offer name are not exact string matches.
+    for token in query_tokens:
+        if len(token) < 3:
+            continue
+        if any(token in offer_token or offer_token in token for offer_token in offer_tokens):
+            score += 5 * weight
+
+    return score
+
+
+def _score_offer_template(offer: dict, goal: str, preferences: dict | None = None) -> int:
+    """Score one offer against product, recommendations and goal independently."""
+    product = ""
+    recommendations = ""
+    if isinstance(preferences, dict):
+        product = _stringify_preference_value(preferences.get("product"))
+        recommendations = _stringify_preference_value(preferences.get("offerRecommendations"))
+
+    return (
+        _score_offer_text(offer, product, weight=4, exact_product=True)
+        + _score_offer_text(offer, recommendations, weight=2)
+        + _score_offer_text(offer, goal, weight=1)
+    )
+
+
+def _rank_offer_templates(ref: dict, goal: str, preferences: dict | None = None) -> list[tuple[int, dict]]:
+    ranked = [
+        (_score_offer_template(offer, goal, preferences), offer)
+        for offer in ref.get("offers", [])
+    ]
+    return sorted(ranked, key=lambda item: item[0], reverse=True)
+
+
+def _shortlist_offer_templates(
+    ref: dict,
+    goal: str,
+    preferences: dict | None = None,
+    *,
+    limit: int = 40,
+) -> list[dict]:
+    """Return a score-prioritized offer shortlist for LLM planning."""
+    ranked = _rank_offer_templates(ref, goal, preferences)
+    scored = [offer for score, offer in ranked if score >= OFFER_SELECTION_MIN_SCORE]
+    if len(scored) >= limit:
+        return scored[:limit]
+
+    seen = {offer.get("id") for offer in scored}
+    fallback = [offer for _, offer in ranked if offer.get("id") not in seen]
+    return (scored + fallback)[:limit]
+
+
+def _select_offer_template(ref: dict, goal: str, preferences: dict | None = None) -> dict | None:
+    """Select an offer template only when deterministic scoring is confident."""
+    ranked = _rank_offer_templates(ref, goal, preferences)
+    if not ranked:
         return None
 
-    preference_text = ""
+    best_score, best_offer = ranked[0]
+    if best_score < OFFER_SELECTION_MIN_SCORE:
+        return None
+
+    return best_offer
+
+
+GENERIC_PRODUCT_TOKENS = {"тариф", "пакет", "данных", "гб", "gb", "offer", "оффер"}
+
+
+def _offer_matches_product(offer: dict, product: str | None) -> bool:
+    product_tokens = _text_tokens(product)
+    if not product_tokens:
+        return True
+    name, operation_id, offer_tokens = _offer_search_fields(offer)
+    product_norm = _normalize_text(product)
+    if product_norm and (product_norm in name or product_norm in operation_id):
+        return True
+    important_tokens = {token for token in product_tokens if token not in GENERIC_PRODUCT_TOKENS}
+    if important_tokens:
+        return bool(important_tokens & offer_tokens)
+    return bool(product_tokens & offer_tokens)
+
+
+def _validate_flow_offer_product_match(
+    flow: dict | None,
+    ref: dict,
+    preferences: dict | None,
+) -> str | None:
+    """Warn if a built flow uses an offer unrelated to builder_preferences.product."""
+    product = ""
     if isinstance(preferences, dict):
-        preference_text = " ".join(str(v) for v in preferences.values() if v)
-    haystack = _normalize_text(f"{goal} {preference_text}")
+        product = _stringify_preference_value(preferences.get("product"))
+    if not product or not isinstance(flow, dict):
+        return None
 
-    for offer in offers:
-        name = _normalize_text(str(offer.get("name", "")))
-        operation_id = _normalize_text(str(offer.get("operationId", "")))
-        if (name and name in haystack) or (operation_id and operation_id in haystack):
-            return offer
-
-    return offers[0]
+    offers_by_id = {offer.get("id"): offer for offer in ref.get("offers", [])}
+    for activity in flow.get("activities", []):
+        if not isinstance(activity, dict) or activity.get("type") != "BusinessTransactionActivity":
+            continue
+        offer_id = activity.get("offerTemplateId")
+        offer = offers_by_id.get(offer_id)
+        if not offer:
+            operation_id = (activity.get("businessOperation") or {}).get("id")
+            offer = {"id": offer_id, "name": "", "operationId": operation_id or ""}
+        if not _offer_matches_product(offer, product):
+            return (
+                f"Выбранный шаблон оффера id={offer_id} "
+                f"(name='{offer.get('name') or 'неизвестно'}', operationId='{offer.get('operationId') or ''}') "
+                f"не похож на продукт '{product}'. Уточните offer_template_id или product перед созданием кампании."
+            )
+    return None
 
 
 def _find_activity_anchor_index(
@@ -1546,11 +1697,12 @@ async def run(request: BuilderRequest) -> BuilderResponse:
             if fallback_warning and not planned_flow_edit_warning:
                 planned_flow_edit_warning = fallback_warning
             if not resolved_params:
+                details = fallback_warning or (
+                    "справочник офферов пуст или недоступен. "
+                    "Укажите offer_template_id и operation_id или проверьте доступ к AdTarget API."
+                )
                 return BuilderResponse(
-                    message=(
-                        "Не удалось выбрать шаблон оффера для бизнес-транзакции: справочник офферов пуст "
-                        "или недоступен. Укажите offer_template_id и operation_id или проверьте доступ к AdTarget API."
-                    ),
+                    message=f"Не удалось выбрать шаблон оффера для бизнес-транзакции: {details}",
                     campaign_id=request.session_campaign_id,
                     draft_flow=existing_flow,
                     status="error",
@@ -1664,11 +1816,32 @@ async def run(request: BuilderRequest) -> BuilderResponse:
             recovered_from_text = True
             print("[campaign_builder] Recovered flow from textual tool calls")
 
+    flow_product_warning = None
+    flow_data_for_validation = None
+    if last_flow_json:
+        try:
+            flow_data_for_validation = json.loads(last_flow_json)
+            flow_product_warning = _validate_flow_offer_product_match(
+                flow_data_for_validation,
+                ref_full,
+                request.builder_preferences,
+            )
+        except (json.JSONDecodeError, TypeError):
+            flow_data_for_validation = None
+
+    if flow_product_warning and not campaign_id:
+        return BuilderResponse(
+            message=f"⚠️ {flow_product_warning}",
+            campaign_id=None,
+            draft_flow=flow_data_for_validation,
+            status="error",
+        )
+
     # ── Авто-создание: если агент построил flow но не вызвал create_campaign ──
     auto_created = False
     if last_flow_json and not campaign_id:
         try:
-            flow_data = json.loads(last_flow_json)
+            flow_data = flow_data_for_validation or json.loads(last_flow_json)
             create_result = await adtarget.create_campaign(flow_data)
             campaign_id = create_result.get("campaignId")
             auto_created = bool(campaign_id)
@@ -1708,6 +1881,12 @@ async def run(request: BuilderRequest) -> BuilderResponse:
     # ── Финализируем сообщение ────────────────────────────────────────────────
     # Если auto_created/recovered_from_text — заменяем служебный вывод агента на
     # чёткое подтверждение. Это скрывает raw <tool>{...}</function> из чата.
+    if flow_product_warning and campaign_id:
+        answer_text = (
+            f"⚠️ {flow_product_warning}\n\n"
+            "Кампания уже могла быть создана tool-вызовом до серверной проверки; проверьте её перед запуском."
+        )
+
     if (auto_created and campaign_id) or recovered_from_text:
         flow_name = ""
         if draft_flow and draft_flow.get("activities"):

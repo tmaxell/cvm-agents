@@ -137,3 +137,64 @@ def test_update_existing_flow_with_activity_rejects_unsupported_activity_type():
             "flow_json": json.dumps(flow, ensure_ascii=False),
             "activity_type": "UnsupportedActivity",
         }))
+
+
+def test_remove_last_transaction_intent_targets_business_transaction():
+    intent = _parse_flow_edit_intent("убери последнюю транзакцию")
+
+    assert intent is not None
+    assert intent.action == "remove_activity"
+    assert intent.activity_type == "BusinessTransactionActivity"
+    assert intent.occurrence == "last"
+
+
+def test_remove_last_transaction_relinks_sms_to_realtime_check():
+    from agents.campaign_builder import _remove_activity_from_flow
+    from tools.flow_builder import (
+        assemble_flow,
+        make_business_transaction_activity,
+        make_push_communication_activity,
+        make_real_time_check_activity,
+    )
+
+    flow = assemble_flow([
+        make_push_communication_activity(201, "SmsContent", "Текст SMS"),
+        make_business_transaction_activity(301, "ActivateOffer", []),
+        make_real_time_check_activity(),
+    ])
+
+    result = _remove_activity_from_flow(
+        flow,
+        activity_type="BusinessTransactionActivity",
+        occurrence="last",
+    )
+
+    assert [activity["type"] for activity in result["activities"]] == [
+        "PushCommunicationActivity",
+        "RealTimeCheckActivity",
+    ]
+
+
+def test_remove_last_transaction_rebuilds_next_activity_id():
+    from agents.campaign_builder import _remove_activity_from_flow
+    from tools.flow_builder import (
+        assemble_flow,
+        make_business_transaction_activity,
+        make_push_communication_activity,
+        make_real_time_check_activity,
+    )
+
+    flow = assemble_flow([
+        make_push_communication_activity(201, "SmsContent", "Текст SMS"),
+        make_business_transaction_activity(301, "ActivateOffer", []),
+        make_real_time_check_activity(),
+    ])
+
+    result = _remove_activity_from_flow(
+        flow,
+        activity_type="BusinessTransactionActivity",
+        occurrence="last",
+    )
+
+    assert result["activities"][0]["nextActivityId"] == result["activities"][1]["id"]
+    assert result["activities"][1]["nextActivityId"] is None

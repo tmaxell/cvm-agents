@@ -4,6 +4,7 @@
  * Вкладки:
  *   💬 CVM Copilot    — вопросы по платформе
  *   🛠 Campaign Builder — создание кампании
+ *   🧩 Segments        — подбор целевых сегментов
  *   📊 Monitoring      — метрики и рекомендации
  *
  * Фичи:
@@ -16,6 +17,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { ChatPanel } from "./ChatPanel";
 import { CampaignBuilderChat } from "./CampaignBuilderChat";
 import { MonitoringPanel } from "./MonitoringPanel";
+import { SegmentPanel } from "./SegmentPanel";
 import type { BuilderResponse, CampaignRuntimeStatus } from "../types/api";
 
 interface FloatingWidgetProps {
@@ -25,7 +27,7 @@ interface FloatingWidgetProps {
   campaignStatus: CampaignRuntimeStatus;
 }
 
-type Tab = "copilot" | "builder" | "monitoring";
+type Tab = "copilot" | "segments" | "builder" | "monitoring";
 type Size = "normal" | "large";
 type Lang = "ru" | "en";
 
@@ -108,6 +110,12 @@ export function FloatingWidget({ onFlowUpdate, hasErrors, builderResponse, campa
               💬 Copilot
             </button>
             <button
+              className={`fw-tab${tab === "segments" ? " active" : ""}`}
+              onClick={() => setTab("segments")}
+            >
+              🧩 Segments
+            </button>
+            <button
               className={`fw-tab${tab === "builder" ? " active" : ""}`}
               onClick={() => setTab("builder")}
             >
@@ -155,6 +163,9 @@ export function FloatingWidget({ onFlowUpdate, hasErrors, builderResponse, campa
               placeholder={COPILOT_PLACEHOLDER[lang]}
               suggestions={COPILOT_SUGGESTIONS[lang]}
             />
+          </div>
+          <div style={{ display: tab === "segments" ? "contents" : "none" }}>
+            <SegmentPanel lang={lang} onUseInBuilder={() => setTab("builder")} />
           </div>
           <div style={{ display: tab === "builder" ? "contents" : "none" }}>
             <CampaignBuilderChat onResponse={handleBuilderResponse} lang={lang} />

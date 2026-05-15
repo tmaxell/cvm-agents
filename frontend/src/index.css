@@ -3385,3 +3385,194 @@ button {
 .fw-statusbar .fw-clear-btn + .fw-clear-btn {
   margin-left: 0;
 }
+
+/* ── Segment suggestions panel ───────────────────────────────── */
+.fw-segments {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
+
+.fw-segments-form {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 12px;
+  background: var(--surface-primary, #ffffff);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
+}
+
+.fw-segments-form h2 {
+  margin: 0 0 4px;
+  color: var(--text-primary, #111827);
+  font-size: 16px;
+}
+
+.fw-segments-form p {
+  margin: 0;
+  color: var(--text-secondary, #64748b);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.fw-segments-form label {
+  display: grid;
+  gap: 5px;
+  color: var(--text-secondary, #64748b);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.fw-segments-form input,
+.fw-segments-form textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  outline: 0;
+  background: var(--surface-secondary, #f8fafc);
+  color: var(--text-primary, #111827);
+  font-size: 12px;
+  font-weight: 500;
+  resize: vertical;
+}
+
+.fw-segments-form input:focus,
+.fw-segments-form textarea:focus {
+  border-color: var(--accent, #5257ff);
+  background: #ffffff;
+}
+
+.fw-segments-submit,
+.fw-segment-use {
+  border: none;
+  border-radius: 8px;
+  background: var(--accent, #5257ff);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+  transition: transform 0.15s, background 0.15s, opacity 0.15s;
+}
+
+.fw-segments-submit {
+  min-height: 36px;
+}
+
+.fw-segments-submit:hover:not(:disabled),
+.fw-segment-use:hover {
+  background: var(--accent-hover, #3b35f8);
+  transform: translateY(-1px);
+}
+
+.fw-segments-submit:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.fw-segments-error {
+  margin-top: 10px;
+  padding: 9px 10px;
+  border: 1px solid rgba(220, 38, 38, 0.25);
+  border-radius: 9px;
+  background: rgba(254, 242, 242, 0.9);
+  color: #dc2626;
+  font-size: 12px;
+}
+
+.fw-segments-results {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.fw-segments-summary {
+  display: grid;
+  gap: 5px;
+  padding: 10px 12px;
+  border: 1px solid #c7d2fe;
+  border-radius: 10px;
+  background: #eef2ff;
+  color: var(--text-primary, #111827);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.fw-segments-summary span {
+  color: var(--text-secondary, #64748b);
+}
+
+.fw-segment-card {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+}
+
+.fw-segment-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.fw-segment-card h3 {
+  margin: 0;
+  color: var(--text-primary, #111827);
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.fw-segment-card-head span {
+  flex-shrink: 0;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #ecfdf5;
+  color: #16a34a;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.fw-segment-card p {
+  margin: 0;
+  color: var(--text-secondary, #64748b);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.fw-segment-card dl {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+}
+
+.fw-segment-card dl div {
+  display: grid;
+  gap: 2px;
+}
+
+.fw-segment-card dt {
+  color: var(--text-secondary, #64748b);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.fw-segment-card dd {
+  margin: 0;
+  color: var(--text-primary, #111827);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.fw-segment-use {
+  justify-self: start;
+  padding: 8px 10px;
+}

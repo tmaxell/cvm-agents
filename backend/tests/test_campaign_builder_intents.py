@@ -198,3 +198,60 @@ def test_remove_last_transaction_rebuilds_next_activity_id():
 
     assert result["activities"][0]["nextActivityId"] == result["activities"][1]["id"]
     assert result["activities"][1]["nextActivityId"] is None
+
+
+def test_offer_selector_prefers_exact_product_name_even_when_not_first():
+    from agents.campaign_builder import _select_offer_template
+
+    ref = {
+        "offers": [
+            {"id": 1, "name": "Пакет данных 5 ГБ", "operationId": "ActivateData5Gb"},
+            {"id": 2, "name": "Тариф Max", "operationId": "ActivateMaxTariff"},
+        ]
+    }
+
+    selected = _select_offer_template(ref, "добавь транзакцию", {"product": "тариф Max"})
+
+    assert selected is not None
+    assert selected["id"] == 2
+
+
+def test_offer_selector_uses_family_max_token_match():
+    from agents.campaign_builder import _select_offer_template
+
+    ref = {
+        "offers": [
+            {"id": 1, "name": "Пакет данных 5 ГБ", "operationId": "ActivateData5Gb"},
+            {"id": 2, "name": "Family Max", "operationId": "ActivateFamilyMax"},
+        ]
+    }
+
+    selected = _select_offer_template(ref, "подключить family max", {"product": "семейный max"})
+
+    assert selected is not None
+    assert selected["id"] == 2
+
+
+def test_offer_selector_does_not_fallback_to_first_offer_without_match():
+    from agents.campaign_builder import _resolve_business_transaction_activity_params, _select_offer_template
+
+    ref = {
+        "offers": [
+            {"id": 1, "name": "Пакет данных 5 ГБ", "operationId": "ActivateData5Gb"},
+            {"id": 2, "name": "Безлимитные минуты", "operationId": "ActivateVoiceUnlimited"},
+        ]
+    }
+
+    selected = _select_offer_template(ref, "добавь транзакцию", {"product": "тариф Max"})
+    params, offer, warning = _resolve_business_transaction_activity_params(
+        {},
+        ref,
+        "добавь транзакцию",
+        {"product": "тариф Max"},
+    )
+
+    assert selected is None
+    assert params is None
+    assert offer is None
+    assert warning is not None
+    assert "первый шаблон" in warning

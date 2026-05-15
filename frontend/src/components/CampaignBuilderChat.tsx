@@ -13,6 +13,7 @@ import type {
   BuilderSession,
   BuilderSessionDetail,
   ChatMessage,
+  SelectedSegmentForBuilder,
 } from "../types/api";
 import { useChat } from "../hooks/useChat";
 import { MarkdownText } from "./MarkdownText";
@@ -28,7 +29,6 @@ const BUILDER_MESSAGES_KEY = "cvm.builder.messages.v1";
 const BUILDER_RESPONSE_KEY = "cvm.builder.lastResponse.v1";
 const BUILDER_PREFS_KEY = "cvm.builder.preferences.v1";
 const BUILDER_SESSION_KEY = "cvm.builder.sessionId.v1";
-const BUILDER_SEGMENT_EVENT = "cvm:builder-segment-selected";
 
 const SUGGESTIONS: Record<"ru" | "en", string[]> = {
   ru: [
@@ -70,6 +70,7 @@ const STATUS_COLORS: Record<string, string> = {
 interface Props {
   onResponse: (response: BuilderResponse | null) => void;
   lang?: "ru" | "en";
+  selectedSegment?: SelectedSegmentForBuilder | null;
 }
 
 function readStoredJson<T>(key: string, fallback: T): T {
@@ -104,6 +105,63 @@ function mergeResponsePreferences(
   return null;
 }
 
+function stringifyCriteria(criteria: Record<string, unknown>): string[] {
+  return Object.entries(criteria).map(([key, value]) => {
+    if (Array.isArray(value)) return `${key}: ${value.join(", ")}`;
+    if (value && typeof value === "object") return `${key}: ${JSON.stringify(value)}`;
+    return `${key}: ${String(value)}`;
+  });
+}
+
+function getMatchedTargetGroupId(match: SelectedSegmentForBuilder["hypothesis"]["matched_target_group"]): string | null {
+  if (!match) return null;
+  const id = match.id ?? match.target_group_id;
+  return id == null || id === "" ? null : String(id);
+}
+
+function formatSelectedSegmentTargetGroups(
+  selectedSegment: SelectedSegmentForBuilder,
+  lang: "ru" | "en",
+): string {
+  const { hypothesis } = selectedSegment;
+  const match = hypothesis.matched_target_group;
+  const matchId = getMatchedTargetGroupId(match);
+  const criteria = stringifyCriteria(hypothesis.selection_criteria);
+  const hasExistingTargetGroup = Boolean(match && hypothesis.is_existing_target_group);
+  const isRecommendationOnly = Boolean(selectedSegment.recommendationOnly) || !hasExistingTargetGroup;
+
+  const targetGroupLine = isRecommendationOnly
+    ? (lang === "en"
+      ? "Recommendation-only segment: no existing Target Group is attached or created yet."
+      : "Сегмент-рекомендация: существующая Target Group не привязана и не создавалась.")
+    : `Target Group: ${matchId ? `#${matchId} · ` : ""}${match?.name ?? hypothesis.name}`;
+
+  const labels = lang === "en"
+    ? {
+      segment: "Segment",
+      description: "Audience description",
+      relevance: "Relevance",
+      criteria: "Selection criteria",
+      risk: "Risk / limitation",
+    }
+    : {
+      segment: "Сегмент",
+      description: "Описание аудитории",
+      relevance: "Релевантность",
+      criteria: "Критерии отбора",
+      risk: "Риск / ограничение",
+    };
+
+  return [
+    targetGroupLine,
+    `${labels.segment}: ${hypothesis.name}`,
+    hypothesis.audience_description ? `${labels.description}: ${hypothesis.audience_description}` : "",
+    hypothesis.relevance_reason ? `${labels.relevance}: ${hypothesis.relevance_reason}` : "",
+    criteria.length ? `${labels.criteria}: ${criteria.join("; ")}` : "",
+    hypothesis.risk_or_limitation ? `${labels.risk}: ${hypothesis.risk_or_limitation}` : "",
+  ].filter(Boolean).join("\n");
+}
+
 function formatDate(value: string, lang: "ru" | "en"): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -130,7 +188,7 @@ function responseFromSession(session: BuilderSessionDetail): BuilderResponse | n
   };
 }
 
-export function CampaignBuilderChat({ onResponse, lang = "ru" }: Props) {
+export function CampaignBuilderChat({ onResponse, lang = "ru", selectedSegment = null }: Props) {
   const [lastResponse, setLastResponse] = useState<BuilderResponse | null>(() =>
     readStoredJson<BuilderResponse | null>(BUILDER_RESPONSE_KEY, null),
   );
@@ -207,15 +265,14 @@ export function CampaignBuilderChat({ onResponse, lang = "ru" }: Props) {
   }, [preferences]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const handleSegmentSelected = (event: Event) => {
-      const detail = (event as CustomEvent<Partial<BuilderPreferences>>).detail;
-      if (!detail || typeof detail !== "object") return;
-      setPreferences((current) => ({ ...current, ...detail }));
-    };
-    window.addEventListener(BUILDER_SEGMENT_EVENT, handleSegmentSelected);
-    return () => window.removeEventListener(BUILDER_SEGMENT_EVENT, handleSegmentSelected);
-  }, []);
+    if (!selectedSegment) return;
+    setPreferences((current) => ({
+      ...current,
+      ...(selectedSegment.product ? { product: selectedSegment.product } : {}),
+      ...(selectedSegment.goal ? { goal: selectedSegment.goal } : {}),
+      targetGroups: formatSelectedSegmentTargetGroups(selectedSegment, lang),
+    }));
+  }, [selectedSegment, lang]);
 
   const handlePreferenceChange = (key: keyof BuilderPreferences, value: string) => {
     setPreferences((current) => ({ ...current, [key]: value }));

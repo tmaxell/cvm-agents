@@ -18,7 +18,7 @@ import { ChatPanel } from "./ChatPanel";
 import { CampaignBuilderChat } from "./CampaignBuilderChat";
 import { MonitoringPanel } from "./MonitoringPanel";
 import { SegmentPanel } from "./SegmentPanel";
-import type { BuilderResponse, CampaignRuntimeStatus } from "../types/api";
+import type { BuilderResponse, CampaignRuntimeStatus, SelectedSegmentForBuilder } from "../types/api";
 
 interface FloatingWidgetProps {
   onFlowUpdate: (response: BuilderResponse | null) => void;
@@ -61,6 +61,7 @@ export function FloatingWidget({ onFlowUpdate, hasErrors, builderResponse, campa
   const [tab, setTab] = useState<Tab>("copilot");
   const [size, setSize] = useState<Size>("normal");
   const [lang, setLang] = useState<Lang>("ru");
+  const [selectedSegment, setSelectedSegment] = useState<SelectedSegmentForBuilder | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
   // Close on outside click
@@ -165,10 +166,18 @@ export function FloatingWidget({ onFlowUpdate, hasErrors, builderResponse, campa
             />
           </div>
           <div style={{ display: tab === "segments" ? "contents" : "none" }}>
-            <SegmentPanel lang={lang} onUseInBuilder={() => setTab("builder")} />
+            <SegmentPanel
+              lang={lang}
+              onSegmentSelected={setSelectedSegment}
+              onUseInBuilder={() => setTab("builder")}
+            />
           </div>
           <div style={{ display: tab === "builder" ? "contents" : "none" }}>
-            <CampaignBuilderChat onResponse={handleBuilderResponse} lang={lang} />
+            <CampaignBuilderChat
+              onResponse={handleBuilderResponse}
+              lang={lang}
+              selectedSegment={selectedSegment}
+            />
           </div>
           <div style={{ display: tab === "monitoring" ? "contents" : "none" }}>
             <MonitoringPanel

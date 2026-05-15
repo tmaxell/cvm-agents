@@ -1,17 +1,17 @@
 import { useMemo, useState } from "react";
 import type {
-  BuilderPreferences,
   SegmentHypothesis,
   SegmentSuggestRequest,
   SegmentSuggestResponse,
+  SelectedSegmentForBuilder,
 } from "../types/api";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
-const BUILDER_SEGMENT_EVENT = "cvm:builder-segment-selected";
 
 interface SegmentPanelProps {
   lang?: "ru" | "en";
   onUseInBuilder?: () => void;
+  onSegmentSelected?: (segment: SelectedSegmentForBuilder) => void;
 }
 
 function constraintsToPayload(value: string): Record<string, unknown> {
@@ -46,28 +46,14 @@ function targetGroupLabel(hypothesis: SegmentHypothesis, lang: "ru" | "en"): str
   if (!match || !hypothesis.is_existing_target_group) {
     return lang === "en" ? "recommendation only" : "только рекомендация";
   }
-  const id = match.target_group_id != null ? `#${match.target_group_id} · ` : "";
+  const matchedId = match.id ?? match.target_group_id;
+  const id = matchedId != null && matchedId !== "" ? `#${matchedId} · ` : "";
   const size = match.clients_count != null ? ` · ${match.clients_count.toLocaleString()} clients` : "";
   return `${id}${match.name}${size}`;
 }
 
-function builderTargetText(hypothesis: SegmentHypothesis): string {
-  const criteria = stringifyCriteria(hypothesis.selection_criteria);
-  const match = hypothesis.matched_target_group;
-  const targetGroup = match && hypothesis.is_existing_target_group
-    ? `Target Group: ${match.name}${match.target_group_id != null ? ` (#${match.target_group_id})` : ""}`
-    : "Только рекомендация — готовой Target Group нет";
 
-  return [
-    hypothesis.name,
-    hypothesis.audience_description,
-    targetGroup,
-    criteria.length ? `Критерии: ${criteria.join("; ")}` : "",
-    hypothesis.risk_or_limitation ? `Ограничение: ${hypothesis.risk_or_limitation}` : "",
-  ].filter(Boolean).join("\n");
-}
-
-export function SegmentPanel({ lang = "ru", onUseInBuilder }: SegmentPanelProps) {
+export function SegmentPanel({ lang = "ru", onUseInBuilder, onSegmentSelected }: SegmentPanelProps) {
   const [product, setProduct] = useState("");
   const [campaignGoal, setCampaignGoal] = useState("");
   const [audienceConstraints, setAudienceConstraints] = useState("");
@@ -107,12 +93,12 @@ export function SegmentPanel({ lang = "ru", onUseInBuilder }: SegmentPanelProps)
   };
 
   const handleUseInBuilder = (hypothesis: SegmentHypothesis) => {
-    const preferences: Partial<BuilderPreferences> = {
+    onSegmentSelected?.({
       product: product.trim(),
       goal: campaignGoal.trim(),
-      targetGroups: builderTargetText(hypothesis),
-    };
-    window.dispatchEvent(new CustomEvent(BUILDER_SEGMENT_EVENT, { detail: preferences }));
+      hypothesis,
+      recommendationOnly: response?.recommendation_only,
+    });
     setSelectedName(hypothesis.name);
     onUseInBuilder?.();
   };

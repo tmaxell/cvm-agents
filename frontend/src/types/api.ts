@@ -158,6 +158,7 @@ export interface SegmentSuggestRequest {
 }
 
 export interface MatchedTargetGroup {
+  id?: number | string | null;
   target_group_id?: number | null;
   name: string;
   clients_count?: number | null;
@@ -183,6 +184,13 @@ export interface SegmentHypothesis {
   matched_target_groups?: MatchedTargetGroup[];
   exclusions?: string[];
   priority?: number;
+}
+
+export interface SelectedSegmentForBuilder {
+  product?: string;
+  goal?: string;
+  hypothesis: SegmentHypothesis;
+  recommendationOnly?: boolean;
 }
 
 export interface SegmentSuggestResponse {

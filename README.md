@@ -37,6 +37,10 @@ cvm-agents/
 └── docs/                        # Копия документации из cvmCopilot/docs/
 ```
 
+## Документация MVP
+
+- [Требования к MVP инициатив CVM Agents / AdTarget](docs/MVP_INITIATIVES_REQUIREMENTS.md) — MVP-требования по 7 инициативам на базе текущего прототипа и клиентских заметок.
+
 ## Запуск
 
 ### Backend

@@ -85,16 +85,26 @@ class MatchedTargetGroup(BaseModel):
 
 
 class SegmentHypothesis(BaseModel):
-    title: str
-    description: str
-    rationale: str
-    product_fit: str
-    expected_effect: str
+    # LLM-backed segment-agent fields.
+    name: str = ""
+    audience_description: str = ""
+    relevance_reason: str = ""
+    selection_criteria: dict[str, Any] = Field(default_factory=dict)
+    risk_or_limitation: str = ""
+    matched_target_group: MatchedTargetGroup | None = None
+    is_existing_target_group: bool = False
+    confidence: float = Field(ge=0.0, le=1.0)
+
+    # Legacy UI fields kept during the transition from segment_suggester.
+    title: str = ""
+    description: str = ""
+    rationale: str = ""
+    product_fit: str = ""
+    expected_effect: str = ""
     audience_filters: dict[str, Any] = Field(default_factory=dict)
     matched_target_groups: list[MatchedTargetGroup] = Field(default_factory=list)
     exclusions: list[str] = Field(default_factory=list)
     priority: int = Field(ge=1, le=3)
-    confidence: float = Field(ge=0.0, le=1.0)
 
 
 class SegmentSuggestResponse(BaseModel):

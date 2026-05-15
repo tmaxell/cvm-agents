@@ -39,7 +39,7 @@ from schemas import (
 )
 from agents.qa_copilot import answer as copilot_answer
 from agents.campaign_builder import run as builder_run
-from agents.segment_suggester import run as segment_suggest_run
+from agents.segment_agent import suggest_segments as segment_suggest_run
 from agents.campaign_monitor import run as monitor_run
 from db import DatabaseSessionStore, init_db
 from tools import adtarget

@@ -4,6 +4,7 @@ cvm-agents — FastAPI backend
 Endpoints:
   POST /api/copilot    — F1 CVM Copilot (RAG + LLM)
   POST /api/builder    — F2 Campaign Builder (LangGraph agentic loop)
+  POST /api/segments/suggest — segment hypotheses for Builder
   GET  /api/health     — health check
 """
 
@@ -24,6 +25,8 @@ from schemas import (
     CopilotResponse,
     BuilderRequest,
     BuilderResponse,
+    SegmentSuggestRequest,
+    SegmentSuggestResponse,
     MonitorRequest,
     MonitorResponse,
     Session,
@@ -36,6 +39,7 @@ from schemas import (
 )
 from agents.qa_copilot import answer as copilot_answer
 from agents.campaign_builder import run as builder_run
+from agents.segment_suggester import run as segment_suggest_run
 from agents.campaign_monitor import run as monitor_run
 from db import DatabaseSessionStore, init_db
 from tools import adtarget
@@ -188,6 +192,15 @@ async def builder(request: BuilderRequest) -> BuilderResponse:
         runtime_status=response.status,
     )
     return response
+
+
+@app.post("/api/segments/suggest", response_model=SegmentSuggestResponse)
+async def suggest_segments(request: SegmentSuggestRequest) -> SegmentSuggestResponse:
+    """Suggests 2-3 structured audience segment hypotheses for a campaign."""
+    try:
+        return await segment_suggest_run(request)
+    except Exception as e:
+        _handle_llm_error(e)
 
 
 @app.post("/api/campaigns/{campaign_id}/start", response_model=CampaignActionResponse)

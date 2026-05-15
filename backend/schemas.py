@@ -67,6 +67,42 @@ class BuilderResponse(BaseModel):
     status: str = "in_progress"         # "in_progress" | "created" | "started" | "error"
 
 
+# ── Segment Suggest ──────────────────────────────────────────────────────────
+
+class SegmentSuggestRequest(BaseModel):
+    product: str
+    campaign_goal: str
+    audience_constraints: dict[str, Any] = Field(default_factory=dict)
+    current_campaign_context: dict[str, Any] | None = None
+
+
+class MatchedTargetGroup(BaseModel):
+    target_group_id: int | None = None
+    name: str
+    clients_count: int | None = None
+    match_score: float = Field(ge=0.0, le=1.0)
+    match_reasons: list[str] = Field(default_factory=list)
+
+
+class SegmentHypothesis(BaseModel):
+    title: str
+    description: str
+    rationale: str
+    product_fit: str
+    expected_effect: str
+    audience_filters: dict[str, Any] = Field(default_factory=dict)
+    matched_target_groups: list[MatchedTargetGroup] = Field(default_factory=list)
+    exclusions: list[str] = Field(default_factory=list)
+    priority: int = Field(ge=1, le=3)
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class SegmentSuggestResponse(BaseModel):
+    summary: str
+    hypotheses: list[SegmentHypothesis] = Field(min_length=2, max_length=3)
+    warnings: list[str] = Field(default_factory=list)
+
+
 # ── Builder sessions ─────────────────────────────────────────────────────────
 
 class Message(BaseModel):

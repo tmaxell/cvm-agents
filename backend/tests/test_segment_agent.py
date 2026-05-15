@@ -64,3 +64,55 @@ def test_segment_agent_validates_existing_target_group_matches(monkeypatch):
     assert response.hypotheses[1].is_existing_target_group is False
     assert response.hypotheses[1].matched_target_group is None
     assert "только рекомендация" in response.hypotheses[1].risk_or_limitation
+    assert response.recommendation_only is True
+
+
+def test_match_existing_target_group_rejects_unconfirmed_name():
+    from agents import segment_agent
+    from schemas import MatchedTargetGroup, SegmentHypothesis
+
+    hypothesis = SegmentHypothesis(
+        name="Утилизаторы интернет-пакета",
+        audience_description="Клиенты с высокой утилизацией пакета данных.",
+        relevance_reason="Высокая вероятность покупки дополнительного пакета.",
+        matched_target_group=MatchedTargetGroup(
+            target_group_id=105,
+            name="Другое название",
+            match_score=0,
+        ),
+        confidence=0.8,
+        priority=1,
+    )
+
+    matched = segment_agent._match_existing_target_group(
+        hypothesis,
+        [{"id": 105, "name": "Утилизаторы пакета данных (≥80%)", "clientsCount": 67890}],
+    )
+
+    assert matched is None
+
+
+def test_match_existing_target_group_uses_mvp_threshold():
+    from agents import segment_agent
+    from schemas import MatchedTargetGroup, SegmentHypothesis
+
+    weak_hypothesis = SegmentHypothesis(
+        name="Сегмент для теста",
+        audience_description="Общее описание без совпадений.",
+        relevance_reason="Общая причина.",
+        matched_target_group=MatchedTargetGroup(
+            name="Пакет данных",
+            match_score=0,
+        ),
+        confidence=0.8,
+        priority=1,
+    )
+
+    assert segment_agent._score_target_group_match(
+        weak_hypothesis,
+        {"id": 105, "name": "Пакет данных архивный"},
+    ) < 0.55
+    assert segment_agent._match_existing_target_group(
+        weak_hypothesis,
+        [{"id": 105, "name": "Пакет данных архивный"}],
+    ) is None

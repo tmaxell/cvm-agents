@@ -25,6 +25,51 @@ MOCK_TARGET_GROUPS = {
     "pageSize": 20,
 }
 
+# ── Demo contact-base profile for prototype segmentation ─────────────────────
+
+MOCK_CONTACT_BASE_PROFILE = {
+    "metadata": {
+        "mode": "demo_only",
+        "source": "mock_data.py",
+        "notes": (
+            "Агрегированные признаки для прототипа сегментации; "
+            "не являются prod-интеграцией и не подтверждают фактический размер сегмента."
+        ),
+    },
+    "tariff": {
+        "families": ["Smart", "Unlimited", "Family", "Archive"],
+        "price_tiers": ["low", "mid", "premium"],
+        "has_data_pack": True,
+    },
+    "arpu_bands": ["<300₽", "300-700₽", "700-1500₽", ">1500₽"],
+    "data_usage": {
+        "monthly_gb_bands": ["0-2", "2-8", "8-20", "20+"],
+        "package_utilisation_bands": ["low", "medium", "high", "overage"],
+        "night_usage": "available_as_demo_signal",
+    },
+    "churn_risk": {
+        "bands": ["low", "medium", "high"],
+        "signals": ["declining_usage", "support_complaints", "competitor_porting_interest"],
+    },
+    "roaming": {
+        "international_roaming": ["none", "occasional", "frequent"],
+        "domestic_travel": ["low", "medium", "high"],
+    },
+    "device_app_activity": {
+        "device_os": ["iOS", "Android", "Other"],
+        "smartphone_flag": True,
+        "app_activity_bands": ["inactive", "occasional", "active"],
+        "volte_capable": "demo_signal",
+    },
+    "consent_contactability_demo_metadata": {
+        "sms_contactable": "requires_separate_validation",
+        "push_contactable": "requires_separate_validation",
+        "email_contactable": "requires_separate_validation",
+        "opt_out": "requires_separate_validation",
+        "frequency_cap": "requires_separate_validation",
+    },
+}
+
 # ── Каналы коммуникаций ───────────────────────────────────────────────────────
 
 MOCK_CHANNELS = [

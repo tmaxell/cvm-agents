@@ -1,7 +1,7 @@
 """Pydantic-схемы для запросов/ответов агентов."""
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
@@ -73,6 +73,8 @@ class SegmentSuggestRequest(BaseModel):
     product: str
     campaign_goal: str
     audience_constraints: dict[str, Any] = Field(default_factory=dict)
+    strategy: Literal["existing_groups", "compose_new", "hybrid"] = "hybrid"
+    demo_contact_base_profile: dict[str, Any] = Field(default_factory=dict)
     current_campaign_context: dict[str, Any] | None = None
 
 
@@ -93,6 +95,9 @@ class SegmentHypothesis(BaseModel):
     risk_or_limitation: str = ""
     matched_target_group: MatchedTargetGroup | None = None
     is_existing_target_group: bool = False
+    segment_source: Literal["existing_target_group", "llm_composed_demo"] = "llm_composed_demo"
+    demo_insight: str = ""
+    estimated_reach_label: str = ""
     confidence: float = Field(ge=0.0, le=1.0)
 
     # Legacy UI fields kept during the transition from segment_suggester.

@@ -175,6 +175,8 @@ async def builder(request: BuilderRequest) -> BuilderResponse:
         metadata={
             "campaign_id": persisted_campaign_id,
             "status": response.status,
+            "builder_preferences": response.builder_preferences,
+            "preference_patch": response.preference_patch,
             "draft_flow_json": persisted_flow_json,
             "validation_errors": response.validation_errors,
         },

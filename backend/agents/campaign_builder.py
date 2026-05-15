@@ -139,6 +139,84 @@ def _is_memory_only_request(goal: str) -> bool:
     return text.startswith(memory_markers) and not any(marker in text for marker in build_markers)
 
 
+PREFERENCE_KEYS = {
+    "product",
+    "goal",
+    "channels",
+    "targetGroups",
+    "content",
+    "offerRecommendations",
+}
+
+PREFERENCE_LABELS = {
+    "product": (
+        "продукт", "product", "тариф", "tariff", "услуга", "service",
+    ),
+    "goal": (
+        "цель", "goal", "задача", "objective",
+    ),
+    "channels": (
+        "каналы", "канал", "channels", "channel",
+    ),
+    "targetGroups": (
+        "цг", "целевая группа", "целевые группы", "target group", "target groups", "audience", "аудитория",
+    ),
+    "content": (
+        "контент", "content", "сообщение", "copy", "креатив", "текст",
+    ),
+    "offerRecommendations": (
+        "оффер", "офферы", "рекомендации оффера", "offer", "offers", "offer recommendations",
+    ),
+}
+
+
+def _coerce_preference_patch(patch: Any) -> dict[str, Any]:
+    """Keep only supported non-empty preference fields from planner output."""
+    if not isinstance(patch, dict):
+        return {}
+    cleaned: dict[str, Any] = {}
+    for key in PREFERENCE_KEYS:
+        value = patch.get(key)
+        if value is None:
+            continue
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                continue
+        cleaned[key] = value
+    return cleaned
+
+
+def _merge_builder_preferences(
+    current: dict[str, Any] | None,
+    patch: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Merge a preference patch over existing Builder UI preferences."""
+    merged = dict(current or {})
+    merged.update(_coerce_preference_patch(patch))
+    return merged
+
+
+def _extract_preference_patch_from_text(goal: str) -> dict[str, Any]:
+    """Best-effort deterministic fallback for common 'remember X: Y' turns."""
+    text = re.sub(r"^\s*(запомни|учти|remember|note that)\s*[:：,-]?\s*", "", goal.strip(), flags=re.IGNORECASE)
+    patch: dict[str, Any] = {}
+
+    # Split multiple preferences, while preserving values such as "тариф Max".
+    parts = [part.strip(" .;\n\t") for part in re.split(r"\s*(?:;|\n|,\s*(?=(?:цель|канал|контент|оффер|цг|target|goal|channels?|content|offers?)\b))\s*", text) if part.strip()]
+    for part in parts:
+        for key, labels in PREFERENCE_LABELS.items():
+            label_pattern = "|".join(re.escape(label) for label in sorted(labels, key=len, reverse=True))
+            match = re.match(rf"^(?:{label_pattern})\s*(?:—|-|:|=|это|is|are)?\s*(.+)$", part, flags=re.IGNORECASE)
+            if not match:
+                continue
+            value = match.group(1).strip(" .;\n\t")
+            if value:
+                patch[key] = value
+            break
+    return patch
+
+
 @dataclass(frozen=True)
 class FlowEditIntent:
     """Parsed follow-up edit intent for an existing campaign flow."""
@@ -325,6 +403,7 @@ def _normalize_special_turn_plan(plan: dict) -> dict:
     normalized.setdefault("activity_id", None)
     normalized.setdefault("occurrence", "last")
     normalized.setdefault("activity_params", {})
+    normalized["preference_patch"] = _coerce_preference_patch(normalized.get("preference_patch"))
     normalized.setdefault("assistant_message", "")
     if not isinstance(normalized.get("activity_params"), dict):
         normalized["activity_params"] = {}
@@ -380,9 +459,13 @@ async def _llm_plan_special_turn(
                 "\"activity_type\": string|null, \"anchor_type\": string|null, "
                 "\"anchor_id\": string|null, \"anchor_position\": \"before|after|null\", "
                 "\"activity_id\": string|null, \"occurrence\": \"first|last|null\", "
-                "\"activity_params\": object, \"assistant_message\": string}. "
+                "\"activity_params\": object, \"preference_patch\": object|null, "
+                "\"assistant_message\": string}. "
+                "preference_patch поддерживает только поля product, goal, channels, "
+                "targetGroups, content, offerRecommendations. "
                 f"Поддержанные activity_type: {SUPPORTED_ACTIVITY_TYPES_TEXT}. "
                 "Если пользователь только просит запомнить вводные — action=remember_context. "
+                "Для remember_context извлеки новые вводные в preference_patch. "
                 "Если просит добавить активность в текущий flow — action=add_activity; "
                 "activity_type заполни точным типом активности, даже если тип не входит в поддержанный список. "
                 "Для BusinessTransactionActivity выбери лучший оффер из available_offers и положи "
@@ -1562,10 +1645,16 @@ async def run(request: BuilderRequest) -> BuilderResponse:
             if plan and plan.get("action") == "remember_context" and plan.get("assistant_message")
             else "Запомнил вводные для этой сборки. Когда будете готовы, напишите «собери кампанию» или уточните недостающие параметры."
         )
+        preference_patch = _extract_preference_patch_from_text(request.goal)
+        if plan and plan.get("action") == "remember_context":
+            preference_patch.update(_coerce_preference_patch(plan.get("preference_patch")))
+        updated_preferences = _merge_builder_preferences(request.builder_preferences, preference_patch)
         if plan_warning:
             message += f"\n\n⚠️ LLM-планировщик не смог подтвердить шаг ({plan_warning}); контекст сохранён без сборки кампании."
         return BuilderResponse(
             message=message,
+            builder_preferences=updated_preferences,
+            preference_patch=preference_patch,
             campaign_id=request.session_campaign_id,
             draft_flow=existing_flow,
             status="created" if request.session_campaign_id else "in_progress",

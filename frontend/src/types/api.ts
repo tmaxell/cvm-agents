@@ -148,6 +148,50 @@ export interface CampaignActionResponse {
   result: unknown;
 }
 
+
+// F4 Segment Suggestions
+export interface SegmentSuggestRequest {
+  product: string;
+  campaign_goal: string;
+  audience_constraints?: Record<string, unknown>;
+  current_campaign_context?: Record<string, unknown> | null;
+}
+
+export interface MatchedTargetGroup {
+  target_group_id?: number | null;
+  name: string;
+  clients_count?: number | null;
+  match_score: number;
+  match_reasons: string[];
+}
+
+export interface SegmentHypothesis {
+  name: string;
+  audience_description: string;
+  relevance_reason: string;
+  selection_criteria: Record<string, unknown>;
+  risk_or_limitation: string;
+  matched_target_group?: MatchedTargetGroup | null;
+  is_existing_target_group: boolean;
+  confidence: number;
+  title?: string;
+  description?: string;
+  rationale?: string;
+  product_fit?: string;
+  expected_effect?: string;
+  audience_filters?: Record<string, unknown>;
+  matched_target_groups?: MatchedTargetGroup[];
+  exclusions?: string[];
+  priority?: number;
+}
+
+export interface SegmentSuggestResponse {
+  summary: string;
+  hypotheses: SegmentHypothesis[];
+  warnings: string[];
+  recommendation_only: boolean;
+}
+
 // F3 Campaign Monitor
 export interface MonitorRequest {
   campaign_id: number;

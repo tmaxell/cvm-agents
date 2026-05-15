@@ -28,6 +28,7 @@ const BUILDER_MESSAGES_KEY = "cvm.builder.messages.v1";
 const BUILDER_RESPONSE_KEY = "cvm.builder.lastResponse.v1";
 const BUILDER_PREFS_KEY = "cvm.builder.preferences.v1";
 const BUILDER_SESSION_KEY = "cvm.builder.sessionId.v1";
+const BUILDER_SEGMENT_EVENT = "cvm:builder-segment-selected";
 
 const SUGGESTIONS: Record<"ru" | "en", string[]> = {
   ru: [
@@ -204,6 +205,17 @@ export function CampaignBuilderChat({ onResponse, lang = "ru" }: Props) {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(BUILDER_PREFS_KEY, JSON.stringify(preferences));
   }, [preferences]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleSegmentSelected = (event: Event) => {
+      const detail = (event as CustomEvent<Partial<BuilderPreferences>>).detail;
+      if (!detail || typeof detail !== "object") return;
+      setPreferences((current) => ({ ...current, ...detail }));
+    };
+    window.addEventListener(BUILDER_SEGMENT_EVENT, handleSegmentSelected);
+    return () => window.removeEventListener(BUILDER_SEGMENT_EVENT, handleSegmentSelected);
+  }, []);
 
   const handlePreferenceChange = (key: keyof BuilderPreferences, value: string) => {
     setPreferences((current) => ({ ...current, [key]: value }));

@@ -126,6 +126,10 @@ class FlowEditIntent:
     action: str
     activity_type: str | None = None
     anchor_activity_type: str | None = None
+    activity_id: str | None = None
+    anchor_id: str | None = None
+    anchor_position: str | None = None
+    occurrence: str = "last"
 
 
 def _extract_position_anchor(text: str) -> str | None:
@@ -161,18 +165,60 @@ def _strip_position_anchors(text: str) -> str:
     return result
 
 
+def _extract_activity_id(text: str) -> str | None:
+    """Extract an explicit activity/node id from natural-language edit text."""
+    patterns = (
+        r"\b(?:activity_id|activity id|node_id|node id|anchor_id|anchor id|id)\s*[:=]?\s*([0-9a-f-]{8,})\b",
+        r"\b(?:активност(?:и|ь)|нод[уы]|узл[ао]?)\s+(?:с\s+)?id\s*[:=]?\s*([0-9a-f-]{8,})\b",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            return match.group(1)
+    return None
+
+
 def _parse_flow_edit_intent(goal: str) -> FlowEditIntent | None:
     """Parse follow-up intent into target activity and optional positional anchor.
 
-    Priority matters: explicit real-time-check wording wins over nearby
-    transaction words because "транзакция" can be an anchor, not the entity
-    being added.
+    Priority matters: explicit removal wording wins before add detection, and
+    explicit real-time-check wording wins over nearby transaction words because
+    "транзакция" can be an anchor, not the entity being added.
     """
     text = _normalize_text(goal)
     if not text:
         return None
 
     anchor_activity_type = _extract_position_anchor(text)
+    activity_id = _extract_activity_id(text)
+
+    remove_pattern = r"(?:\bremove\b|\bdelete\b|убер\w*|удал\w*)"
+    node_pattern = r"(?:нод[уаы]?|уз[её]?л\w*|node)"
+    business_transaction_pattern = (
+        r"(?:бизнес[-\s]?транзакц\w*|транзакц\w*|business\s+transaction|"
+        r"\btransaction\b|активац\w*\s+оффер\w*|offer\s+activation)"
+    )
+    last_marker_pattern = r"(?:последн\w*|\blast\b)"
+    if re.search(remove_pattern, text):
+        if re.search(business_transaction_pattern, text):
+            occurrence = "last" if re.search(last_marker_pattern, text) else "last"
+            return FlowEditIntent(
+                action="remove_activity",
+                activity_type="BusinessTransactionActivity",
+                anchor_activity_type=anchor_activity_type,
+                activity_id=activity_id,
+                anchor_id=activity_id,
+                occurrence=occurrence,
+            )
+        if re.search(node_pattern, text) or activity_id:
+            return FlowEditIntent(
+                action="remove_activity",
+                activity_type=None,
+                anchor_activity_type=anchor_activity_type,
+                activity_id=activity_id,
+                anchor_id=activity_id,
+                occurrence="last",
+            )
 
     realtime_markers = (
         "real-time",
@@ -192,10 +238,6 @@ def _parse_flow_edit_intent(goal: str) -> FlowEditIntent | None:
 
     add_pattern = r"(?:\badd\b|\bappend\b|добав\w*|в конец|конце)"
     target_text = _strip_position_anchors(text)
-    business_transaction_pattern = (
-        r"(?:бизнес[-\s]?транзакц\w*|транзакц\w*|business\s+transaction|"
-        r"\btransaction\b|активац\w*\s+оффер\w*|offer\s+activation)"
-    )
     if re.search(add_pattern, target_text) and re.search(
         business_transaction_pattern,
         target_text,
@@ -260,6 +302,8 @@ def _normalize_special_turn_plan(plan: dict) -> dict:
     normalized.setdefault("anchor_type", None)
     normalized.setdefault("anchor_id", None)
     normalized.setdefault("anchor_position", None)
+    normalized.setdefault("activity_id", None)
+    normalized.setdefault("occurrence", "last")
     normalized.setdefault("activity_params", {})
     normalized.setdefault("assistant_message", "")
     if not isinstance(normalized.get("activity_params"), dict):
@@ -283,8 +327,8 @@ def _looks_like_flow_activity_edit(goal: str) -> bool:
     text = _normalize_text(goal)
     if not text:
         return False
-    edit_markers = ("добав", "встав", "add", "append", "insert")
-    activity_markers = ("activity", "активност", "ноду", "узел", "check", "проверк", "транзакц")
+    edit_markers = ("добав", "встав", "add", "append", "insert", "убер", "удал", "remove", "delete")
+    activity_markers = ("activity", "активност", "ноду", "узел", "узл", "node", "check", "проверк", "транзакц", "transaction")
     return any(marker in text for marker in edit_markers) and any(marker in text for marker in activity_markers)
 
 
@@ -312,9 +356,10 @@ async def _llm_plan_special_turn(
         response = await llm.ainvoke([
             SystemMessage(content=(
                 "Ты планировщик Campaign Builder. Верни только JSON без markdown. "
-                "Схема: {\"action\": \"remember_context|add_activity|continue_agent\", "
+                "Схема: {\"action\": \"remember_context|add_activity|remove_activity|continue_agent\", "
                 "\"activity_type\": string|null, \"anchor_type\": string|null, "
                 "\"anchor_id\": string|null, \"anchor_position\": \"before|after|null\", "
+                "\"activity_id\": string|null, \"occurrence\": \"first|last|null\", "
                 "\"activity_params\": object, \"assistant_message\": string}. "
                 f"Поддержанные activity_type: {SUPPORTED_ACTIVITY_TYPES_TEXT}. "
                 "Если пользователь только просит запомнить вводные — action=remember_context. "
@@ -322,6 +367,9 @@ async def _llm_plan_special_turn(
                 "activity_type заполни точным типом активности, даже если тип не входит в поддержанный список. "
                 "Для BusinessTransactionActivity выбери лучший оффер из available_offers и положи "
                 "offer_template_id и operation_id в activity_params. "
+                "Если пользователь просит удалить активность из текущего flow — action=remove_activity; "
+                "верни activity_type для удаления по типу (например BusinessTransactionActivity для транзакции) "
+                "или activity_id/anchor_id, если пользователь указал конкретный узел; для 'последней' ставь occurrence=last. "
                 "anchor_id — id существующей активности-якоря, если пользователь указал конкретный узел; "
                 "иначе anchor_type — тип существующей активности-якоря, anchor_position — before/after/null. "
                 "Если это не запоминание и не правка flow, action=continue_agent. "
@@ -525,6 +573,54 @@ def _add_business_transaction_to_flow(
         position="after" if (anchor_activity_type or anchor_id) else "end",
     )
 
+
+
+def _remove_activity_from_flow(
+    flow: dict,
+    activity_type: str | None = None,
+    activity_id: str | None = None,
+    occurrence: str = "last",
+) -> dict:
+    """Remove an activity from a flow and rebuild links, positions, and generated offers."""
+    activities = list(flow.get("activities") or []) if isinstance(flow, dict) else []
+    if not activities:
+        raise ValueError("flow должен содержать activities[]")
+    if occurrence not in {"first", "last"}:
+        raise ValueError('occurrence должен быть "first" или "last"')
+
+    remove_index: int | None = None
+    if activity_id:
+        remove_index = next(
+            (
+                index
+                for index, activity in enumerate(activities)
+                if isinstance(activity, dict) and activity.get("id") == activity_id
+            ),
+            None,
+        )
+    elif activity_type:
+        indexes = [
+            index
+            for index, activity in enumerate(activities)
+            if isinstance(activity, dict) and activity.get("type") == activity_type
+        ]
+        if indexes:
+            remove_index = indexes[0] if occurrence == "first" else indexes[-1]
+    else:
+        raise ValueError("Нужно указать activity_type или activity_id для удаления")
+
+    if remove_index is None:
+        requested = f"id={activity_id}" if activity_id else activity_type
+        raise ValueError(f"Не найдена активность для удаления: {requested}")
+
+    activity_to_remove = activities[remove_index]
+    if activity_to_remove.get("type") == "CommonActivity" and remove_index == 0:
+        raise ValueError("Нельзя удалить корневую обязательную CommonActivity")
+
+    updated_activities = activities[:remove_index] + activities[remove_index + 1:]
+    if not updated_activities:
+        raise ValueError("Нельзя удалить последнюю активность flow")
+    return assemble_flow(updated_activities)
 
 def _add_activity_to_flow(
     flow: dict,
@@ -730,6 +826,7 @@ Rules:
 - Build/create only when the user asks to build/create/assemble, or when enough concrete inputs are available and the intent is clearly campaign creation.
 - For a new campaign: pick the right build_*_flow tool, then validate_flow_tool, then create_campaign_tool. Use start_campaign_tool only if user says to launch.
 - For follow-up edits to an existing flow, use session_flow_json and update_existing_flow_with_activity instead of starting from scratch for all supported activity types: PushCommunicationActivity, PullCommunicationActivity, EventActivity, WaitActivity, BusinessTransactionActivity, RealTimeCheckActivity, ResponseActivity, InteractiveResponseActivity, OrJoinActivity.
+- For removal follow-up edits, use remove_existing_flow_activity with activity_type or activity_id/anchor_id; for "last transaction" remove the last BusinessTransactionActivity.
 - You may still use update_existing_flow_with_business_transaction for the legacy business-transaction-only edit path when only offer_template_id and operation_id are needed.
 - For update_existing_flow_with_activity, pass anchor_type/anchor_id and position=after|before|end when the user asks to place an activity relative to any existing node.
 - Prefer explicit Builder UI preferences when present (desired channels, target groups, offer recommendations, product/content/goal).
@@ -916,6 +1013,30 @@ async def update_existing_flow_with_activity(
         anchor_activity_type=anchor_type,
         anchor_id=anchor_id,
         anchor_position=position,
+    )
+    return json.dumps(updated_flow, ensure_ascii=False)
+
+
+@tool
+async def remove_existing_flow_activity(
+    flow_json: str,
+    activity_type: str | None = None,
+    activity_id: str | None = None,
+    anchor_id: str | None = None,
+    occurrence: str = "last",
+) -> str:
+    """Удалить activity из существующего flow по activity_type или activity_id/anchor_id.
+
+    Для «последней транзакции» передайте activity_type=BusinessTransactionActivity
+    и occurrence=last. CommonActivity нельзя удалить, если это корневая обязательная нода.
+    """
+    flow = json.loads(flow_json) if isinstance(flow_json, str) else flow_json
+    target_id = activity_id or anchor_id
+    updated_flow = _remove_activity_from_flow(
+        flow,
+        activity_type=activity_type,
+        activity_id=target_id,
+        occurrence=occurrence or "last",
     )
     return json.dumps(updated_flow, ensure_ascii=False)
 
@@ -1121,6 +1242,15 @@ async def _flow_from_tool_args(tool_name: str, args: dict) -> dict | None:
                     _make_activity_from_params(str(args["activity_type"]), params),
                 )
                 return assemble_flow(activities)
+        if tool_name == "remove_existing_flow_activity" and args.get("flow_json"):
+            flow_data = json.loads(args["flow_json"]) if isinstance(args["flow_json"], str) else args["flow_json"]
+            if isinstance(flow_data, dict) and isinstance(flow_data.get("activities"), list):
+                return _remove_activity_from_flow(
+                    flow_data,
+                    activity_type=args.get("activity_type"),
+                    activity_id=args.get("activity_id") or args.get("anchor_id"),
+                    occurrence=args.get("occurrence") or "last",
+                )
         if tool_name in {"validate_flow_tool", "create_campaign_tool"} and args.get("flow_json"):
             flow_data = json.loads(args["flow_json"]) if isinstance(args["flow_json"], str) else args["flow_json"]
             if isinstance(flow_data, dict):
@@ -1170,6 +1300,7 @@ TOOLS = [
     build_sms_with_wait_flow,
     update_existing_flow_with_business_transaction,
     update_existing_flow_with_activity,
+    remove_existing_flow_activity,
     # API
     validate_flow_tool,
     create_campaign_tool,
@@ -1306,16 +1437,19 @@ async def run(request: BuilderRequest) -> BuilderResponse:
     planned_flow_edit: dict | None = None
     planned_flow_edit_warning: str | None = None
 
-    if flow_edit_intent and flow_edit_intent.action == "add_activity":
+    if flow_edit_intent and flow_edit_intent.action in {"add_activity", "remove_activity"}:
         planned_flow_edit = {
-            "action": "add_activity",
+            "action": flow_edit_intent.action,
             "activity_type": flow_edit_intent.activity_type,
             "anchor_type": flow_edit_intent.anchor_activity_type,
-            "anchor_position": "after" if flow_edit_intent.anchor_activity_type else None,
+            "anchor_id": flow_edit_intent.anchor_id,
+            "anchor_position": flow_edit_intent.anchor_position or ("after" if flow_edit_intent.anchor_activity_type else None),
+            "activity_id": flow_edit_intent.activity_id,
+            "occurrence": flow_edit_intent.occurrence,
             "activity_params": {},
             "assistant_message": "",
         }
-        if existing_flow and flow_edit_intent.activity_type == "BusinessTransactionActivity":
+        if existing_flow and flow_edit_intent.action == "add_activity" and flow_edit_intent.activity_type == "BusinessTransactionActivity":
             planner_plan, planned_flow_edit_warning = await _llm_plan_special_turn(
                 request.goal,
                 preferences=request.builder_preferences,
@@ -1336,8 +1470,48 @@ async def run(request: BuilderRequest) -> BuilderResponse:
             existing_flow=existing_flow,
             ref=ref_full,
         )
-        if planned_flow_edit and planned_flow_edit.get("action") != "add_activity":
+        if planned_flow_edit and planned_flow_edit.get("action") not in {"add_activity", "remove_activity"}:
             planned_flow_edit = None
+
+    if planned_flow_edit and planned_flow_edit.get("action") == "remove_activity":
+        if not existing_flow:
+            return BuilderResponse(
+                message=(
+                    "Не нашёл текущий flow для доработки. Сначала соберите кампанию, "
+                    "затем повторите запрос на удаление активности."
+                ),
+                campaign_id=request.session_campaign_id,
+                draft_flow=None,
+                status="error",
+            )
+
+        try:
+            activity_id = planned_flow_edit.get("activity_id") or planned_flow_edit.get("anchor_id")
+            updated_flow = _remove_activity_from_flow(
+                existing_flow,
+                activity_type=planned_flow_edit.get("activity_type"),
+                activity_id=activity_id,
+                occurrence=planned_flow_edit.get("occurrence") or "last",
+            )
+        except Exception as e:
+            return BuilderResponse(
+                message=f"Не удалось удалить активность из текущего flow: {type(e).__name__}: {e}",
+                campaign_id=request.session_campaign_id,
+                draft_flow=existing_flow,
+                status="error",
+            )
+
+        activity_type = planned_flow_edit.get("activity_type")
+        target_text = f" с id={activity_id}" if activity_id else f" {activity_type}" if activity_type else ""
+        message = planned_flow_edit.get("assistant_message") or f"Удалил{target_text} из flow и пересобрал связи."
+        if planned_flow_edit_warning:
+            message += f"\n\n⚠️ {planned_flow_edit_warning}"
+        return BuilderResponse(
+            message=message,
+            campaign_id=request.session_campaign_id,
+            draft_flow=updated_flow,
+            status="created" if request.session_campaign_id else "in_progress",
+        )
 
     if planned_flow_edit and planned_flow_edit.get("action") == "add_activity":
         activity_type = planned_flow_edit.get("activity_type")

@@ -129,6 +129,8 @@ export type CampaignRuntimeStatus = "editing" | "active" | "paused";
 
 export interface BuilderResponse {
   message: string;
+  builder_preferences?: BuilderPreferences | null;
+  preference_patch?: Partial<BuilderPreferences> | null;
   session_id?: string | null;
   campaign_id?: number | null;
   draft_flow?: CampaignFlow | null;

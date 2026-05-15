@@ -58,6 +58,8 @@ class BuilderRequest(BaseModel):
 
 class BuilderResponse(BaseModel):
     message: str                        # ответ агента для чата
+    builder_preferences: dict[str, Any] | None = None  # обновлённые preferences после запоминания
+    preference_patch: dict[str, Any] | None = None      # частичное обновление preferences
     session_id: str | None = None       # backend-сессия, к которой сохранён ответ
     campaign_id: int | None = None      # если кампания уже создана
     draft_flow: dict[str, Any] | None = None  # черновик flow, если ещё не создан

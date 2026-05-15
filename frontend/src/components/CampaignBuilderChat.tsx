@@ -90,6 +90,19 @@ function hasPreferences(preferences: BuilderPreferences): boolean {
   return Object.values(preferences).some((value) => Boolean(value?.trim()));
 }
 
+function mergeResponsePreferences(
+  current: BuilderPreferences,
+  response: BuilderResponse,
+): BuilderPreferences | null {
+  if (response.builder_preferences) {
+    return response.builder_preferences;
+  }
+  if (response.preference_patch) {
+    return { ...current, ...response.preference_patch };
+  }
+  return null;
+}
+
 function formatDate(value: string, lang: "ru" | "en"): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -108,6 +121,8 @@ function responseFromSession(session: BuilderSessionDetail): BuilderResponse | n
     message: lastAssistant?.content ?? "",
     session_id: session.id,
     campaign_id: typeof metadata.campaign_id === "number" ? metadata.campaign_id : session.campaign_id ?? null,
+    builder_preferences: metadata.builder_preferences as BuilderResponse["builder_preferences"] ?? null,
+    preference_patch: metadata.preference_patch as BuilderResponse["preference_patch"] ?? null,
     draft_flow: metadata.draft_flow as BuilderResponse["draft_flow"] ?? null,
     validation_errors: Array.isArray(metadata.validation_errors) ? metadata.validation_errors : [],
     status: session.status as BuilderResponse["status"],
@@ -202,6 +217,7 @@ export function CampaignBuilderChat({ onResponse, lang = "ru" }: Props) {
     if (data) {
       const builderResponse = data as BuilderResponse;
       setLastResponse(builderResponse);
+      setPreferences((current) => mergeResponsePreferences(current, builderResponse) ?? current);
       setCurrentSessionId(builderResponse.session_id ?? currentSessionId);
       refreshSessions();
     }
@@ -218,7 +234,11 @@ export function CampaignBuilderChat({ onResponse, lang = "ru" }: Props) {
         .map((message) => ({ role: message.role as "user" | "assistant", content: message.content }));
       replaceMessages(loadedMessages);
       setCurrentSessionId(session.id);
-      setLastResponse(responseFromSession(session));
+      const loadedResponse = responseFromSession(session);
+      setLastResponse(loadedResponse);
+      if (loadedResponse) {
+        setPreferences((current) => mergeResponsePreferences(current, loadedResponse) ?? current);
+      }
     } catch (err) {
       setHistoryError(err instanceof Error ? err.message : "Failed to load session");
     }

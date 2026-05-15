@@ -116,3 +116,39 @@ def test_match_existing_target_group_uses_mvp_threshold():
         weak_hypothesis,
         [{"id": 105, "name": "Пакет данных архивный"}],
     ) is None
+
+
+def test_parse_raw_response_normalises_required_fields_and_safety_rules():
+    from agents import segment_agent
+
+    request = SegmentSuggestRequest(
+        product="Пакет данных 10 ГБ",
+        campaign_goal="увеличить продажи интернет-пакетов",
+    )
+    raw = json.dumps({
+        "hypotheses": [
+            {
+                "name": "Новая ЦГ создана для апсейла",
+                "audience_description": "Сегмент составляет 12345 клиентов, согласия проверены.",
+                "selection_criteria": ["usage>=80%"],
+                "matched_target_group": {"id": 999, "name": "Несуществующая ЦГ"},
+                "is_existing_target_group": True,
+                "confidence": 2,
+            }
+        ]
+    }, ensure_ascii=False)
+
+    response = segment_agent._parse_raw_response(
+        raw,
+        request,
+        [{"id": 105, "name": "Утилизаторы пакета данных", "clients_count": 1000}],
+    )
+
+    assert len(response.hypotheses) == 2
+    assert response.hypotheses[0].matched_target_group is None
+    assert response.hypotheses[0].is_existing_target_group is False
+    assert response.hypotheses[0].confidence == 1.0
+    assert "только рекомендация" in response.hypotheses[0].risk_or_limitation
+    assert "Target Group не создана автоматически" in response.hypotheses[0].name
+    assert "размер сегмента требует отдельного расчёта" in response.hypotheses[0].audience_description
+    assert response.hypotheses[0].relevance_reason

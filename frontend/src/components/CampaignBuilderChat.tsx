@@ -171,6 +171,23 @@ function formatSelectedSegmentTargetGroups(
   ].filter(Boolean).join("\n");
 }
 
+function preferencesFromSelectedSegment(
+  selectedSegment: SelectedSegmentForBuilder,
+  lang: "ru" | "en",
+): Partial<BuilderPreferences> {
+  return {
+    ...(selectedSegment.product ? { product: selectedSegment.product } : {}),
+    ...(selectedSegment.goal ? { goal: selectedSegment.goal } : {}),
+    targetGroups: formatSelectedSegmentTargetGroups(selectedSegment, lang),
+  };
+}
+
+function getSelectedSegmentMeta(selectedSegment: SelectedSegmentForBuilder, lang: "ru" | "en"): string {
+  const product = getPlanValue(selectedSegment.product);
+  const goal = getPlanValue(selectedSegment.goal);
+  return lang === "en" ? `Product: ${product} · Goal: ${goal}` : `Продукт: ${product} · Цель: ${goal}`;
+}
+
 
 function getPlanValue(value?: string | null): string {
   const trimmed = value?.trim();
@@ -331,9 +348,7 @@ export function CampaignBuilderChat({
     if (!selectedSegment) return;
     setPreferences((current) => ({
       ...current,
-      ...(selectedSegment.product ? { product: selectedSegment.product } : {}),
-      ...(selectedSegment.goal ? { goal: selectedSegment.goal } : {}),
-      targetGroups: formatSelectedSegmentTargetGroups(selectedSegment, lang),
+      ...preferencesFromSelectedSegment(selectedSegment, lang),
     }));
     setTargetGroupsSource("audience-builder");
   }, [selectedSegment, lang]);
@@ -408,6 +423,17 @@ export function CampaignBuilderChat({
 
   const handlePrepareBuilderCommand = () => {
     setInput(buildBuilderPrompt(preferences, lang));
+  };
+
+  const handleUseSelectedSegment = () => {
+    if (!selectedSegment) return;
+    const nextPreferences = {
+      ...preferences,
+      ...preferencesFromSelectedSegment(selectedSegment, lang),
+    };
+    setPreferences(nextPreferences);
+    setTargetGroupsSource("audience-builder");
+    setInput(buildBuilderPrompt(nextPreferences, lang));
   };
 
   const handleApplyDemoPlaybook = (item: BuilderDemoPlaybookItem) => {
@@ -655,6 +681,22 @@ export function CampaignBuilderChat({
           <button className="fw-clear-btn" onClick={handleClear}>{lang === "en" ? "New chat" : "Новый чат"}</button>
           <button className="fw-clear-btn" onClick={handleClearAll}>{lang === "en" ? "Clear all" : "Очистить всё"}</button>
         </div>
+      )}
+
+      {selectedSegment && (
+        <section
+          className="builder-selected-segment-card"
+          aria-label={lang === "en" ? "Selected segment for Builder" : "Выбранный сегмент для Builder"}
+        >
+          <div>
+            <span>{lang === "en" ? "Segment from Audience Builder" : "Сегмент из Audience Builder"}</span>
+            <strong>{selectedSegment.hypothesis.name}</strong>
+            <small>{getSelectedSegmentMeta(selectedSegment, lang)}</small>
+          </div>
+          <button type="button" onClick={handleUseSelectedSegment} disabled={loading}>
+            {lang === "en" ? "Build flow with this segment" : "Собрать flow с этим сегментом"}
+          </button>
+        </section>
       )}
 
       {/* Composer */}

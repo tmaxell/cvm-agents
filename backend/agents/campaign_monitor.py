@@ -17,6 +17,7 @@ import re
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from llm import get_llm
+from agents.campaign_optimizer import run as optimizer_run
 from schemas import (
     ChannelDeliveryMetric,
     ControlGroupComparison,
@@ -289,11 +290,14 @@ def _fallback_launch_recommendations(metrics: MonitorMetrics) -> list[str]:
 async def run(request: MonitorRequest) -> MonitorResponse:
     """Анализирует кампанию и возвращает метрики + рекомендации."""
     # Парсим flow
+    flow_data: dict = {}
     try:
-        flow_data = json.loads(request.draft_flow_json)
+        parsed_flow = json.loads(request.draft_flow_json)
+        flow_data = parsed_flow if isinstance(parsed_flow, dict) else {}
         activities = flow_data.get("activities", [])
     except (json.JSONDecodeError, TypeError):
         activities = []
+        flow_data = {"activities": activities}
 
     # Генерируем метрики детерминированно
     metrics = _generate_metrics(request.campaign_id, request.refresh_seed, activities)
@@ -370,6 +374,8 @@ async def run(request: MonitorRequest) -> MonitorResponse:
         if not similar_actions:
             similar_actions = _fallback_similar_campaign_actions(activities)
 
+        optimization_recs = optimizer_run(flow_data, metrics, request.campaign_status)
+
         return MonitorResponse(
             metrics=metrics,
             overall_score=int(data.get("overall_score", 65)),
@@ -378,12 +384,18 @@ async def run(request: MonitorRequest) -> MonitorResponse:
             launch_recommendations=launch_recs,
             similar_campaign_actions=similar_actions,
             recommendations=structure_recs + similar_actions + launch_recs,
+            optimization_recommendations=optimization_recs,
         )
     except Exception as e:
         print(f"[campaign_monitor] LLM error: {e}")
         structure_recs = _fallback_structure_recommendations(activities)
         launch_recs = _fallback_launch_recommendations(metrics)
         similar_actions = _fallback_similar_campaign_actions(activities)
+        optimization_recs = optimizer_run(
+            flow_data if isinstance(flow_data, dict) else {"activities": activities},
+            metrics,
+            request.campaign_status,
+        )
         return MonitorResponse(
             metrics=metrics,
             overall_score=62,
@@ -392,4 +404,5 @@ async def run(request: MonitorRequest) -> MonitorResponse:
             launch_recommendations=launch_recs,
             similar_campaign_actions=similar_actions,
             recommendations=structure_recs + similar_actions + launch_recs,
+            optimization_recommendations=optimization_recs,
         )

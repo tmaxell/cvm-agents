@@ -253,6 +253,7 @@ export function CampaignBuilderChat({
   const [preferences, setPreferences] = useState<BuilderPreferences>(() =>
     readStoredJson<BuilderPreferences>(BUILDER_PREFS_KEY, {}),
   );
+  const [targetGroupsSource, setTargetGroupsSource] = useState<"audience-builder" | "manual" | null>(null);
 
   const { messages, loading, error, send, clear, replaceMessages } = useChat({
     endpoint: "/api/builder",
@@ -326,9 +327,13 @@ export function CampaignBuilderChat({
       ...(selectedSegment.goal ? { goal: selectedSegment.goal } : {}),
       targetGroups: formatSelectedSegmentTargetGroups(selectedSegment, lang),
     }));
+    setTargetGroupsSource("audience-builder");
   }, [selectedSegment, lang]);
 
   const handlePreferenceChange = (key: keyof BuilderPreferences, value: string) => {
+    if (key === "targetGroups") {
+      setTargetGroupsSource(value.trim() ? "manual" : null);
+    }
     setPreferences((current) => ({ ...current, [key]: value }));
   };
 
@@ -387,6 +392,7 @@ export function CampaignBuilderChat({
   const handleClearAll = () => {
     handleClear();
     setPreferences({});
+    setTargetGroupsSource(null);
     if (typeof window !== "undefined") {
       window.localStorage.removeItem(BUILDER_PREFS_KEY);
     }
@@ -395,6 +401,12 @@ export function CampaignBuilderChat({
   const handlePrepareBuilderCommand = () => {
     setInput(buildBuilderPrompt(preferences, lang));
   };
+
+  const targetGroupsStatusLabel = variant === "demo" && targetGroupsSource
+    ? targetGroupsSource === "audience-builder"
+      ? "Applied from Audience Builder"
+      : "Edited manually"
+    : null;
 
   const demoPlanItems = [
     { label: lang === "en" ? "Campaign goal" : "Цель кампании", value: getPlanValue(preferences.goal) },
@@ -449,7 +461,18 @@ export function CampaignBuilderChat({
             />
           </label>
           <label>
-            {lang === "en" ? "Target groups" : "Целевые группы"}
+            {variant === "demo" ? (
+              <span className="builder-field-label">
+                {lang === "en" ? "Target groups" : "Целевые группы"}
+                {targetGroupsStatusLabel && (
+                  <em className={targetGroupsSource === "manual" ? "manual" : undefined}>
+                    {targetGroupsStatusLabel}
+                  </em>
+                )}
+              </span>
+            ) : (
+              lang === "en" ? "Target groups" : "Целевые группы"
+            )}
             <input
               value={preferences.targetGroups ?? ""}
               onChange={(e) => handlePreferenceChange("targetGroups", e.target.value)}

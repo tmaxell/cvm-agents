@@ -3462,6 +3462,32 @@ button {
   font-weight: 800;
 }
 
+.builder-field-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.builder-field-label em {
+  margin-left: auto;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: var(--accent, #5257ff);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 900;
+  line-height: 1.2;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.builder-field-label em.manual {
+  background: #fff7ed;
+  color: #ea580c;
+}
+
 .builder-params-grid input,
 .builder-params-grid textarea {
   width: 100%;
@@ -3701,6 +3727,40 @@ button {
   color: var(--text-secondary, #64748b);
   font-size: 12px;
   line-height: 1.45;
+}
+
+.fw-segment-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.fw-segment-badges span {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: var(--accent, #5257ff);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.fw-segment-badges span.selected {
+  background: #ecfdf5;
+  color: #16a34a;
+}
+
+.fw-segment-badges span.existing {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.fw-segment-badges span.new {
+  background: #fff7ed;
+  color: #ea580c;
 }
 
 .fw-segment-card dl {
@@ -4321,6 +4381,18 @@ button {
 
 .fw-segments-demo .fw-segments-form {
   border-radius: 16px;
+}
+
+.fw-demo-recommendation-note {
+  margin: 0;
+  padding: 9px 10px;
+  border: 1px solid rgba(82, 87, 255, 0.14);
+  border-radius: 10px;
+  background: rgba(238, 242, 255, 0.68);
+  color: var(--text-secondary, #64748b);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
 }
 
 .fw-segments-demo .fw-segment-card {

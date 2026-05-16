@@ -3180,6 +3180,49 @@ button {
 .fw-monitor-optimization-list {
   display: flex;
   flex-direction: column;
+  gap: 10px;
+}
+
+.fw-monitor-optimization-phase {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 8px;
+  border: 1px solid rgba(82, 87, 255, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.fw-monitor-optimization-phase.phase-post_launch,
+.fw-monitor-optimization-phase.phase-after_launch {
+  border-color: rgba(16, 185, 129, 0.22);
+  background: rgba(236, 253, 245, 0.58);
+}
+
+.fw-monitor-optimization-phase-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.fw-monitor-optimization-phase-header span:last-child {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(82, 87, 255, 0.1);
+  color: #4338ca;
+  text-align: center;
+}
+
+.fw-monitor-optimization-phase-cards {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
 }
 
@@ -3221,7 +3264,8 @@ button {
   color: #1d4ed8;
 }
 
-.fw-monitor-optimization-badge.category-time {
+.fw-monitor-optimization-badge.category-time,
+.fw-monitor-optimization-badge.category-contact_time {
   border-color: #fde68a;
   background: #fef3c7;
   color: #b45309;
@@ -3239,7 +3283,8 @@ button {
   color: #b91c1c;
 }
 
-.fw-monitor-optimization-badge.category-text {
+.fw-monitor-optimization-badge.category-text,
+.fw-monitor-optimization-badge.category-content {
   border-color: #bbf7d0;
   background: #dcfce7;
   color: #15803d;

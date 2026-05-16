@@ -245,9 +245,11 @@ export interface MonitorMetrics {
 export type OptimizationRecommendationCategory =
   | "channel"
   | "time"
+  | "contact_time"
   | "offer"
   | "control_group"
   | "text"
+  | "content"
   | "flow"
   | (string & {});
 

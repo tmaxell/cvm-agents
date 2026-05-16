@@ -66,6 +66,7 @@ interface DemoPlaybookItem {
   product?: string;
   campaignGoal?: string;
   audienceConstraints?: string;
+  action?: "copy" | "open_builder" | "prompt_builder";
 }
 
 const PANEL_SIZES: Record<Size, { width: number; height: number }> = {
@@ -153,13 +154,13 @@ const DEMO_SCENARIOS: Record<
     ru: {
       eyebrow: "Independent review",
       title: "Monitoring — независимая проверка кампании перед запуском",
-      text: "Reviewer agent проверяет риски доставки, структуру flow, готовность к запуску и лучший следующий шаг.",
+      text: "Reviewer agent проверяет риски доставки, структуру flow, готовность к запуску и лучший следующий шаг. Рекомендации не применяются автоматически.",
       metric: "pre-launch review",
     },
     en: {
       eyebrow: "Independent review",
       title: "Monitoring is an independent campaign check before launch",
-      text: "Reviewer agent checks delivery risk, flow structure, launch readiness, and the next best action.",
+      text: "Reviewer agent checks delivery risk, flow structure, launch readiness, and the next best action. Recommendations are not applied automatically.",
       metric: "pre-launch review",
     },
   },
@@ -251,22 +252,36 @@ const DEMO_PLAYBOOK: Record<Tab, Record<Lang, DemoPlaybookItem[]>> = {
   monitoring: {
     ru: [
       {
-        label: "Оценить готовность",
-        description: "Запустить pre-launch review кампании",
+        label: "Скопировать",
+        description: "Скопировать рекомендации без применения изменений",
+        action: "copy",
       },
       {
-        label: "Показать рекомендации",
-        description: "Открыть delivery, structure и launch-рекомендации",
+        label: "Открыть Builder",
+        description: "Перейти в Builder для ручной доработки flow",
+        action: "open_builder",
+      },
+      {
+        label: "Сформулировать промпт для Builder",
+        description: "Подготовить промпт и скопировать его для проверки",
+        action: "prompt_builder",
       },
     ],
     en: [
       {
-        label: "Evaluate readiness",
-        description: "Run the campaign pre-launch review",
+        label: "Copy",
+        description: "Copy recommendations without applying changes",
+        action: "copy",
       },
       {
-        label: "Show recommendations",
-        description: "Open delivery, structure, and launch recommendations",
+        label: "Open Builder",
+        description: "Go to Builder for manual flow edits",
+        action: "open_builder",
+      },
+      {
+        label: "Formulate Builder prompt",
+        description: "Prepare and copy a prompt for review",
+        action: "prompt_builder",
       },
     ],
   },
@@ -753,6 +768,7 @@ export function FloatingWidget({
               lang={lang}
               variant={uiMode}
               demoPlaybook={DEMO_PLAYBOOK.monitoring[lang]}
+              onOpenBuilder={() => setTab("builder")}
             />
           </div>
         </div>

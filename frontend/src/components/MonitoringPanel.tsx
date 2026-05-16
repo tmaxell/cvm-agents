@@ -11,6 +11,7 @@ import type { CampaignRuntimeStatus, ChannelDeliveryMetric, MonitorMetrics, Moni
 interface MonitoringDemoPlaybookItem {
   label: string;
   description: string;
+  action?: "copy" | "open_builder" | "prompt_builder";
 }
 
 interface Props {
@@ -20,6 +21,7 @@ interface Props {
   lang?: "ru" | "en";
   variant?: "classic" | "demo";
   demoPlaybook?: MonitoringDemoPlaybookItem[];
+  onOpenBuilder?: () => void;
 }
 
 export function MonitoringPanel({
@@ -29,6 +31,7 @@ export function MonitoringPanel({
   lang = "ru",
   variant = "classic",
   demoPlaybook = [],
+  onOpenBuilder,
 }: Props) {
   const [data, setData] = useState<MonitorResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -78,14 +81,69 @@ export function MonitoringPanel({
     fetchMonitor(nextSeed);
   };
 
-  const handleDemoAction = () => {
+  const buildRecommendationsText = useCallback(() => {
+    const sections = [
+      [lang === "en" ? "Optimization recommendations" : "Рекомендации по оптимизации", data?.optimization_recommendations?.map((item) => item.change) ?? []],
+      [lang === "en" ? "Flow improvements" : "Доработка flow", data?.structure_recommendations ?? []],
+      [lang === "en" ? "Similar past campaigns" : "Похожие прошлые кампании", data?.similar_campaign_actions ?? []],
+      [lang === "en" ? "After launch" : "После запуска", data?.launch_recommendations ?? []],
+    ] as const;
+
+    const body = sections
+      .filter(([, items]) => items.length > 0)
+      .map(([title, items]) => `${title}:\n${items.map((item, index) => `${index + 1}. ${item}`).join("\n")}`)
+      .join("\n\n");
+
+    return body || (lang === "en"
+      ? "No monitoring recommendations loaded yet. Recommendations are not applied automatically."
+      : "Рекомендации Monitoring ещё не загружены. Рекомендации не применяются автоматически.");
+  }, [data, lang]);
+
+  const copyText = useCallback(async (text: string) => {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    throw new Error("Clipboard API unavailable");
+  }, []);
+
+  const handleDemoAction = async (item: MonitoringDemoPlaybookItem) => {
+    setPrerequisiteHint(null);
+    const action = item.action ?? "copy";
+
+    if (action === "open_builder") {
+      onOpenBuilder?.();
+      return;
+    }
+
     if (!campaignId || !draftFlowJson) {
       setPrerequisiteHint(lang === "en"
         ? "Prerequisite: build a campaign in Builder first so Monitoring receives campaignId and draft flow."
         : "Prerequisite: сначала соберите кампанию в Builder, чтобы Monitoring получил campaignId и draft flow.");
       return;
     }
-    handleRefresh();
+
+    if (!data) {
+      await fetchMonitor(seed);
+    }
+
+    const recommendationsText = buildRecommendationsText();
+    const textToCopy = action === "prompt_builder"
+      ? (lang === "en"
+        ? `Review these Monitoring recommendations in Builder. Do not apply changes automatically; propose a safe manual edit plan.\n\n${recommendationsText}`
+        : `Проверь эти рекомендации Monitoring в Builder. Не применяй изменения автоматически; предложи безопасный план ручной доработки.\n\n${recommendationsText}`)
+      : recommendationsText;
+
+    try {
+      await copyText(textToCopy);
+      setPrerequisiteHint(action === "prompt_builder"
+        ? (lang === "en" ? "Builder prompt copied. Open Builder and review it before sending." : "Промпт для Builder скопирован. Откройте Builder и проверьте его перед отправкой.")
+        : (lang === "en" ? "Recommendations copied. They were not applied automatically." : "Рекомендации скопированы. Они не применялись автоматически."));
+    } catch {
+      setPrerequisiteHint(lang === "en"
+        ? "Could not copy automatically. Select and copy the recommendations manually."
+        : "Не удалось скопировать автоматически. Выделите и скопируйте рекомендации вручную.");
+    }
   };
 
   const demoPlaybookActions = variant === "demo" && demoPlaybook.length > 0 && (
@@ -96,7 +154,7 @@ export function MonitoringPanel({
       </div>
       <div className="fw-demo-playbook-grid">
         {demoPlaybook.map((item) => (
-          <button key={item.label} type="button" onClick={handleDemoAction} disabled={loading}>
+          <button key={item.label} type="button" onClick={() => handleDemoAction(item)} disabled={loading}>
             <strong>{item.label}</strong>
             <span>{item.description}</span>
           </button>
@@ -115,8 +173,8 @@ export function MonitoringPanel({
         </p>
         <p style={{ margin: "6px 0 0", fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.5 }}>
           {lang === "en"
-            ? "Monitoring will run an independent pre-launch campaign review after the campaign and flow are ready."
-            : "Monitoring запустит независимую проверку кампании перед запуском, когда будут готовы campaignId и draft flow."}
+            ? "Monitoring will run an independent pre-launch campaign review after the campaign and flow are ready. Recommendations are not applied automatically."
+            : "Monitoring запустит независимую проверку кампании перед запуском, когда будут готовы campaignId и draft flow. Рекомендации не применяются автоматически."}
         </p>
         {demoPlaybookActions}
       </div>
@@ -132,8 +190,8 @@ export function MonitoringPanel({
         </p>
         <p style={{ margin: "6px 0 0", fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.5 }}>
           {lang === "en"
-            ? <>Build a campaign in the<br />&ldquo;Campaign Builder&rdquo; tab — data will appear here</>
-            : <>Создайте кампанию во вкладке<br />«Campaign Builder» — данные появятся здесь</>}
+            ? <>Build a campaign in the<br />&ldquo;Campaign Builder&rdquo; tab — data will appear here.<br />Recommendations are not applied automatically.</>
+            : <>Создайте кампанию во вкладке<br />«Campaign Builder» — данные появятся здесь.<br />Рекомендации не применяются автоматически.</>}
         </p>
       </div>
     );
@@ -163,7 +221,7 @@ export function MonitoringPanel({
             )}
           </div>
           <p>
-            Reviewer agent checks: delivery risk, flow structure, launch readiness, next best action
+            Reviewer agent checks: delivery risk, flow structure, launch readiness, next best action. {lang === "en" ? "Recommendations are not applied automatically." : "Рекомендации не применяются автоматически."}
           </p>
           <dl className="fw-monitor-demo-review-grid">
             <div>
@@ -231,6 +289,9 @@ export function MonitoringPanel({
           <div className="fw-monitor-score-row">
             <ScoreBadge score={data.overall_score} lang={lang} />
             <p className="fw-monitor-summary">{data.summary}</p>
+            <p className="fw-monitor-safe-note">
+              {lang === "en" ? "Recommendations are not applied automatically." : "Рекомендации не применяются автоматически."}
+            </p>
           </div>
 
           <OptimizationRecommendationsSection

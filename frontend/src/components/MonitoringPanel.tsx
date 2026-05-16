@@ -8,12 +8,18 @@
 import { useState, useEffect, useCallback } from "react";
 import type { CampaignRuntimeStatus, ChannelDeliveryMetric, MonitorMetrics, MonitorResponse } from "../types/api";
 
+interface MonitoringDemoPlaybookItem {
+  label: string;
+  description: string;
+}
+
 interface Props {
   campaignId: number | null;
   draftFlowJson: string | null;
   campaignStatus: CampaignRuntimeStatus;
   lang?: "ru" | "en";
   variant?: "classic" | "demo";
+  demoPlaybook?: MonitoringDemoPlaybookItem[];
 }
 
 export function MonitoringPanel({
@@ -22,11 +28,13 @@ export function MonitoringPanel({
   campaignStatus,
   lang = "ru",
   variant = "classic",
+  demoPlaybook = [],
 }: Props) {
   const [data, setData] = useState<MonitorResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [seed, setSeed] = useState(0);
+  const [prerequisiteHint, setPrerequisiteHint] = useState<string | null>(null);
 
   const fetchMonitor = useCallback(async (currentSeed: number, statusOverride: CampaignRuntimeStatus = campaignStatus) => {
     if (!campaignId || !draftFlowJson) return;
@@ -70,6 +78,34 @@ export function MonitoringPanel({
     fetchMonitor(nextSeed);
   };
 
+  const handleDemoAction = () => {
+    if (!campaignId || !draftFlowJson) {
+      setPrerequisiteHint(lang === "en"
+        ? "Prerequisite: build a campaign in Builder first so Monitoring receives campaignId and draft flow."
+        : "Prerequisite: сначала соберите кампанию в Builder, чтобы Monitoring получил campaignId и draft flow.");
+      return;
+    }
+    handleRefresh();
+  };
+
+  const demoPlaybookActions = variant === "demo" && demoPlaybook.length > 0 && (
+    <section className="fw-demo-playbook fw-monitor-playbook" aria-label={lang === "en" ? "Monitoring quick actions" : "Быстрые действия мониторинга"}>
+      <div className="fw-demo-playbook-header">
+        <span>{lang === "en" ? "Demo quick actions" : "Demo быстрые действия"}</span>
+        <strong>{lang === "en" ? "Pre-launch review" : "Pre-launch проверка"}</strong>
+      </div>
+      <div className="fw-demo-playbook-grid">
+        {demoPlaybook.map((item) => (
+          <button key={item.label} type="button" onClick={handleDemoAction} disabled={loading}>
+            <strong>{item.label}</strong>
+            <span>{item.description}</span>
+          </button>
+        ))}
+      </div>
+      {prerequisiteHint && <p className="fw-demo-playbook-note">{prerequisiteHint}</p>}
+    </section>
+  );
+
   if (variant === "demo" && (!campaignId || !draftFlowJson)) {
     return (
       <div className="fw-monitor-empty fw-monitor-empty-demo">
@@ -82,6 +118,7 @@ export function MonitoringPanel({
             ? "Monitoring will run an independent pre-launch campaign review after the campaign and flow are ready."
             : "Monitoring запустит независимую проверку кампании перед запуском, когда будут готовы campaignId и draft flow."}
         </p>
+        {demoPlaybookActions}
       </div>
     );
   }
@@ -113,6 +150,7 @@ export function MonitoringPanel({
 
   return (
     <div className="fw-monitor">
+      {demoPlaybookActions}
       {isDemo && (
         <section className="fw-monitor-demo-review">
           <div className="fw-monitor-demo-review-header">

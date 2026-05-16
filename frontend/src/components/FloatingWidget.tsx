@@ -45,6 +45,15 @@ interface DemoStep {
   state: DemoStepState;
 }
 
+interface DemoPlaybookItem {
+  label: string;
+  description: string;
+  prompt?: string;
+  product?: string;
+  campaignGoal?: string;
+  audienceConstraints?: string;
+}
+
 const PANEL_SIZES: Record<Size, { width: number; height: number }> = {
   normal: { width: 480, height: 560 },
   large: { width: 660, height: 760 },
@@ -139,6 +148,113 @@ const DEMO_SCENARIOS: Record<
       text: "Reviewer agent checks delivery risk, flow structure, launch readiness, and the next best action.",
       metric: "pre-launch review",
     },
+  },
+};
+
+const DEMO_PLAYBOOK: Record<Tab, Record<Lang, DemoPlaybookItem[]>> = {
+  copilot: {
+    ru: COPILOT_SUGGESTIONS.ru.slice(0, 3).map((label) => ({
+      label,
+      description: "Отправить вопрос в Copilot",
+      prompt: label,
+    })),
+    en: COPILOT_SUGGESTIONS.en.slice(0, 3).map((label) => ({
+      label,
+      description: "Send this question to Copilot",
+      prompt: label,
+    })),
+  },
+  segments: {
+    ru: [
+      {
+        label: "Тариф Family Max",
+        description: "Продукт + цель для апсейла семейной аудитории",
+        product: "Тариф Family Max",
+        campaignGoal: "Апсейл семейных абонентов на пакет с большим интернетом и shared benefits",
+        audienceConstraints: "Семейные клиенты 25–45, 2+ SIM, высокий расход мобильного интернета; исключить opt-out и контакты за последние 14 дней",
+      },
+      {
+        label: "Travel Roaming Pack",
+        description: "Цель — активация роуминг-пакета перед поездкой",
+        product: "Travel Roaming Pack",
+        campaignGoal: "Активировать роуминг-пакет у клиентов с высокой вероятностью поездки",
+        audienceConstraints: "Клиенты с международными звонками или роумингом за 12 месяцев; исключить корпоративные номера и недавние промо-контакты",
+      },
+    ],
+    en: [
+      {
+        label: "Family Max tariff",
+        description: "Product + goal for family-audience upsell",
+        product: "Family Max tariff",
+        campaignGoal: "Upsell family subscribers to a larger internet bundle with shared benefits",
+        audienceConstraints: "Family customers 25–45, 2+ SIMs, high mobile data usage; exclude opt-outs and contacts from the last 14 days",
+      },
+      {
+        label: "Travel Roaming Pack",
+        description: "Goal — activate roaming bundle before travel",
+        product: "Travel Roaming Pack",
+        campaignGoal: "Activate a roaming pack for customers with a high travel propensity",
+        audienceConstraints: "Customers with international calls or roaming in the last 12 months; exclude corporate numbers and recent promo contacts",
+      },
+    ],
+  },
+  builder: {
+    ru: [
+      {
+        label: "Собрать flow",
+        description: "Подготовить полный draft кампании из текущего контекста",
+        prompt: "Собери готовый Campaign Builder flow: используй выбранный сегмент, добавь entry criteria, 2 канала коммуникации, offer activation и финальную проверку ошибок.",
+      },
+      {
+        label: "Доработать контент",
+        description: "Улучшить тексты и тон коммуникаций",
+        prompt: "Доработай контент в текущем flow: сделай тон более персональным, сократи push до 90 символов и добавь premium-вариант текста для SMS.",
+      },
+      {
+        label: "Проверить ошибки",
+        description: "Найти блокеры запуска и предложить исправления",
+        prompt: "Проверь текущий draft flow на ошибки запуска: Target Group, channels, offer activation, schedule, frequency cap. Верни список проблем и точные исправления.",
+      },
+    ],
+    en: [
+      {
+        label: "Build flow",
+        description: "Prepare a complete campaign draft from current context",
+        prompt: "Build a ready Campaign Builder flow: use the selected segment, add entry criteria, 2 communication channels, offer activation, and a final error check.",
+      },
+      {
+        label: "Refine content",
+        description: "Improve message copy and tone",
+        prompt: "Refine the content in the current flow: make the tone more personal, keep push under 90 characters, and add a premium SMS copy variant.",
+      },
+      {
+        label: "Check errors",
+        description: "Find launch blockers and propose fixes",
+        prompt: "Check the current draft flow for launch errors: Target Group, channels, offer activation, schedule, frequency cap. Return issues and exact fixes.",
+      },
+    ],
+  },
+  monitoring: {
+    ru: [
+      {
+        label: "Оценить готовность",
+        description: "Запустить pre-launch review кампании",
+      },
+      {
+        label: "Показать рекомендации",
+        description: "Открыть delivery, structure и launch-рекомендации",
+      },
+    ],
+    en: [
+      {
+        label: "Evaluate readiness",
+        description: "Run the campaign pre-launch review",
+      },
+      {
+        label: "Show recommendations",
+        description: "Open delivery, structure, and launch recommendations",
+      },
+    ],
   },
 };
 
@@ -269,6 +385,7 @@ export function FloatingWidget({
 
   const { width, height } = PANEL_SIZES[size];
   const activeScenario = DEMO_SCENARIOS[tab][lang];
+  const activePlaybook = DEMO_PLAYBOOK[tab][lang];
   const hasSelectedAudience = selectedSegment != null;
   const hasDraftFlow = builderResponse?.draft_flow != null;
   const hasCampaign = builderResponse?.campaign_id != null;
@@ -565,7 +682,7 @@ export function FloatingWidget({
               endpoint="/api/copilot"
               messageKey="question"
               placeholder={COPILOT_PLACEHOLDER[lang]}
-              suggestions={COPILOT_SUGGESTIONS[lang]}
+              suggestions={uiMode === "demo" ? activePlaybook.map((item) => item.prompt ?? item.label) : []}
             />
           </div>
           <div className="fw-panel-slot" style={activePanelStyle("segments")}>
@@ -574,6 +691,7 @@ export function FloatingWidget({
               variant={uiMode}
               onSegmentSelected={setSelectedSegment}
               onUseInBuilder={() => setTab("builder")}
+              demoPlaybook={DEMO_PLAYBOOK.segments[lang]}
             />
           </div>
           <div className="fw-panel-slot" style={activePanelStyle("builder")}>
@@ -583,6 +701,7 @@ export function FloatingWidget({
               lang={lang}
               selectedSegment={selectedSegment}
               variant={uiMode}
+              demoPlaybook={DEMO_PLAYBOOK.builder[lang]}
             />
           </div>
           <div className="fw-panel-slot" style={activePanelStyle("monitoring")}>
@@ -592,6 +711,7 @@ export function FloatingWidget({
               campaignStatus={campaignStatus}
               lang={lang}
               variant={uiMode}
+              demoPlaybook={DEMO_PLAYBOOK.monitoring[lang]}
             />
           </div>
         </div>

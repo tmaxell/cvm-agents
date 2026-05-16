@@ -2981,6 +2981,7 @@ button {
 .fw-monitor-score-row {
   display: flex;
   align-items: flex-start;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -3014,6 +3015,19 @@ button {
   font-size: 12px;
   color: var(--text-secondary);
   line-height: 1.5;
+}
+
+.fw-monitor-safe-note {
+  flex-basis: 100%;
+  margin: 0;
+  padding: 7px 9px;
+  border: 1px solid #bfdbfe;
+  border-radius: 9px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.35;
 }
 
 .fw-monitor-prelaunch-note {

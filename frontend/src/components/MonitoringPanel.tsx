@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import type { CampaignRuntimeStatus, ChannelDeliveryMetric, MonitorMetrics, MonitorResponse } from "../types/api";
+import type { CampaignRuntimeStatus, ChannelDeliveryMetric, MonitorMetrics, MonitorResponse, OptimizationRecommendation } from "../types/api";
 
 interface MonitoringDemoPlaybookItem {
   label: string;
@@ -146,6 +146,7 @@ export function MonitoringPanel({
     : data?.recommendations ?? [];
   const launchRecommendations = data?.launch_recommendations ?? [];
   const similarActions = data?.similar_campaign_actions ?? [];
+  const visibleOptimizationRecommendations = (data?.optimization_recommendations ?? []).slice(0, 5);
   const hasLaunched = campaignStatus === "active" || campaignStatus === "paused";
 
   return (
@@ -231,6 +232,11 @@ export function MonitoringPanel({
             <ScoreBadge score={data.overall_score} lang={lang} />
             <p className="fw-monitor-summary">{data.summary}</p>
           </div>
+
+          <OptimizationRecommendationsSection
+            recommendations={visibleOptimizationRecommendations}
+            lang={lang}
+          />
 
           {!hasLaunched && (
             <div className="fw-monitor-prelaunch-note">
@@ -506,6 +512,87 @@ function ControlCell({ label, value, hint }: { label: string; value: string; hin
       <small>{hint}</small>
     </div>
   );
+}
+
+function OptimizationRecommendationsSection({ recommendations, lang }: {
+  recommendations: OptimizationRecommendation[];
+  lang: "ru" | "en";
+}) {
+  if (!recommendations.length) return null;
+
+  return (
+    <section className="fw-monitor-section fw-monitor-optimization">
+      <div className="fw-monitor-section-header">
+        <span>✨ {lang === "en" ? "Optimization recommendations" : "Рекомендации по оптимизации"}</span>
+        <span className="fw-monitor-recs-count">{recommendations.length}</span>
+      </div>
+      <div className="fw-monitor-optimization-list">
+        {recommendations.map((recommendation, index) => (
+          <article className="fw-monitor-optimization-card" key={`${recommendation.category}-${recommendation.phase}-${index}`}>
+            <div className="fw-monitor-optimization-badges">
+              <span className={`fw-monitor-optimization-badge category-${normaliseBadgeClass(recommendation.category)}`}>
+                {formatRecommendationCategory(recommendation.category, lang)}
+              </span>
+              <span className={`fw-monitor-optimization-badge phase-${normaliseBadgeClass(recommendation.phase)}`}>
+                {formatRecommendationPhase(recommendation.phase, lang)}
+              </span>
+              <span className="fw-monitor-optimization-badge confidence">
+                {formatConfidence(recommendation.confidence, lang)}
+              </span>
+            </div>
+            <h4>{recommendation.change}</h4>
+            <dl className="fw-monitor-optimization-details">
+              <div>
+                <dt>{lang === "en" ? "Reason" : "Причина"}</dt>
+                <dd>{recommendation.reason}</dd>
+              </div>
+              <div>
+                <dt>{lang === "en" ? "Expected effect" : "Ожидаемый эффект"}</dt>
+                <dd>{recommendation.expected_effect}</dd>
+              </div>
+            </dl>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function formatRecommendationCategory(category: string, lang: "ru" | "en") {
+  const labels: Record<string, { ru: string; en: string }> = {
+    channel: { ru: "Канал", en: "Channel" },
+    time: { ru: "Время", en: "Time" },
+    offer: { ru: "Offer", en: "Offer" },
+    control_group: { ru: "Контрольная группа", en: "Control group" },
+    text: { ru: "Текст", en: "Text" },
+    flow: { ru: "Flow", en: "Flow" },
+  };
+
+  return labels[category]?.[lang] ?? category;
+}
+
+function formatRecommendationPhase(phase: string, lang: "ru" | "en") {
+  const labels: Record<string, { ru: string; en: string }> = {
+    pre_launch: { ru: "До запуска", en: "Pre-launch" },
+    before_launch: { ru: "До запуска", en: "Pre-launch" },
+    post_launch: { ru: "После запуска", en: "Post-launch" },
+    after_launch: { ru: "После запуска", en: "Post-launch" },
+  };
+
+  return labels[phase]?.[lang] ?? phase;
+}
+
+function formatConfidence(confidence: number | string, lang: "ru" | "en") {
+  if (typeof confidence === "number") {
+    const value = confidence <= 1 ? Math.round(confidence * 100) : Math.round(confidence);
+    return `${lang === "en" ? "Confidence" : "Уверенность"} ${value}%`;
+  }
+
+  return `${lang === "en" ? "Confidence" : "Уверенность"} ${confidence}`;
+}
+
+function normaliseBadgeClass(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9_-]+/g, "-");
 }
 
 function RecommendationSection({ icon, title, recommendations }: {

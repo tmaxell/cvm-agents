@@ -242,12 +242,38 @@ export interface MonitorMetrics {
   control_group?: ControlGroupComparison | null;
 }
 
+export type OptimizationRecommendationCategory =
+  | "channel"
+  | "time"
+  | "offer"
+  | "control_group"
+  | "text"
+  | "flow"
+  | (string & {});
+
+export type OptimizationRecommendationPhase =
+  | "pre_launch"
+  | "post_launch"
+  | "before_launch"
+  | "after_launch"
+  | (string & {});
+
+export interface OptimizationRecommendation {
+  category: OptimizationRecommendationCategory;
+  phase: OptimizationRecommendationPhase;
+  change: string;
+  reason: string;
+  expected_effect: string;
+  confidence: number | string;
+}
+
 export interface MonitorResponse {
   metrics: MonitorMetrics;
   recommendations: string[];
   structure_recommendations?: string[];
   launch_recommendations?: string[];
   similar_campaign_actions?: string[];
+  optimization_recommendations?: OptimizationRecommendation[];
   overall_score: number;
   summary: string;
 }

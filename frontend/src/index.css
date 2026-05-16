@@ -3169,6 +3169,144 @@ button {
   margin-top: 1px;
 }
 
+
+.fw-monitor-optimization {
+  padding: 10px;
+  border: 1px solid #c7d2fe;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #eef2ff 0%, #ffffff 100%);
+}
+
+.fw-monitor-optimization-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fw-monitor-optimization-card {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 9px 10px;
+  border: 1px solid rgba(82, 87, 255, 0.18);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.fw-monitor-optimization-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.fw-monitor-optimization-badge {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 2px 7px;
+  border: 1px solid #dbeafe;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.fw-monitor-optimization-badge.category-channel {
+  border-color: #bfdbfe;
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.fw-monitor-optimization-badge.category-time {
+  border-color: #fde68a;
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.fw-monitor-optimization-badge.category-offer {
+  border-color: #ddd6fe;
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
+.fw-monitor-optimization-badge.category-control_group {
+  border-color: #fecaca;
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.fw-monitor-optimization-badge.category-text {
+  border-color: #bbf7d0;
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.fw-monitor-optimization-badge.category-flow {
+  border-color: #c7d2fe;
+  background: #e0e7ff;
+  color: #4338ca;
+}
+
+.fw-monitor-optimization-badge.phase-pre_launch,
+.fw-monitor-optimization-badge.phase-before_launch {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.fw-monitor-optimization-badge.phase-post_launch,
+.fw-monitor-optimization-badge.phase-after_launch {
+  border-color: #a7f3d0;
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.fw-monitor-optimization-badge.confidence {
+  margin-left: auto;
+  border-color: #e5e7eb;
+  background: #f8fafc;
+  color: #475569;
+}
+
+.fw-monitor-optimization-card h4 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.fw-monitor-optimization-details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+
+.fw-monitor-optimization-details div {
+  min-width: 0;
+}
+
+.fw-monitor-optimization-details dt {
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.25px;
+  text-transform: uppercase;
+}
+
+.fw-monitor-optimization-details dd {
+  margin: 2px 0 0;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 /* Monitoring: counts, channel breakdown, control comparison */
 .fw-monitor-kpis {
   display: grid;

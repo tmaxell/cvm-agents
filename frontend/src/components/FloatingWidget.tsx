@@ -128,16 +128,16 @@ const DEMO_SCENARIOS: Record<
   },
   monitoring: {
     ru: {
-      eyebrow: "Performance control",
-      title: "Monitoring покажет здоровье кампании и рекомендации",
-      text: "После сборки flow отслеживайте KPI, воронку и действия для улучшения результата.",
-      metric: "live insights",
+      eyebrow: "Independent review",
+      title: "Monitoring — независимая проверка кампании перед запуском",
+      text: "Reviewer agent проверяет риски доставки, структуру flow, готовность к запуску и лучший следующий шаг.",
+      metric: "pre-launch review",
     },
     en: {
-      eyebrow: "Performance control",
-      title: "Monitoring shows campaign health and recommendations",
-      text: "After building a flow, track KPIs, funnel quality, and actions to improve performance.",
-      metric: "live insights",
+      eyebrow: "Independent review",
+      title: "Monitoring is an independent campaign check before launch",
+      text: "Reviewer agent checks delivery risk, flow structure, launch readiness, and the next best action.",
+      metric: "pre-launch review",
     },
   },
 };
@@ -591,6 +591,7 @@ export function FloatingWidget({
               draftFlowJson={monitorFlowJson}
               campaignStatus={campaignStatus}
               lang={lang}
+              variant={uiMode}
             />
           </div>
         </div>

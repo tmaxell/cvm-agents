@@ -32,7 +32,7 @@ type Size = "normal" | "large";
 type Lang = "ru" | "en";
 
 const PANEL_SIZES: Record<Size, { width: number; height: number }> = {
-  normal: { width: 420, height: 560 },
+  normal: { width: 480, height: 560 },
   large:  { width: 660, height: 760 },
 };
 
@@ -108,26 +108,30 @@ export function FloatingWidget({ onFlowUpdate, hasErrors, builderResponse, campa
               className={`fw-tab${tab === "copilot" ? " active" : ""}`}
               onClick={() => setTab("copilot")}
             >
-              💬 Copilot
+              <span className="fw-tab-icon" aria-hidden="true">💬</span>
+              <span className="fw-tab-label">Copilot</span>
             </button>
             <button
               className={`fw-tab${tab === "segments" ? " active" : ""}`}
               onClick={() => setTab("segments")}
             >
-              🧩 Segments
+              <span className="fw-tab-icon" aria-hidden="true">🧩</span>
+              <span className="fw-tab-label">Segments</span>
             </button>
             <button
               className={`fw-tab${tab === "builder" ? " active" : ""}`}
               onClick={() => setTab("builder")}
             >
-              🛠 Builder
+              <span className="fw-tab-icon" aria-hidden="true">🛠</span>
+              <span className="fw-tab-label">Builder</span>
             </button>
             <button
               className={`fw-tab${tab === "monitoring" ? " active" : ""}`}
               onClick={() => setTab("monitoring")}
               style={{ position: "relative" }}
             >
-              📊 Monitor
+              <span className="fw-tab-icon" aria-hidden="true">📊</span>
+              <span className="fw-tab-label">Monitor</span>
               {hasMonitorData && tab !== "monitoring" && (
                 <span className="fw-tab-badge" />
               )}

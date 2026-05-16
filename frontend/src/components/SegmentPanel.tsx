@@ -274,14 +274,29 @@ export function SegmentPanel({
               <span key={warning}>{warning}</span>
             ))}
           </div>
+          {variant === "demo" && (
+            <p className="fw-demo-recommendation-note">
+              Agent recommendations are not applied until you confirm.
+            </p>
+          )}
           {response.hypotheses.map((hypothesis) => {
             const criteria = stringifyCriteria(hypothesis.selection_criteria);
+            const isSelected = selectedName === hypothesis.name;
             return (
               <article className="fw-segment-card" key={hypothesis.name}>
                 <div className="fw-segment-card-head">
                   <h3>{hypothesis.name}</h3>
                   <span>{confidencePercent(hypothesis.confidence)}</span>
                 </div>
+                {variant === "demo" && (
+                  <div className="fw-segment-badges" aria-label="Hypothesis status">
+                    <span>Recommended</span>
+                    {isSelected && <span className="selected">Selected</span>}
+                    <span className={hypothesis.is_existing_target_group ? "existing" : "new"}>
+                      {hypothesis.is_existing_target_group ? "Existing TG" : "New demo segment"}
+                    </span>
+                  </div>
+                )}
                 <p>{hypothesis.audience_description}</p>
                 <dl>
                   <div>
@@ -312,7 +327,7 @@ export function SegmentPanel({
                   className="fw-segment-use"
                   onClick={() => handleUseInBuilder(hypothesis)}
                 >
-                  {selectedName === hypothesis.name ? "✓ " : ""}
+                  {isSelected ? "✓ " : ""}
                   {lang === "en" ? "Send to Builder" : "Передать в Builder"}
                 </button>
               </article>

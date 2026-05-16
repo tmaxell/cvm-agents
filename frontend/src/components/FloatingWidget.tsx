@@ -581,6 +581,7 @@ export function FloatingWidget({
               onResponse={handleBuilderResponse}
               lang={lang}
               selectedSegment={selectedSegment}
+              variant={uiMode}
             />
           </div>
           <div className="fw-panel-slot" style={activePanelStyle("monitoring")}>

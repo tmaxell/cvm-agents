@@ -10,6 +10,7 @@ const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
 interface SegmentPanelProps {
   lang?: "ru" | "en";
+  variant?: "classic" | "demo";
   onUseInBuilder?: () => void;
   onSegmentSelected?: (segment: SelectedSegmentForBuilder) => void;
 }
@@ -31,7 +32,8 @@ function constraintsToPayload(value: string): Record<string, unknown> {
 function stringifyCriteria(criteria: Record<string, unknown>): string[] {
   return Object.entries(criteria).map(([key, value]) => {
     if (Array.isArray(value)) return `${key}: ${value.join(", ")}`;
-    if (value && typeof value === "object") return `${key}: ${JSON.stringify(value)}`;
+    if (value && typeof value === "object")
+      return `${key}: ${JSON.stringify(value)}`;
     return `${key}: ${String(value)}`;
   });
 }
@@ -41,19 +43,29 @@ function confidencePercent(value?: number): string {
   return `${Math.round(value * 100)}%`;
 }
 
-function targetGroupLabel(hypothesis: SegmentHypothesis, lang: "ru" | "en"): string {
+function targetGroupLabel(
+  hypothesis: SegmentHypothesis,
+  lang: "ru" | "en",
+): string {
   const match = hypothesis.matched_target_group;
   if (!match || !hypothesis.is_existing_target_group) {
     return lang === "en" ? "recommendation only" : "только рекомендация";
   }
   const matchedId = match.id ?? match.target_group_id;
   const id = matchedId != null && matchedId !== "" ? `#${matchedId} · ` : "";
-  const size = match.clients_count != null ? ` · ${match.clients_count.toLocaleString()} clients` : "";
+  const size =
+    match.clients_count != null
+      ? ` · ${match.clients_count.toLocaleString()} clients`
+      : "";
   return `${id}${match.name}${size}`;
 }
 
-
-export function SegmentPanel({ lang = "ru", onUseInBuilder, onSegmentSelected }: SegmentPanelProps) {
+export function SegmentPanel({
+  lang = "ru",
+  variant = "classic",
+  onUseInBuilder,
+  onSegmentSelected,
+}: SegmentPanelProps) {
   const [product, setProduct] = useState("");
   const [campaignGoal, setCampaignGoal] = useState("");
   const [audienceConstraints, setAudienceConstraints] = useState("");
@@ -62,7 +74,10 @@ export function SegmentPanel({ lang = "ru", onUseInBuilder, onSegmentSelected }:
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const canSubmit = useMemo(() => product.trim() && campaignGoal.trim() && !loading, [product, campaignGoal, loading]);
+  const canSubmit = useMemo(
+    () => product.trim() && campaignGoal.trim() && !loading,
+    [product, campaignGoal, loading],
+  );
 
   const handleSuggest = async () => {
     if (!canSubmit) return;
@@ -84,9 +99,15 @@ export function SegmentPanel({ lang = "ru", onUseInBuilder, onSegmentSelected }:
         const detail = await result.text();
         throw new Error(`HTTP ${result.status}: ${detail.slice(0, 180)}`);
       }
-      setResponse(await result.json() as SegmentSuggestResponse);
+      setResponse((await result.json()) as SegmentSuggestResponse);
     } catch (err) {
-      setError(err instanceof Error ? err.message : (lang === "en" ? "Unknown error" : "Неизвестная ошибка"));
+      setError(
+        err instanceof Error
+          ? err.message
+          : lang === "en"
+            ? "Unknown error"
+            : "Неизвестная ошибка",
+      );
     } finally {
       setLoading(false);
     }
@@ -104,7 +125,85 @@ export function SegmentPanel({ lang = "ru", onUseInBuilder, onSegmentSelected }:
   };
 
   return (
-    <div className="fw-segments">
+    <div
+      className={`fw-segments${variant === "demo" ? " fw-segments-demo" : ""}`}
+    >
+      {variant === "demo" && (
+        <section className="fw-demo-hero">
+          <div>
+            <span>
+              {lang === "en" ? "Audience Builder" : "Audience Builder"}
+            </span>
+            <h2>
+              {lang === "en"
+                ? "AI will assemble the optimal audience"
+                : "AI соберёт оптимальную аудиторию"}
+            </h2>
+            <p>
+              {lang === "en"
+                ? "Choose a proven Target Group or ask AI to prepare a fresh demo segment for the campaign goal."
+                : "Выберите проверенную Target Group или попросите AI собрать новый demo-сегмент под цель кампании."}
+            </p>
+          </div>
+          <strong>
+            {lang === "en" ? "ready for Builder" : "готово для Builder"}
+          </strong>
+        </section>
+      )}
+
+      {variant === "demo" && (
+        <div className="fw-demo-segment-options">
+          <article>
+            <span aria-hidden="true">◎</span>
+            <div>
+              <h3>
+                {lang === "en"
+                  ? "Use an existing Target Group"
+                  : "Использовать существующую Target Group"}
+              </h3>
+              <p>
+                {lang === "en"
+                  ? "Match the brief with approved audience groups and keep launch governance simple."
+                  : "Сопоставим brief с утверждёнными аудиториями и упростим запуск."}
+              </p>
+            </div>
+            <button type="button" onClick={handleSuggest} disabled={!canSubmit}>
+              {loading
+                ? lang === "en"
+                  ? "Matching…"
+                  : "Подбираем…"
+                : lang === "en"
+                  ? "Match"
+                  : "Подобрать"}
+            </button>
+          </article>
+          <article>
+            <span aria-hidden="true">✦</span>
+            <div>
+              <h3>
+                {lang === "en"
+                  ? "Build a new demo segment"
+                  : "Собрать новый demo-сегмент"}
+              </h3>
+              <p>
+                {lang === "en"
+                  ? "Generate transparent criteria and pass the selected hypothesis directly into Builder."
+                  : "Сгенерируем понятные критерии и передадим выбранную гипотезу прямо в Builder."}
+              </p>
+            </div>
+            <button type="button" onClick={handleSuggest} disabled={!canSubmit}>
+              {loading
+                ? lang === "en"
+                  ? "Building…"
+                  : "Собираем…"
+                : lang === "en"
+                  ? "Build"
+                  : "Собрать"}
+            </button>
+          </article>
+        </div>
+      )}
+
       <div className="fw-segments-form">
         <div>
           <h2>{lang === "en" ? "Segment suggestions" : "Подбор сегментов"}</h2>
@@ -119,7 +218,9 @@ export function SegmentPanel({ lang = "ru", onUseInBuilder, onSegmentSelected }:
           <input
             value={product}
             onChange={(e) => setProduct(e.target.value)}
-            placeholder={lang === "en" ? "Family Max tariff" : "Тариф Family Max"}
+            placeholder={
+              lang === "en" ? "Family Max tariff" : "Тариф Family Max"
+            }
           />
         </label>
         <label>
@@ -127,7 +228,11 @@ export function SegmentPanel({ lang = "ru", onUseInBuilder, onSegmentSelected }:
           <input
             value={campaignGoal}
             onChange={(e) => setCampaignGoal(e.target.value)}
-            placeholder={lang === "en" ? "upsell, retention, activation…" : "апсейл, удержание, активация…"}
+            placeholder={
+              lang === "en"
+                ? "upsell, retention, activation…"
+                : "апсейл, удержание, активация…"
+            }
           />
         </label>
         <label>
@@ -136,13 +241,26 @@ export function SegmentPanel({ lang = "ru", onUseInBuilder, onSegmentSelected }:
             value={audienceConstraints}
             onChange={(e) => setAudienceConstraints(e.target.value)}
             rows={3}
-            placeholder={lang === "en"
-              ? "Exclude recent contacts, opt-out users, age 18+…"
-              : "Исключить недавние контакты, opt-out, возраст 18+…"}
+            placeholder={
+              lang === "en"
+                ? "Exclude recent contacts, opt-out users, age 18+…"
+                : "Исключить недавние контакты, opt-out, возраст 18+…"
+            }
           />
         </label>
-        <button type="button" className="fw-segments-submit" onClick={handleSuggest} disabled={!canSubmit}>
-          {loading ? (lang === "en" ? "Searching…" : "Ищем…") : (lang === "en" ? "Suggest segments" : "Подобрать сегменты")}
+        <button
+          type="button"
+          className="fw-segments-submit"
+          onClick={handleSuggest}
+          disabled={!canSubmit}
+        >
+          {loading
+            ? lang === "en"
+              ? "Searching…"
+              : "Ищем…"
+            : lang === "en"
+              ? "Suggest segments"
+              : "Подобрать сегменты"}
         </button>
       </div>
 
@@ -152,7 +270,9 @@ export function SegmentPanel({ lang = "ru", onUseInBuilder, onSegmentSelected }:
         <div className="fw-segments-results">
           <div className="fw-segments-summary">
             <strong>{response.summary}</strong>
-            {response.warnings.map((warning) => <span key={warning}>{warning}</span>)}
+            {response.warnings.map((warning) => (
+              <span key={warning}>{warning}</span>
+            ))}
           </div>
           {response.hypotheses.map((hypothesis) => {
             const criteria = stringifyCriteria(hypothesis.selection_criteria);
@@ -169,11 +289,17 @@ export function SegmentPanel({ lang = "ru", onUseInBuilder, onSegmentSelected }:
                     <dd>{hypothesis.relevance_reason || "—"}</dd>
                   </div>
                   <div>
-                    <dt>{lang === "en" ? "Selection criteria" : "Критерии отбора"}</dt>
+                    <dt>
+                      {lang === "en" ? "Selection criteria" : "Критерии отбора"}
+                    </dt>
                     <dd>{criteria.length ? criteria.join("; ") : "—"}</dd>
                   </div>
                   <div>
-                    <dt>{lang === "en" ? "Risk / limitation" : "Риск / ограничение"}</dt>
+                    <dt>
+                      {lang === "en"
+                        ? "Risk / limitation"
+                        : "Риск / ограничение"}
+                    </dt>
                     <dd>{hypothesis.risk_or_limitation || "—"}</dd>
                   </div>
                   <div>
@@ -181,9 +307,13 @@ export function SegmentPanel({ lang = "ru", onUseInBuilder, onSegmentSelected }:
                     <dd>{targetGroupLabel(hypothesis, lang)}</dd>
                   </div>
                 </dl>
-                <button type="button" className="fw-segment-use" onClick={() => handleUseInBuilder(hypothesis)}>
+                <button
+                  type="button"
+                  className="fw-segment-use"
+                  onClick={() => handleUseInBuilder(hypothesis)}
+                >
                   {selectedName === hypothesis.name ? "✓ " : ""}
-                  {lang === "en" ? "Use in Builder" : "Использовать в Builder"}
+                  {lang === "en" ? "Send to Builder" : "Передать в Builder"}
                 </button>
               </article>
             );

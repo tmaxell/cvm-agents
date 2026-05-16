@@ -4106,94 +4106,10 @@ button {
   opacity: 0.55;
 }
 
-.fw-demo-playbook {
-  flex: 0 0 auto;
-  padding: 12px;
-  border: 1px solid rgba(82, 87, 255, 0.14);
-  border-radius: 16px;
-  background: rgba(248, 250, 255, 0.86);
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
-}
-
-.fw-demo-playbook-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-
-.fw-demo-playbook-header span {
-  color: var(--accent, #5257ff);
-  font-size: 10px;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.fw-demo-playbook-header strong {
-  color: var(--text-primary, #111827);
-  font-size: 12px;
-}
-
-.fw-demo-playbook-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 8px;
-}
-
-.fw-demo-playbook-grid button {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  min-height: 58px;
-  padding: 9px 10px;
-  border: 1px solid rgba(82, 87, 255, 0.14);
-  border-radius: 12px;
-  background: #ffffff;
-  color: var(--text-primary, #111827);
-  cursor: pointer;
-  text-align: left;
-  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
-}
-
-.fw-demo-playbook-grid button:hover:not(:disabled) {
-  border-color: rgba(82, 87, 255, 0.36);
-  box-shadow: 0 8px 18px rgba(82, 87, 255, 0.12);
-  transform: translateY(-1px);
-}
-
-.fw-demo-playbook-grid button:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.fw-demo-playbook-grid button strong {
-  font-size: 12px;
-  font-weight: 900;
-  line-height: 1.2;
-}
-
-.fw-demo-playbook-grid button span {
-  color: var(--text-secondary, #64748b);
-  font-size: 11px;
-  line-height: 1.35;
-}
-
-
 .fw-monitor-playbook {
   width: 100%;
   margin-bottom: 10px;
   text-align: left;
-}
-
-.fw-demo-playbook-note {
-  margin: 8px 0 0;
-  color: var(--text-secondary, #64748b);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1.4;
 }
 
 .fw-quick-presets {

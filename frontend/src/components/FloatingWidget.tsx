@@ -54,6 +54,36 @@ const TAB_LABELS: Record<
   monitoring: { icon: "📊", label: "Monitoring", shortLabel: "Monitor" },
 };
 
+const QUICK_PRESETS = {
+  segments: [
+    {
+      label: "Family Max",
+      product: "Тариф Family Max",
+      campaignGoal: "Апсейл семейной аудитории",
+      audienceConstraints: "Исключить opt-out и клиентов с контактом за последние 7 дней",
+    },
+    {
+      label: "Travel Roaming",
+      product: "Travel Roaming",
+      campaignGoal: "Подключение роуминг-пакета перед поездкой",
+      audienceConstraints: "Путешествующие клиенты, исключить opt-out",
+    },
+  ],
+  builder: [
+    {
+      label: "Собрать flow",
+      prompt:
+        "Собери flow кампании по заполненным параметрам. Используй выбранный сегмент, SMS/Push как каналы и верни готовый draft flow для проверки.",
+    },
+  ],
+  monitoring: [
+    {
+      label: "Проверить перед запуском",
+      action: "review" as const,
+    },
+  ],
+};
+
 export function FloatingWidget({
   onFlowUpdate,
   hasErrors,
@@ -185,7 +215,8 @@ export function FloatingWidget({
           <div className="fw-panel-slot" style={activePanelStyle("segments")}>
             <SegmentPanel
               lang={lang}
-              variant="classic"
+              variant="demo"
+              demoPlaybook={QUICK_PRESETS.segments}
               onSegmentSelected={setSelectedSegment}
               onUseInBuilder={() => setTab("builder")}
             />
@@ -196,7 +227,8 @@ export function FloatingWidget({
               onOpenMonitoring={() => setTab("monitoring")}
               lang={lang}
               selectedSegment={selectedSegment}
-              variant="classic"
+              variant="demo"
+              demoPlaybook={QUICK_PRESETS.builder}
             />
           </div>
           <div className="fw-panel-slot" style={activePanelStyle("monitoring")}>
@@ -205,7 +237,8 @@ export function FloatingWidget({
               draftFlowJson={monitorFlowJson}
               campaignStatus={campaignStatus}
               lang={lang}
-              variant="classic"
+              variant="demo"
+              demoPlaybook={QUICK_PRESETS.monitoring}
               onOpenBuilder={() => setTab("builder")}
             />
           </div>

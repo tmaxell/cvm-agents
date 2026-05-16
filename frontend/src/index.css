@@ -4511,3 +4511,79 @@ button {
   font-weight: 700;
   line-height: 1.4;
 }
+
+.fw-quick-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.fw-quick-presets button,
+.fw-monitor-empty-cta,
+.fw-monitor-quick-cta button {
+  border: 1px solid rgba(82, 87, 255, 0.18);
+  border-radius: 999px;
+  background: #eef2ff;
+  color: var(--accent, #5257ff);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.fw-quick-presets button {
+  padding: 7px 10px;
+}
+
+.fw-quick-presets button:hover:not(:disabled),
+.fw-monitor-empty-cta:hover:not(:disabled),
+.fw-monitor-quick-cta button:hover:not(:disabled) {
+  border-color: rgba(82, 87, 255, 0.36);
+  background: #e0e7ff;
+}
+
+.fw-quick-presets button:disabled,
+.fw-monitor-empty-cta:disabled,
+.fw-monitor-quick-cta button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.fw-builder-chat .composer {
+  grid-template-columns: auto 1fr 42px;
+  align-items: center;
+}
+
+.fw-builder-chat .composer .builder-quick-action {
+  min-height: 34px;
+  padding: 0 11px;
+  border: 1px solid rgba(82, 87, 255, 0.2);
+  border-radius: 999px;
+  background: #eef2ff;
+  color: var(--accent, #5257ff);
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.fw-monitor-empty-cta {
+  margin-top: 14px;
+  padding: 9px 14px;
+}
+
+.fw-monitor-quick-cta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.fw-monitor-quick-cta button {
+  padding: 8px 12px;
+}
+
+.fw-monitor-quick-cta p {
+  margin: 0;
+  color: var(--text-secondary, #64748b);
+  font-size: 11px;
+  font-weight: 700;
+}

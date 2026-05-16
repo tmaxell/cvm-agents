@@ -18,7 +18,6 @@ interface SegmentDemoPlaybookItem {
 
 interface SegmentPanelProps {
   lang?: "ru" | "en";
-  variant?: "classic" | "demo";
   demoPlaybook?: SegmentDemoPlaybookItem[];
   onUseInBuilder?: () => void;
   onSegmentSelected?: (segment: SelectedSegmentForBuilder) => void;
@@ -71,7 +70,6 @@ function targetGroupLabel(
 
 export function SegmentPanel({
   lang = "ru",
-  variant = "classic",
   demoPlaybook = [],
   onUseInBuilder,
   onSegmentSelected,
@@ -123,6 +121,8 @@ export function SegmentPanel({
     }
   };
 
+  const visiblePresets = demoPlaybook.slice(0, 2);
+
   const handleApplyDemoPlaybook = (item: SegmentDemoPlaybookItem) => {
     setProduct(item.product ?? "");
     setCampaignGoal(item.campaignGoal ?? "");
@@ -142,9 +142,25 @@ export function SegmentPanel({
   };
 
   return (
-    <div
-      className={`fw-segments${variant === "demo" ? " fw-segments-demo" : ""}`}
-    >
+    <div className="fw-segments">
+      {visiblePresets.length > 0 && (
+        <div
+          className="fw-quick-presets fw-segment-presets"
+          aria-label={lang === "en" ? "Segment presets" : "Пресеты сегментов"}
+        >
+          {visiblePresets.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              onClick={() => handleApplyDemoPlaybook(item)}
+              disabled={loading}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="fw-segments-form">
         <div>
           <h2>{lang === "en" ? "Segment suggestions" : "Подбор сегментов"}</h2>
@@ -154,23 +170,6 @@ export function SegmentPanel({
               : "Опишите продукт и цель, чтобы получить 2–3 гипотезы аудитории с привязкой к Target Groups, если есть совпадение."}
           </p>
         </div>
-        {variant === "demo" && demoPlaybook.length > 0 && (
-          <div
-            className="fw-quick-presets fw-segment-presets"
-            aria-label={lang === "en" ? "Segment presets" : "Пресеты сегментов"}
-          >
-            {demoPlaybook.map((item) => (
-              <button
-                key={item.label}
-                type="button"
-                onClick={() => handleApplyDemoPlaybook(item)}
-                disabled={loading}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        )}
         <label>
           {lang === "en" ? "Product" : "Продукт"}
           <input
@@ -232,11 +231,6 @@ export function SegmentPanel({
               <span key={warning}>{warning}</span>
             ))}
           </div>
-          {variant === "demo" && (
-            <p className="fw-demo-recommendation-note">
-              Agent recommendations are not applied until you confirm.
-            </p>
-          )}
           {response.hypotheses.map((hypothesis) => {
             const criteria = stringifyCriteria(hypothesis.selection_criteria);
             const isSelected = selectedName === hypothesis.name;
@@ -246,15 +240,6 @@ export function SegmentPanel({
                   <h3>{hypothesis.name}</h3>
                   <span>{confidencePercent(hypothesis.confidence)}</span>
                 </div>
-                {variant === "demo" && (
-                  <div className="fw-segment-badges" aria-label="Hypothesis status">
-                    <span>Recommended</span>
-                    {isSelected && <span className="selected">Selected</span>}
-                    <span className={hypothesis.is_existing_target_group ? "existing" : "new"}>
-                      {hypothesis.is_existing_target_group ? "Existing TG" : "New demo segment"}
-                    </span>
-                  </div>
-                )}
                 <p>{hypothesis.audience_description}</p>
                 <dl>
                   <div>
@@ -286,7 +271,7 @@ export function SegmentPanel({
                   onClick={() => handleUseInBuilder(hypothesis)}
                 >
                   {isSelected ? "✓ " : ""}
-                  {lang === "en" ? "Send to Builder" : "Передать в Builder"}
+                  Use in Builder
                 </button>
               </article>
             );

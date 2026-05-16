@@ -3926,40 +3926,6 @@ button {
   line-height: 1.45;
 }
 
-.fw-segment-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.fw-segment-badges span {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 7px;
-  border-radius: 999px;
-  background: #eef2ff;
-  color: var(--accent, #5257ff);
-  font-size: 10px;
-  font-weight: 900;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-
-.fw-segment-badges span.selected {
-  background: #ecfdf5;
-  color: #16a34a;
-}
-
-.fw-segment-badges span.existing {
-  background: #eff6ff;
-  color: #2563eb;
-}
-
-.fw-segment-badges span.new {
-  background: #fff7ed;
-  color: #ea580c;
-}
-
 .fw-segment-card dl {
   display: grid;
   gap: 7px;
@@ -3989,165 +3955,6 @@ button {
 .fw-segment-use {
   justify-self: start;
   padding: 8px 10px;
-}
-
-.fw-segments-demo {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 0;
-  background: transparent;
-}
-
-.fw-demo-hero {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  flex: 0 0 auto;
-  padding: 15px;
-  border-radius: 18px;
-  color: #ffffff;
-  background:
-    radial-gradient(circle at 90% 10%, rgba(255, 255, 255, 0.22), transparent 26%),
-    linear-gradient(135deg, #5257ff 0%, #7c3aed 100%);
-  box-shadow: 0 14px 30px rgba(82, 87, 255, 0.24);
-}
-
-.fw-demo-hero div {
-  display: grid;
-  gap: 5px;
-}
-
-.fw-demo-hero span {
-  color: rgb(255 255 255 / 75%);
-  font-size: 10px;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.fw-demo-hero h2 {
-  margin: 0;
-  font-size: 18px;
-  line-height: 1.16;
-}
-
-.fw-demo-hero p {
-  margin: 0;
-  color: rgb(255 255 255 / 82%);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.fw-demo-hero strong {
-  flex: 0 0 auto;
-  padding: 6px 8px;
-  border-radius: 999px;
-  background: rgb(255 255 255 / 16%);
-  font-size: 10px;
-  font-weight: 900;
-  white-space: nowrap;
-}
-
-.fw-demo-segment-options {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  flex: 0 0 auto;
-}
-
-.fw-demo-segment-options article {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 8px 10px;
-  align-items: start;
-  padding: 12px;
-  border: 1px solid rgba(82, 87, 255, 0.16);
-  border-radius: 16px;
-  background: rgb(255 255 255 / 86%);
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
-}
-
-.fw-demo-segment-options article > span {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  border-radius: 10px;
-  background: #eef2ff;
-  color: var(--accent, #5257ff);
-  font-weight: 900;
-}
-
-.fw-demo-segment-options h3 {
-  margin: 0;
-  color: var(--text-primary, #111827);
-  font-size: 13px;
-  line-height: 1.2;
-}
-
-.fw-demo-segment-options p {
-  margin: 4px 0 0;
-  color: var(--text-secondary, #64748b);
-  font-size: 11px;
-  line-height: 1.35;
-}
-
-.fw-demo-segment-options button {
-  grid-column: 1 / -1;
-  min-height: 32px;
-  border: 0;
-  border-radius: 10px;
-  background: #111827;
-  color: #ffffff;
-  font-size: 12px;
-  font-weight: 900;
-  transition: transform 0.15s, opacity 0.15s;
-}
-
-.fw-demo-segment-options button:hover:not(:disabled) {
-  transform: translateY(-1px);
-}
-
-.fw-demo-segment-options button:disabled {
-  cursor: default;
-  opacity: 0.45;
-}
-
-.fw-segments-demo .fw-segments-form,
-.fw-segments-demo .fw-segments-results {
-  flex: 0 0 auto;
-}
-
-.fw-segments-demo .fw-segments-form {
-  border-radius: 16px;
-}
-
-.fw-demo-recommendation-note {
-  margin: 0;
-  padding: 9px 10px;
-  border: 1px solid rgba(82, 87, 255, 0.14);
-  border-radius: 10px;
-  background: rgba(238, 242, 255, 0.68);
-  color: var(--text-secondary, #64748b);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1.35;
-}
-
-.fw-segments-demo .fw-segment-card {
-  border-color: rgba(82, 87, 255, 0.18);
-}
-
-@media (max-width: 560px) {
-  .fw-demo-hero strong {
-    display: none;
-  }
-
-  .fw-demo-segment-options {
-    grid-template-columns: 1fr;
-  }
 }
 
 .builder-demo-plan {
@@ -4516,6 +4323,10 @@ button {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.fw-segment-presets {
+  margin-bottom: 8px;
 }
 
 .fw-quick-presets button,

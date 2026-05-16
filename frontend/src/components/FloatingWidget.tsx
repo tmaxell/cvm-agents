@@ -215,7 +215,6 @@ export function FloatingWidget({
           <div className="fw-panel-slot" style={activePanelStyle("segments")}>
             <SegmentPanel
               lang={lang}
-              variant="demo"
               demoPlaybook={QUICK_PRESETS.segments}
               onSegmentSelected={setSelectedSegment}
               onUseInBuilder={() => setTab("builder")}

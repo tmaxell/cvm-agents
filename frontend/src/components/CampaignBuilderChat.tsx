@@ -573,6 +573,12 @@ export function CampaignBuilderChat({
                   : lang === "en" ? "Collecting context" : "Сбор контекста"}
             </strong>
           </div>
+          {lastResponse.draft_flow && (
+            <div className="builder-canvas-hint" role="status">
+              <span aria-hidden="true">✓</span>
+              Canvas updated
+            </div>
+          )}
           <dl className="builder-result-panel-grid">
             {resultPanelItems.map((item) => (
               <div key={item.label}>

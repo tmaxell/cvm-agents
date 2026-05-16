@@ -139,13 +139,13 @@ const DEMO_SCENARIOS: Record<
     ru: {
       eyebrow: "Campaign launch",
       title: "Builder превратит цель и аудиторию в готовый flow",
-      text: "Выбранный сегмент передаётся без сброса истории, чтобы быстро собрать коммуникацию и проверить ошибки.",
+      text: "Выбранный сегмент передаётся без сброса истории, чтобы быстро собрать коммуникацию и проверить ошибки. Flow appears on the AdTarget canvas behind the assistant.",
       metric: "draft-to-flow",
     },
     en: {
       eyebrow: "Campaign launch",
       title: "Builder turns a goal and audience into a ready flow",
-      text: "The selected segment is passed without losing history, making it quick to assemble and validate a campaign.",
+      text: "The selected segment is passed without losing history, making it quick to assemble and validate a campaign. Flow appears on the AdTarget canvas behind the assistant.",
       metric: "draft-to-flow",
     },
   },
@@ -365,11 +365,33 @@ export function FloatingWidget({
   const [uiMode, setUiMode] = useState<UiMode>(getInitialUiMode);
   const [selectedSegment, setSelectedSegment] =
     useState<SelectedSegmentForBuilder | null>(null);
+  const [showCanvasUpdatedBadge, setShowCanvasUpdatedBadge] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
+  const hasDraftFlow = builderResponse?.draft_flow != null;
+  const previousHasDraftFlowRef = useRef(hasDraftFlow);
 
   useEffect(() => {
     window.localStorage.setItem(UI_MODE_KEY, uiMode);
   }, [uiMode]);
+
+  useEffect(() => {
+    if (uiMode !== "demo") {
+      previousHasDraftFlowRef.current = hasDraftFlow;
+      setShowCanvasUpdatedBadge(false);
+      return;
+    }
+
+    if (hasDraftFlow && !previousHasDraftFlowRef.current) {
+      setShowCanvasUpdatedBadge(true);
+      const timeoutId = window.setTimeout(() => {
+        setShowCanvasUpdatedBadge(false);
+      }, 4200);
+      previousHasDraftFlowRef.current = hasDraftFlow;
+      return () => window.clearTimeout(timeoutId);
+    }
+
+    previousHasDraftFlowRef.current = hasDraftFlow;
+  }, [hasDraftFlow, uiMode]);
 
   // Close on outside click
   useEffect(() => {
@@ -405,7 +427,6 @@ export function FloatingWidget({
   const activeScenario = DEMO_SCENARIOS[tab][lang];
   const activePlaybook = DEMO_PLAYBOOK[tab][lang];
   const hasSelectedAudience = selectedSegment != null;
-  const hasDraftFlow = builderResponse?.draft_flow != null;
   const hasCampaign = builderResponse?.campaign_id != null;
   const activeDemoStepKey: string =
     tab === "copilot"
@@ -611,15 +632,17 @@ export function FloatingWidget({
                 </span>
               </div>
             </div>
-            <div className="fw-demo-status">
+            <div className={`fw-demo-status${showCanvasUpdatedBadge ? " canvas-updated" : ""}`}>
               <span aria-hidden="true" />
-              {hasErrors
-                ? lang === "en"
-                  ? "Needs attention"
-                  : "Нужно внимание"
-                : lang === "en"
-                  ? "Ready"
-                  : "Готов"}
+              {showCanvasUpdatedBadge
+                ? "Canvas updated"
+                : hasErrors
+                  ? lang === "en"
+                    ? "Needs attention"
+                    : "Нужно внимание"
+                  : lang === "en"
+                    ? "Ready"
+                    : "Готов"}
             </div>
             {renderHeaderActions()}
           </div>

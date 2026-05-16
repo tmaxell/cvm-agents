@@ -3975,6 +3975,119 @@ button {
   white-space: nowrap;
 }
 
+.fw-demo-context {
+  display: grid;
+  gap: 10px;
+  flex: 0 0 auto;
+  padding: 12px;
+  border: 1px solid rgba(82, 87, 255, 0.16);
+  border-radius: 18px;
+  background: rgb(255 255 255 / 86%);
+  box-shadow: 0 10px 24px rgba(30, 41, 59, 0.08);
+}
+
+.fw-demo-context-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.fw-demo-context-header div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.fw-demo-context-header span {
+  color: var(--accent, #5257ff);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fw-demo-context-header h3 {
+  margin: 0;
+  color: var(--text-primary, #111827);
+  font-size: 15px;
+  line-height: 1.15;
+}
+
+.fw-demo-context-header strong {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: var(--accent, #5257ff);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.fw-demo-context-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.fw-demo-context-grid div {
+  min-width: 0;
+  padding: 8px;
+  border-radius: 12px;
+  background: #f8faff;
+}
+
+.fw-demo-context-grid dt {
+  overflow: hidden;
+  color: var(--text-secondary, #64748b);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.fw-demo-context-grid dd {
+  overflow: hidden;
+  margin: 3px 0 0;
+  color: var(--text-primary, #111827);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fw-demo-context-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.fw-demo-context-actions button {
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 8px;
+  border: 1px solid rgba(82, 87, 255, 0.2);
+  border-radius: 10px;
+  background: #ffffff;
+  color: var(--accent, #5257ff);
+  font-size: 11px;
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.15s, color 0.15s, transform 0.15s;
+  white-space: nowrap;
+}
+
+.fw-demo-context-actions button:hover {
+  transform: translateY(-1px);
+  background: var(--accent, #5257ff);
+  color: #ffffff;
+}
+
 .fw-panel-slot {
   min-height: 0;
   flex: 1 1 auto;

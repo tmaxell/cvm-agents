@@ -142,6 +142,86 @@ const DEMO_SCENARIOS: Record<
   },
 };
 
+interface DemoWorkingContextProps {
+  selectedSegment: SelectedSegmentForBuilder | null;
+  builderResponse: BuilderResponse | null;
+  hasErrors: boolean;
+  campaignStatus: CampaignRuntimeStatus;
+  onSelectTab: (tab: Tab) => void;
+}
+
+function DemoWorkingContext({
+  selectedSegment,
+  builderResponse,
+  hasErrors,
+  campaignStatus,
+  onSelectTab,
+}: DemoWorkingContextProps) {
+  const emptyValue = "ещё не выбран";
+  const flowPlaceholder = "flow ещё не собран";
+  const segmentName = selectedSegment?.hypothesis.name || emptyValue;
+  const product = selectedSegment?.product || emptyValue;
+  const goal = selectedSegment?.goal || emptyValue;
+  const campaignId = builderResponse?.campaign_id ?? emptyValue;
+  const flowStatus = builderResponse?.draft_flow ? "flow собран" : flowPlaceholder;
+  const validationState = hasErrors ? "Needs attention" : "Ready";
+
+  return (
+    <section className="fw-demo-context" aria-label="Working context">
+      <div className="fw-demo-context-header">
+        <div>
+          <span>Demo-only snapshot</span>
+          <h3>Working context</h3>
+        </div>
+        <strong>{validationState}</strong>
+      </div>
+
+      <dl className="fw-demo-context-grid">
+        <div>
+          <dt>Выбранный сегмент</dt>
+          <dd>{segmentName}</dd>
+        </div>
+        <div>
+          <dt>Продукт</dt>
+          <dd>{product}</dd>
+        </div>
+        <div>
+          <dt>Цель</dt>
+          <dd>{goal}</dd>
+        </div>
+        <div>
+          <dt>Campaign ID</dt>
+          <dd>{campaignId}</dd>
+        </div>
+        <div>
+          <dt>Flow status</dt>
+          <dd>{flowStatus}</dd>
+        </div>
+        <div>
+          <dt>Validation state</dt>
+          <dd>{validationState}</dd>
+        </div>
+        <div>
+          <dt>Runtime status</dt>
+          <dd>{campaignStatus}</dd>
+        </div>
+      </dl>
+
+      <div className="fw-demo-context-actions">
+        <button type="button" onClick={() => onSelectTab("segments")}>
+          Выбрать аудиторию
+        </button>
+        <button type="button" onClick={() => onSelectTab("builder")}>
+          Собрать flow
+        </button>
+        <button type="button" onClick={() => onSelectTab("monitoring")}>
+          Проверить мониторинг
+        </button>
+      </div>
+    </section>
+  );
+}
+
 export function FloatingWidget({
   onFlowUpdate,
   hasErrors,
@@ -470,6 +550,13 @@ export function FloatingWidget({
                 </div>
                 <strong>{activeScenario.metric}</strong>
               </section>
+              <DemoWorkingContext
+                selectedSegment={selectedSegment}
+                builderResponse={builderResponse}
+                hasErrors={hasErrors}
+                campaignStatus={campaignStatus}
+                onSelectTab={setTab}
+              />
             </>
           )}
           <div className="fw-panel-slot" style={activePanelStyle("copilot")}>

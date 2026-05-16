@@ -18,7 +18,11 @@ import { ChatPanel } from "./ChatPanel";
 import { CampaignBuilderChat } from "./CampaignBuilderChat";
 import { MonitoringPanel } from "./MonitoringPanel";
 import { SegmentPanel } from "./SegmentPanel";
-import type { BuilderResponse, CampaignRuntimeStatus, SelectedSegmentForBuilder } from "../types/api";
+import type {
+  BuilderResponse,
+  CampaignRuntimeStatus,
+  SelectedSegmentForBuilder,
+} from "../types/api";
 
 interface FloatingWidgetProps {
   onFlowUpdate: (response: BuilderResponse | null) => void;
@@ -30,10 +34,11 @@ interface FloatingWidgetProps {
 type Tab = "copilot" | "segments" | "builder" | "monitoring";
 type Size = "normal" | "large";
 type Lang = "ru" | "en";
+type UiMode = "classic" | "demo";
 
 const PANEL_SIZES: Record<Size, { width: number; height: number }> = {
   normal: { width: 480, height: 560 },
-  large:  { width: 660, height: 760 },
+  large: { width: 660, height: 760 },
 };
 
 const COPILOT_SUGGESTIONS: Record<Lang, string[]> = {
@@ -56,12 +61,91 @@ const COPILOT_PLACEHOLDER: Record<Lang, string> = {
   en: "Ask about campaigns, errors, settings…",
 };
 
-export function FloatingWidget({ onFlowUpdate, hasErrors, builderResponse, campaignStatus }: FloatingWidgetProps) {
+const TAB_LABELS: Record<
+  Tab,
+  { icon: string; label: string; shortLabel: string }
+> = {
+  copilot: { icon: "💬", label: "CVM Copilot", shortLabel: "Copilot" },
+  segments: { icon: "🧩", label: "Segments", shortLabel: "Segments" },
+  builder: { icon: "🛠", label: "Campaign Builder", shortLabel: "Builder" },
+  monitoring: { icon: "📊", label: "Monitoring", shortLabel: "Monitor" },
+};
+
+const DEMO_SCENARIOS: Record<
+  Tab,
+  Record<Lang, { eyebrow: string; title: string; text: string; metric: string }>
+> = {
+  copilot: {
+    ru: {
+      eyebrow: "Self-service support",
+      title: "AI объяснит правила AdTarget и подскажет следующий шаг",
+      text: "Задавайте вопросы по кампаниям, ошибкам и API — Copilot отвечает в контексте текущего сценария.",
+      metric: "быстрый onboarding",
+    },
+    en: {
+      eyebrow: "Self-service support",
+      title: "AI explains AdTarget rules and suggests the next step",
+      text: "Ask about campaigns, errors, and APIs — Copilot answers in the current workflow context.",
+      metric: "faster onboarding",
+    },
+  },
+  segments: {
+    ru: {
+      eyebrow: "Audience intelligence",
+      title: "AI соберёт оптимальную аудиторию для вашей кампании",
+      text: "Используйте существующую Target Group или создайте новый demo-сегмент с понятными критериями отбора.",
+      metric: "2 сценария подбора",
+    },
+    en: {
+      eyebrow: "Audience intelligence",
+      title: "AI assembles the optimal audience for your campaign",
+      text: "Use an existing Target Group or create a new demo segment with transparent selection criteria.",
+      metric: "2 audience paths",
+    },
+  },
+  builder: {
+    ru: {
+      eyebrow: "Campaign launch",
+      title: "Builder превратит цель и аудиторию в готовый flow",
+      text: "Выбранный сегмент передаётся без сброса истории, чтобы быстро собрать коммуникацию и проверить ошибки.",
+      metric: "draft-to-flow",
+    },
+    en: {
+      eyebrow: "Campaign launch",
+      title: "Builder turns a goal and audience into a ready flow",
+      text: "The selected segment is passed without losing history, making it quick to assemble and validate a campaign.",
+      metric: "draft-to-flow",
+    },
+  },
+  monitoring: {
+    ru: {
+      eyebrow: "Performance control",
+      title: "Monitoring покажет здоровье кампании и рекомендации",
+      text: "После сборки flow отслеживайте KPI, воронку и действия для улучшения результата.",
+      metric: "live insights",
+    },
+    en: {
+      eyebrow: "Performance control",
+      title: "Monitoring shows campaign health and recommendations",
+      text: "After building a flow, track KPIs, funnel quality, and actions to improve performance.",
+      metric: "live insights",
+    },
+  },
+};
+
+export function FloatingWidget({
+  onFlowUpdate,
+  hasErrors,
+  builderResponse,
+  campaignStatus,
+}: FloatingWidgetProps) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("copilot");
   const [size, setSize] = useState<Size>("normal");
   const [lang, setLang] = useState<Lang>("ru");
-  const [selectedSegment, setSelectedSegment] = useState<SelectedSegmentForBuilder | null>(null);
+  const [uiMode, setUiMode] = useState<UiMode>("classic");
+  const [selectedSegment, setSelectedSegment] =
+    useState<SelectedSegmentForBuilder | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
   // Close on outside click
@@ -78,9 +162,12 @@ export function FloatingWidget({ onFlowUpdate, hasErrors, builderResponse, campa
 
   const hasMonitorData = builderResponse?.campaign_id != null;
 
-  const handleBuilderResponse = useCallback((response: BuilderResponse | null) => {
-    onFlowUpdate(response);
-  }, [onFlowUpdate]);
+  const handleBuilderResponse = useCallback(
+    (response: BuilderResponse | null) => {
+      onFlowUpdate(response);
+    },
+    [onFlowUpdate],
+  );
 
   const btnColor = hasErrors ? "var(--widget-error)" : "var(--widget-accent)";
   const btnGlow = hasErrors
@@ -92,75 +179,162 @@ export function FloatingWidget({ onFlowUpdate, hasErrors, builderResponse, campa
     : null;
 
   const { width, height } = PANEL_SIZES[size];
+  const activeScenario = DEMO_SCENARIOS[tab][lang];
+
+  const renderTabButton = (tabId: Tab) => (
+    <button
+      key={tabId}
+      className={`fw-tab${tab === tabId ? " active" : ""}`}
+      onClick={() => setTab(tabId)}
+      style={tabId === "monitoring" ? { position: "relative" } : undefined}
+    >
+      <span className="fw-tab-icon" aria-hidden="true">
+        {TAB_LABELS[tabId].icon}
+      </span>
+      <span className="fw-tab-label">{TAB_LABELS[tabId].shortLabel}</span>
+      {tabId === "monitoring" && hasMonitorData && tab !== "monitoring" && (
+        <span className="fw-tab-badge" />
+      )}
+    </button>
+  );
+
+  const activePanelStyle = (tabId: Tab) => ({
+    display: tab === tabId ? (uiMode === "demo" ? "flex" : "contents") : "none",
+  });
+
+  const renderHeaderActions = () => (
+    <div className="fw-header-actions">
+      <button
+        className="fw-action-btn fw-mode-toggle"
+        onClick={() =>
+          setUiMode((mode) => (mode === "classic" ? "demo" : "classic"))
+        }
+        title={
+          uiMode === "classic" ? "Switch to Demo UX" : "Switch to Classic UX"
+        }
+      >
+        {uiMode === "classic" ? "Demo" : "Classic"}
+      </button>
+      <button
+        className="fw-action-btn"
+        onClick={() => setLang((l) => (l === "ru" ? "en" : "ru"))}
+        title={lang === "ru" ? "Switch to English" : "Переключить на русский"}
+      >
+        {lang === "ru" ? "EN" : "RU"}
+      </button>
+      <button
+        className="fw-action-btn"
+        onClick={() => setSize((s) => (s === "normal" ? "large" : "normal"))}
+        title={
+          size === "normal"
+            ? lang === "en"
+              ? "Expand"
+              : "Развернуть"
+            : lang === "en"
+              ? "Collapse"
+              : "Свернуть"
+        }
+      >
+        {size === "normal" ? "⤢" : "⤡"}
+      </button>
+      <button
+        className="fw-close"
+        onClick={() => setOpen(false)}
+        title={lang === "en" ? "Close" : "Закрыть"}
+      >
+        ✕
+      </button>
+    </div>
+  );
 
   return (
     <div className="fw-root" ref={panelRef}>
       {/* ── Widget Panel ─────────────────────────────────────────── */}
       <div
-        className={open ? "fw-panel" : "fw-panel fw-panel-hidden"}
+        className={`${open ? "fw-panel" : "fw-panel fw-panel-hidden"}${uiMode === "demo" ? " demo" : ""}`}
         style={{ width, height }}
         aria-hidden={!open}
       >
         {/* Header */}
-        <div className="fw-header">
-          <div className="fw-tabs">
-            <button
-              className={`fw-tab${tab === "copilot" ? " active" : ""}`}
-              onClick={() => setTab("copilot")}
-            >
-              <span className="fw-tab-icon" aria-hidden="true">💬</span>
-              <span className="fw-tab-label">Copilot</span>
-            </button>
-            <button
-              className={`fw-tab${tab === "segments" ? " active" : ""}`}
-              onClick={() => setTab("segments")}
-            >
-              <span className="fw-tab-icon" aria-hidden="true">🧩</span>
-              <span className="fw-tab-label">Segments</span>
-            </button>
-            <button
-              className={`fw-tab${tab === "builder" ? " active" : ""}`}
-              onClick={() => setTab("builder")}
-            >
-              <span className="fw-tab-icon" aria-hidden="true">🛠</span>
-              <span className="fw-tab-label">Builder</span>
-            </button>
-            <button
-              className={`fw-tab${tab === "monitoring" ? " active" : ""}`}
-              onClick={() => setTab("monitoring")}
-              style={{ position: "relative" }}
-            >
-              <span className="fw-tab-icon" aria-hidden="true">📊</span>
-              <span className="fw-tab-label">Monitor</span>
-              {hasMonitorData && tab !== "monitoring" && (
-                <span className="fw-tab-badge" />
+        {uiMode === "classic" ? (
+          <div className="fw-header">
+            <div className="fw-tabs">
+              {(["copilot", "segments", "builder", "monitoring"] as Tab[]).map(
+                renderTabButton,
               )}
-            </button>
+            </div>
+            {renderHeaderActions()}
           </div>
-
-          {/* Header action buttons */}
-          <div className="fw-header-actions">
-            <button
-              className="fw-action-btn"
-              onClick={() => setLang(l => l === "ru" ? "en" : "ru")}
-              title={lang === "ru" ? "Switch to English" : "Переключить на русский"}
-            >
-              {lang === "ru" ? "EN" : "RU"}
-            </button>
-            <button
-              className="fw-action-btn"
-              onClick={() => setSize(s => s === "normal" ? "large" : "normal")}
-              title={size === "normal" ? (lang === "en" ? "Expand" : "Развернуть") : (lang === "en" ? "Collapse" : "Свернуть")}
-            >
-              {size === "normal" ? "⤢" : "⤡"}
-            </button>
-            <button className="fw-close" onClick={() => setOpen(false)} title={lang === "en" ? "Close" : "Закрыть"}>✕</button>
+        ) : (
+          <div className="fw-header fw-demo-header">
+            <div className="fw-demo-title">
+              <span className="fw-demo-mark" aria-hidden="true">
+                ✦
+              </span>
+              <div>
+                <strong>
+                  {lang === "en" ? "CVM AI Assistant" : "CVM AI Ассистент"}
+                </strong>
+                <span>
+                  {lang === "en"
+                    ? "Demo UX · guided launch"
+                    : "Demo UX · запуск с подсказками"}
+                </span>
+              </div>
+            </div>
+            <div className="fw-demo-status">
+              <span aria-hidden="true" />
+              {hasErrors
+                ? lang === "en"
+                  ? "Needs attention"
+                  : "Нужно внимание"
+                : lang === "en"
+                  ? "Ready"
+                  : "Готов"}
+            </div>
+            {renderHeaderActions()}
           </div>
-        </div>
+        )}
 
         {/* Content — all panels always mounted; hidden via display:none to preserve state */}
-        <div className="fw-body">
-          <div style={{ display: tab === "copilot" ? "contents" : "none" }}>
+        <div className={`fw-body${uiMode === "demo" ? " fw-demo-body" : ""}`}>
+          {uiMode === "demo" && (
+            <>
+              <nav
+                className="fw-demo-nav"
+                aria-label={
+                  lang === "en" ? "Assistant sections" : "Разделы ассистента"
+                }
+              >
+                {(
+                  ["copilot", "segments", "builder", "monitoring"] as Tab[]
+                ).map((tabId) => (
+                  <button
+                    key={tabId}
+                    className={`fw-demo-nav-item${tab === tabId ? " active" : ""}`}
+                    onClick={() => setTab(tabId)}
+                  >
+                    <span aria-hidden="true">{TAB_LABELS[tabId].icon}</span>
+                    {TAB_LABELS[tabId].shortLabel}
+                    {tabId === "monitoring" &&
+                      hasMonitorData &&
+                      tab !== "monitoring" && (
+                        <span className="fw-demo-nav-badge" />
+                      )}
+                  </button>
+                ))}
+              </nav>
+              <section className="fw-demo-scenario" aria-live="polite">
+                <div>
+                  <span>{activeScenario.eyebrow}</span>
+                  <h2>{activeScenario.title}</h2>
+                  <p>{activeScenario.text}</p>
+                </div>
+                <strong>{activeScenario.metric}</strong>
+              </section>
+            </>
+          )}
+          <div className="fw-panel-slot" style={activePanelStyle("copilot")}>
             <ChatPanel
               title="CVM Copilot"
               endpoint="/api/copilot"
@@ -169,21 +343,22 @@ export function FloatingWidget({ onFlowUpdate, hasErrors, builderResponse, campa
               suggestions={COPILOT_SUGGESTIONS[lang]}
             />
           </div>
-          <div style={{ display: tab === "segments" ? "contents" : "none" }}>
+          <div className="fw-panel-slot" style={activePanelStyle("segments")}>
             <SegmentPanel
               lang={lang}
+              variant={uiMode}
               onSegmentSelected={setSelectedSegment}
               onUseInBuilder={() => setTab("builder")}
             />
           </div>
-          <div style={{ display: tab === "builder" ? "contents" : "none" }}>
+          <div className="fw-panel-slot" style={activePanelStyle("builder")}>
             <CampaignBuilderChat
               onResponse={handleBuilderResponse}
               lang={lang}
               selectedSegment={selectedSegment}
             />
           </div>
-          <div style={{ display: tab === "monitoring" ? "contents" : "none" }}>
+          <div className="fw-panel-slot" style={activePanelStyle("monitoring")}>
             <MonitoringPanel
               campaignId={builderResponse?.campaign_id ?? null}
               draftFlowJson={monitorFlowJson}
@@ -197,26 +372,28 @@ export function FloatingWidget({ onFlowUpdate, hasErrors, builderResponse, campa
       {/* ── Toggle Button ─────────────────────────────────────────── */}
       <button
         className="fw-toggle"
-        onClick={() => setOpen(v => !v)}
+        onClick={() => setOpen((v) => !v)}
         style={{
           background: btnColor,
           boxShadow: open ? "none" : btnGlow,
         }}
-        title={open
-          ? (lang === "en" ? "Close assistant" : "Закрыть ассистента")
-          : (lang === "en" ? "Open AI assistant" : "Открыть AI-ассистент")}
+        title={
+          open
+            ? lang === "en"
+              ? "Close assistant"
+              : "Закрыть ассистента"
+            : lang === "en"
+              ? "Open AI assistant"
+              : "Открыть AI-ассистент"
+        }
         aria-label="AI Assistant"
       >
         {open ? (
           <span style={{ fontSize: 20, lineHeight: 1 }}>✕</span>
         ) : (
-          <span className="fw-toggle-icon">
-            {hasErrors ? "⚠" : "✦"}
-          </span>
+          <span className="fw-toggle-icon">{hasErrors ? "⚠" : "✦"}</span>
         )}
-        {!open && hasErrors && (
-          <span className="fw-error-badge" />
-        )}
+        {!open && hasErrors && <span className="fw-error-badge" />}
       </button>
     </div>
   );

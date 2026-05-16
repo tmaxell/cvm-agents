@@ -579,6 +579,7 @@ export function FloatingWidget({
           <div className="fw-panel-slot" style={activePanelStyle("builder")}>
             <CampaignBuilderChat
               onResponse={handleBuilderResponse}
+              onOpenMonitoring={() => setTab("monitoring")}
               lang={lang}
               selectedSegment={selectedSegment}
               variant={uiMode}

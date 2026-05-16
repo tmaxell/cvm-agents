@@ -69,6 +69,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 interface Props {
   onResponse: (response: BuilderResponse | null) => void;
+  onOpenMonitoring?: () => void;
   lang?: "ru" | "en";
   selectedSegment?: SelectedSegmentForBuilder | null;
   variant?: "classic" | "demo";
@@ -206,6 +207,20 @@ function formatDate(value: string, lang: "ru" | "en"): string {
   }).format(date);
 }
 
+type ResultPanelTone = "success" | "warning" | "pending";
+
+function hasFlowIssues(response: BuilderResponse): boolean {
+  if ((response.validation_errors?.length ?? 0) > 0) return true;
+  return response.draft_flow?.activities?.some((activity) =>
+    (activity.errors?.length ?? 0) > 0 || (activity.warnings?.length ?? 0) > 0
+  ) ?? false;
+}
+
+function getResultPanelTone(response: BuilderResponse): ResultPanelTone {
+  if (!response.draft_flow) return "pending";
+  return hasFlowIssues(response) ? "warning" : "success";
+}
+
 function responseFromSession(session: BuilderSessionDetail): BuilderResponse | null {
   const lastAssistant = [...session.messages].reverse().find((message) => message.role === "assistant");
   const metadata = lastAssistant?.metadata ?? {};
@@ -221,7 +236,13 @@ function responseFromSession(session: BuilderSessionDetail): BuilderResponse | n
   };
 }
 
-export function CampaignBuilderChat({ onResponse, lang = "ru", selectedSegment = null, variant = "classic" }: Props) {
+export function CampaignBuilderChat({
+  onResponse,
+  onOpenMonitoring,
+  lang = "ru",
+  selectedSegment = null,
+  variant = "classic",
+}: Props) {
   const [lastResponse, setLastResponse] = useState<BuilderResponse | null>(() =>
     readStoredJson<BuilderResponse | null>(BUILDER_RESPONSE_KEY, null),
   );
@@ -383,6 +404,17 @@ export function CampaignBuilderChat({ onResponse, lang = "ru", selectedSegment =
     { label: lang === "en" ? "Content constraints" : "Контентные ограничения", value: getPlanValue(preferences.content) },
     { label: lang === "en" ? "Offer recommendations" : "Рекомендации по офферам", value: getPlanValue(preferences.offerRecommendations) },
   ];
+  const resultPanelTone = lastResponse ? getResultPanelTone(lastResponse) : "pending";
+  const resultPanelItems = lastResponse
+    ? [
+      { label: "status", value: STATUS_LABELS[lang][lastResponse.status] ?? lastResponse.status },
+      { label: "campaign_id", value: lastResponse.campaign_id ? `#${lastResponse.campaign_id}` : "—" },
+      { label: "activities", value: String(lastResponse.draft_flow?.activities?.length ?? 0) },
+      { label: "validation errors", value: String(lastResponse.validation_errors?.length ?? 0) },
+      { label: "preference_patch", value: lastResponse.preference_patch ? (lang === "en" ? "yes" : "есть") : "—" },
+      { label: "draft_flow", value: lastResponse.draft_flow ? (lang === "en" ? "yes" : "есть") : "—" },
+    ]
+    : [];
 
   return (
     <div className="fw-builder-chat">
@@ -469,6 +501,45 @@ export function CampaignBuilderChat({ onResponse, lang = "ru", selectedSegment =
               ? "The button only fills the composer. Send with the composer arrow after reviewing the prompt."
               : "Кнопка только заполняет composer. Отправьте промпт стрелкой после проверки."}
           </p>
+        </section>
+      )}
+
+
+      {variant === "demo" && lastResponse && (
+        <section
+          className={`builder-result-panel ${resultPanelTone}`}
+          aria-label={lang === "en" ? "Builder result" : "Результат Builder"}
+        >
+          <div className="builder-result-panel-header">
+            <div>
+              <span>{lang === "en" ? "Last response" : "Последний ответ"}</span>
+              <h3>{lang === "en" ? "Campaign assembly result" : "Результат сборки кампании"}</h3>
+            </div>
+            <strong>
+              {resultPanelTone === "success"
+                ? lang === "en" ? "Flow ready" : "Flow готов"
+                : resultPanelTone === "warning"
+                  ? lang === "en" ? "Review needed" : "Нужна проверка"
+                  : lang === "en" ? "Collecting context" : "Сбор контекста"}
+            </strong>
+          </div>
+          <dl className="builder-result-panel-grid">
+            {resultPanelItems.map((item) => (
+              <div key={item.label}>
+                <dt>{item.label}</dt>
+                <dd>{item.value}</dd>
+              </div>
+            ))}
+          </dl>
+          <div className="builder-result-panel-actions">
+            <button type="button" className="secondary" onClick={() => onResponse(lastResponse)}>
+              {lang === "en" ? "View flow" : "Посмотреть flow"}
+              <span>{lang === "en" ? "Already mirrored in AdTarget canvas" : "Уже отображается в canvas AdTarget"}</span>
+            </button>
+            <button type="button" onClick={onOpenMonitoring} disabled={!onOpenMonitoring}>
+              {lang === "en" ? "Go to Monitoring" : "Перейти к Monitoring"}
+            </button>
+          </div>
         </section>
       )}
 

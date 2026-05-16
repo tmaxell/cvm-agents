@@ -13,6 +13,7 @@ interface Props {
   draftFlowJson: string | null;
   campaignStatus: CampaignRuntimeStatus;
   lang?: "ru" | "en";
+  variant?: "classic" | "demo";
 }
 
 export function MonitoringPanel({
@@ -20,6 +21,7 @@ export function MonitoringPanel({
   draftFlowJson,
   campaignStatus,
   lang = "ru",
+  variant = "classic",
 }: Props) {
   const [data, setData] = useState<MonitorResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -68,6 +70,22 @@ export function MonitoringPanel({
     fetchMonitor(nextSeed);
   };
 
+  if (variant === "demo" && (!campaignId || !draftFlowJson)) {
+    return (
+      <div className="fw-monitor-empty fw-monitor-empty-demo">
+        <div style={{ fontSize: 32, marginBottom: 10, opacity: 0.45 }}>🧭</div>
+        <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>
+          {lang === "en" ? "Build the flow in Builder first" : "Сначала соберите flow в Builder"}
+        </p>
+        <p style={{ margin: "6px 0 0", fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+          {lang === "en"
+            ? "Monitoring will run an independent pre-launch campaign review after the campaign and flow are ready."
+            : "Monitoring запустит независимую проверку кампании перед запуском, когда будут готовы campaignId и draft flow."}
+        </p>
+      </div>
+    );
+  }
+
   if (!campaignId) {
     return (
       <div className="fw-monitor-empty">
@@ -84,6 +102,8 @@ export function MonitoringPanel({
     );
   }
 
+  const isDemo = variant === "demo";
+  const draftFlowSize = draftFlowJson?.length ?? 0;
   const structureRecommendations = data?.structure_recommendations?.length
     ? data.structure_recommendations
     : data?.recommendations ?? [];
@@ -93,6 +113,41 @@ export function MonitoringPanel({
 
   return (
     <div className="fw-monitor">
+      {isDemo && (
+        <section className="fw-monitor-demo-review">
+          <div className="fw-monitor-demo-review-header">
+            <span>Reviewer agent checks</span>
+            {data ? (
+              <strong>{lang === "en" ? `Score ${data.overall_score}` : `Оценка ${data.overall_score}`}</strong>
+            ) : (
+              <strong>{lang === "en" ? "Queued" : "В очереди"}</strong>
+            )}
+          </div>
+          <p>
+            Reviewer agent checks: delivery risk, flow structure, launch readiness, next best action
+          </p>
+          <dl className="fw-monitor-demo-review-grid">
+            <div>
+              <dt>Campaign ID</dt>
+              <dd>#{campaignId}</dd>
+            </div>
+            <div>
+              <dt>{lang === "en" ? "Draft flow" : "Draft flow"}</dt>
+              <dd>{draftFlowSize > 0 ? `${draftFlowSize} chars` : (lang === "en" ? "missing" : "не собран")}</dd>
+            </div>
+            <div>
+              <dt>{lang === "en" ? "Status" : "Статус"}</dt>
+              <dd>{campaignStatus}</dd>
+            </div>
+            <div>
+              <dt>{lang === "en" ? "Monitor API" : "Monitor API"}</dt>
+              <dd>{data ? (lang === "en" ? "loaded" : "загружен") : loading ? (lang === "en" ? "loading" : "загрузка") : (lang === "en" ? "waiting" : "ожидает")}</dd>
+            </div>
+          </dl>
+          {data?.summary && <small>{data.summary}</small>}
+        </section>
+      )}
+
       {/* Header */}
       <div className="fw-monitor-header">
         <div>

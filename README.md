@@ -47,6 +47,7 @@ AI-ассистенты для платформы **AdTarget CVM**: RAG-копи
 - Переключение RU/EN в виджете.
 - Normal/large размер панели.
 - Кнопки запуска и паузы кампании в mock-интерфейсе после создания кампании.
+- План упрощения перегруженного Campaign Builder и виджета: [`docs/BUILDER_SIMPLIFICATION_PLAN.md`](docs/BUILDER_SIMPLIFICATION_PLAN.md).
 
 ## Архитектура
 

@@ -5,6 +5,7 @@ Endpoints:
   POST /api/copilot    — F1 CVM Copilot (RAG + LLM)
   POST /api/builder    — F2 Campaign Builder (LangGraph agentic loop)
   POST /api/segments/suggest — segment hypotheses for Builder
+  POST /api/monitor    — F3 Monitoring UI entry point with optimization recommendations
   GET  /api/health     — health check
 """
 

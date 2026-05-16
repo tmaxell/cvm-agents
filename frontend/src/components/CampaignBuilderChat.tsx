@@ -71,6 +71,7 @@ interface Props {
   onResponse: (response: BuilderResponse | null) => void;
   lang?: "ru" | "en";
   selectedSegment?: SelectedSegmentForBuilder | null;
+  variant?: "classic" | "demo";
 }
 
 function readStoredJson<T>(key: string, fallback: T): T {
@@ -162,6 +163,38 @@ function formatSelectedSegmentTargetGroups(
   ].filter(Boolean).join("\n");
 }
 
+
+function getPlanValue(value?: string | null): string {
+  const trimmed = value?.trim();
+  return trimmed || "—";
+}
+
+function buildBuilderPrompt(preferences: BuilderPreferences, lang: "ru" | "en"): string {
+  const fields = lang === "en"
+    ? [
+      ["Campaign goal", getPlanValue(preferences.goal)],
+      ["Product", getPlanValue(preferences.product)],
+      ["Audience", getPlanValue(preferences.targetGroups)],
+      ["Channels", getPlanValue(preferences.channels)],
+      ["Content constraints", getPlanValue(preferences.content)],
+      ["Offer recommendations", getPlanValue(preferences.offerRecommendations)],
+    ]
+    : [
+      ["Цель кампании", getPlanValue(preferences.goal)],
+      ["Продукт", getPlanValue(preferences.product)],
+      ["Аудитория", getPlanValue(preferences.targetGroups)],
+      ["Каналы", getPlanValue(preferences.channels)],
+      ["Контентные ограничения", getPlanValue(preferences.content)],
+      ["Рекомендации по офферам", getPlanValue(preferences.offerRecommendations)],
+    ];
+
+  const intro = lang === "en"
+    ? "Build a Campaign Builder flow using the plan below. Use existing Target Group details when provided and return a ready-to-review draft flow."
+    : "Собери flow в Campaign Builder по плану ниже. Используй данные существующей Target Group, если они указаны, и верни готовый к проверке черновик flow.";
+
+  return [intro, "", ...fields.map(([label, value]) => `- ${label}: ${value}`)].join("\n");
+}
+
 function formatDate(value: string, lang: "ru" | "en"): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -188,7 +221,7 @@ function responseFromSession(session: BuilderSessionDetail): BuilderResponse | n
   };
 }
 
-export function CampaignBuilderChat({ onResponse, lang = "ru", selectedSegment = null }: Props) {
+export function CampaignBuilderChat({ onResponse, lang = "ru", selectedSegment = null, variant = "classic" }: Props) {
   const [lastResponse, setLastResponse] = useState<BuilderResponse | null>(() =>
     readStoredJson<BuilderResponse | null>(BUILDER_RESPONSE_KEY, null),
   );
@@ -338,6 +371,19 @@ export function CampaignBuilderChat({ onResponse, lang = "ru", selectedSegment =
     }
   };
 
+  const handlePrepareBuilderCommand = () => {
+    setInput(buildBuilderPrompt(preferences, lang));
+  };
+
+  const demoPlanItems = [
+    { label: lang === "en" ? "Campaign goal" : "Цель кампании", value: getPlanValue(preferences.goal) },
+    { label: lang === "en" ? "Product" : "Продукт", value: getPlanValue(preferences.product) },
+    { label: lang === "en" ? "Audience" : "Аудитория", value: getPlanValue(preferences.targetGroups) },
+    { label: lang === "en" ? "Channels" : "Каналы", value: getPlanValue(preferences.channels) },
+    { label: lang === "en" ? "Content constraints" : "Контентные ограничения", value: getPlanValue(preferences.content) },
+    { label: lang === "en" ? "Offer recommendations" : "Рекомендации по офферам", value: getPlanValue(preferences.offerRecommendations) },
+  ];
+
   return (
     <div className="fw-builder-chat">
       <details className="builder-params-panel">
@@ -398,6 +444,33 @@ export function CampaignBuilderChat({ onResponse, lang = "ru", selectedSegment =
           </label>
         </div>
       </details>
+
+      {variant === "demo" && (
+        <section className="builder-demo-plan" aria-label={lang === "en" ? "Builder plan" : "План для Builder"}>
+          <div className="builder-demo-plan-header">
+            <div>
+              <span>{lang === "en" ? "Demo plan" : "Demo-план"}</span>
+              <h3>{lang === "en" ? "Ready context for Campaign Builder" : "Готовый контекст для Campaign Builder"}</h3>
+            </div>
+            <button type="button" onClick={handlePrepareBuilderCommand} disabled={loading}>
+              {lang === "en" ? "Prepare Builder command" : "Сформировать команду для Builder"}
+            </button>
+          </div>
+          <dl className="builder-demo-plan-grid">
+            {demoPlanItems.map((item) => (
+              <div key={item.label} className={item.value.length > 80 ? "wide" : undefined}>
+                <dt>{item.label}</dt>
+                <dd>{item.value}</dd>
+              </div>
+            ))}
+          </dl>
+          <p>
+            {lang === "en"
+              ? "The button only fills the composer. Send with the composer arrow after reviewing the prompt."
+              : "Кнопка только заполняет composer. Отправьте промпт стрелкой после проверки."}
+          </p>
+        </section>
+      )}
 
       <details className="builder-history-panel">
         <summary>

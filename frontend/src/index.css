@@ -3757,6 +3757,123 @@ button {
     linear-gradient(180deg, #f8faff 0%, #eef2ff 100%);
 }
 
+.fw-demo-stepper {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 5px;
+  flex: 0 0 auto;
+  padding: 7px;
+  border: 1px solid rgba(82, 87, 255, 0.14);
+  border-radius: 16px;
+  background: rgb(255 255 255 / 76%);
+  box-shadow: 0 10px 24px rgba(30, 41, 59, 0.07);
+}
+
+.fw-demo-step {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 7px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-secondary, #64748b);
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.15s, box-shadow 0.15s;
+}
+
+.fw-demo-step:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: -5px;
+  width: 5px;
+  height: 1px;
+  background: rgba(148, 163, 184, 0.38);
+}
+
+.fw-demo-step:hover {
+  transform: translateY(-1px);
+  border-color: rgba(82, 87, 255, 0.24);
+  background: #ffffff;
+  color: var(--accent, #5257ff);
+}
+
+.fw-demo-step.active {
+  border-color: rgba(82, 87, 255, 0.34);
+  background: #ffffff;
+  color: var(--accent, #5257ff);
+  box-shadow: 0 8px 18px rgba(82, 87, 255, 0.14);
+}
+
+.fw-demo-step.completed {
+  color: #15803d;
+}
+
+.fw-demo-step.attention {
+  border-color: rgba(239, 68, 68, 0.26);
+  background: #fff7f7;
+  color: #dc2626;
+}
+
+.fw-demo-step-index {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.fw-demo-step.active .fw-demo-step-index {
+  background: var(--accent, #5257ff);
+  color: #ffffff;
+}
+
+.fw-demo-step.completed .fw-demo-step-index {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.fw-demo-step.attention .fw-demo-step-index {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.fw-demo-step-copy {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.fw-demo-step-copy strong,
+.fw-demo-step-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fw-demo-step-copy strong {
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.fw-demo-step-copy small {
+  color: currentColor;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1.15;
+  opacity: 0.72;
+}
+
 .fw-demo-nav {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

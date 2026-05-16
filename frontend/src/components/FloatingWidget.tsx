@@ -35,6 +35,15 @@ type Tab = "copilot" | "segments" | "builder" | "monitoring";
 type Size = "normal" | "large";
 type Lang = "ru" | "en";
 type UiMode = "classic" | "demo";
+type DemoStepState = "pending" | "active" | "completed" | "attention";
+
+interface DemoStep {
+  key: string;
+  label: string;
+  statusText: string;
+  tab: Tab;
+  state: DemoStepState;
+}
 
 const PANEL_SIZES: Record<Size, { width: number; height: number }> = {
   normal: { width: 480, height: 560 },
@@ -180,6 +189,111 @@ export function FloatingWidget({
 
   const { width, height } = PANEL_SIZES[size];
   const activeScenario = DEMO_SCENARIOS[tab][lang];
+  const hasSelectedAudience = selectedSegment != null;
+  const hasDraftFlow = builderResponse?.draft_flow != null;
+  const hasCampaign = builderResponse?.campaign_id != null;
+  const activeDemoStepKey: string =
+    tab === "copilot"
+      ? "brief"
+      : tab === "segments"
+        ? "audience"
+        : tab === "builder"
+          ? hasDraftFlow || hasErrors
+            ? "validate"
+            : "flow"
+          : hasCampaign
+            ? "monitor"
+            : "launch";
+  const campaignStatusLabel =
+    campaignStatus === "active"
+      ? lang === "en"
+        ? "Launched"
+        : "Запущена"
+      : campaignStatus === "paused"
+        ? lang === "en"
+          ? "Paused"
+          : "На паузе"
+        : lang === "en"
+          ? "Editing"
+          : "Редактирование";
+  const demoSteps: DemoStep[] = [
+    {
+      key: "brief",
+      label: lang === "en" ? "Brief" : "Бриф",
+      statusText: lang === "en" ? "Ready" : "Готов",
+      tab: "copilot",
+      state: activeDemoStepKey === "brief" ? "active" : "completed",
+    },
+    {
+      key: "audience",
+      label: lang === "en" ? "Audience" : "Аудитория",
+      statusText: hasSelectedAudience
+        ? lang === "en"
+          ? "Completed"
+          : "Готово"
+        : lang === "en"
+          ? "Select"
+          : "Выбрать",
+      tab: "segments",
+      state: hasSelectedAudience ? "completed" : activeDemoStepKey === "audience" ? "active" : "pending",
+    },
+    {
+      key: "flow",
+      label: lang === "en" ? "Build flow" : "Сборка flow",
+      statusText: hasDraftFlow
+        ? lang === "en"
+          ? "Completed"
+          : "Готово"
+        : lang === "en"
+          ? "Draft"
+          : "Черновик",
+      tab: "builder",
+      state: hasDraftFlow ? "completed" : activeDemoStepKey === "flow" ? "active" : "pending",
+    },
+    {
+      key: "validate",
+      label: lang === "en" ? "Validate" : "Проверка",
+      statusText: hasErrors
+        ? lang === "en"
+          ? "Needs attention"
+          : "Нужно внимание"
+        : hasDraftFlow
+          ? lang === "en"
+            ? "Passed"
+            : "Пройдена"
+          : lang === "en"
+            ? "Waiting"
+            : "Ожидает",
+      tab: "builder",
+      state: hasErrors
+        ? "attention"
+        : hasDraftFlow
+          ? "completed"
+          : activeDemoStepKey === "validate"
+            ? "active"
+            : "pending",
+    },
+    {
+      key: "launch",
+      label: lang === "en" ? "Launch" : "Запуск",
+      statusText: hasCampaign
+        ? lang === "en"
+          ? "Campaign created"
+          : "Кампания создана"
+        : lang === "en"
+          ? "Create"
+          : "Создать",
+      tab: hasCampaign ? "monitoring" : "builder",
+      state: hasCampaign ? "completed" : activeDemoStepKey === "launch" ? "active" : "pending",
+    },
+    {
+      key: "monitor",
+      label: lang === "en" ? "Monitor" : "Мониторинг",
+      statusText: campaignStatusLabel,
+      tab: "monitoring",
+      state: activeDemoStepKey === "monitor" ? "active" : hasCampaign ? "completed" : "pending",
+    },
+  ];
 
   const renderTabButton = (tabId: Tab) => (
     <button
@@ -300,6 +414,30 @@ export function FloatingWidget({
         <div className={`fw-body${uiMode === "demo" ? " fw-demo-body" : ""}`}>
           {uiMode === "demo" && (
             <>
+              <div
+                className="fw-demo-stepper"
+                aria-label={
+                  lang === "en" ? "Demo launch progress" : "Прогресс demo-запуска"
+                }
+              >
+                {demoSteps.map((step, index) => (
+                  <button
+                    key={step.key}
+                    type="button"
+                    className={`fw-demo-step ${step.state}`}
+                    onClick={() => setTab(step.tab)}
+                    aria-current={step.state === "active" ? "step" : undefined}
+                  >
+                    <span className="fw-demo-step-index" aria-hidden="true">
+                      {step.state === "completed" ? "✓" : index + 1}
+                    </span>
+                    <span className="fw-demo-step-copy">
+                      <strong>{step.label}</strong>
+                      <small>{step.statusText}</small>
+                    </span>
+                  </button>
+                ))}
+              </div>
               <nav
                 className="fw-demo-nav"
                 aria-label={

@@ -10,7 +10,7 @@ const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
 interface SegmentDemoPlaybookItem {
   label: string;
-  description: string;
+  description?: string;
   product?: string;
   campaignGoal?: string;
   audienceConstraints?: string;
@@ -145,104 +145,6 @@ export function SegmentPanel({
     <div
       className={`fw-segments${variant === "demo" ? " fw-segments-demo" : ""}`}
     >
-      {variant === "demo" && (
-        <section className="fw-demo-hero">
-          <div>
-            <span>
-              {lang === "en" ? "Audience Builder" : "Audience Builder"}
-            </span>
-            <h2>
-              {lang === "en"
-                ? "AI will assemble the optimal audience"
-                : "AI соберёт оптимальную аудиторию"}
-            </h2>
-            <p>
-              {lang === "en"
-                ? "Choose a proven Target Group or ask AI to prepare a fresh demo segment for the campaign goal."
-                : "Выберите проверенную Target Group или попросите AI собрать новый demo-сегмент под цель кампании."}
-            </p>
-          </div>
-          <strong>
-            {lang === "en" ? "ready for Builder" : "готово для Builder"}
-          </strong>
-        </section>
-      )}
-
-      {variant === "demo" && (
-        <div className="fw-demo-segment-options">
-          <article>
-            <span aria-hidden="true">◎</span>
-            <div>
-              <h3>
-                {lang === "en"
-                  ? "Use an existing Target Group"
-                  : "Использовать существующую Target Group"}
-              </h3>
-              <p>
-                {lang === "en"
-                  ? "Match the brief with approved audience groups and keep launch governance simple."
-                  : "Сопоставим brief с утверждёнными аудиториями и упростим запуск."}
-              </p>
-            </div>
-            <button type="button" onClick={handleSuggest} disabled={!canSubmit}>
-              {loading
-                ? lang === "en"
-                  ? "Matching…"
-                  : "Подбираем…"
-                : lang === "en"
-                  ? "Match"
-                  : "Подобрать"}
-            </button>
-          </article>
-          <article>
-            <span aria-hidden="true">✦</span>
-            <div>
-              <h3>
-                {lang === "en"
-                  ? "Build a new demo segment"
-                  : "Собрать новый demo-сегмент"}
-              </h3>
-              <p>
-                {lang === "en"
-                  ? "Generate transparent criteria and pass the selected hypothesis directly into Builder."
-                  : "Сгенерируем понятные критерии и передадим выбранную гипотезу прямо в Builder."}
-              </p>
-            </div>
-            <button type="button" onClick={handleSuggest} disabled={!canSubmit}>
-              {loading
-                ? lang === "en"
-                  ? "Building…"
-                  : "Собираем…"
-                : lang === "en"
-                  ? "Build"
-                  : "Собрать"}
-            </button>
-          </article>
-        </div>
-      )}
-
-      {variant === "demo" && demoPlaybook.length > 0 && (
-        <section className="fw-demo-playbook" aria-label={lang === "en" ? "Segment quick actions" : "Быстрые действия сегментов"}>
-          <div className="fw-demo-playbook-header">
-            <span>{lang === "en" ? "Demo quick actions" : "Demo быстрые действия"}</span>
-            <strong>{lang === "en" ? "Fill product and goal" : "Заполнить продукт и цель"}</strong>
-          </div>
-          <div className="fw-demo-playbook-grid">
-            {demoPlaybook.map((item) => (
-              <button
-                key={item.label}
-                type="button"
-                onClick={() => handleApplyDemoPlaybook(item)}
-                disabled={loading}
-              >
-                <strong>{item.label}</strong>
-                <span>{item.description}</span>
-              </button>
-            ))}
-          </div>
-        </section>
-      )}
-
       <div className="fw-segments-form">
         <div>
           <h2>{lang === "en" ? "Segment suggestions" : "Подбор сегментов"}</h2>
@@ -252,6 +154,23 @@ export function SegmentPanel({
               : "Опишите продукт и цель, чтобы получить 2–3 гипотезы аудитории с привязкой к Target Groups, если есть совпадение."}
           </p>
         </div>
+        {variant === "demo" && demoPlaybook.length > 0 && (
+          <div
+            className="fw-quick-presets fw-segment-presets"
+            aria-label={lang === "en" ? "Segment presets" : "Пресеты сегментов"}
+          >
+            {demoPlaybook.map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                onClick={() => handleApplyDemoPlaybook(item)}
+                disabled={loading}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        )}
         <label>
           {lang === "en" ? "Product" : "Продукт"}
           <input

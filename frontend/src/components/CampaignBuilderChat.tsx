@@ -69,7 +69,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 interface BuilderDemoPlaybookItem {
   label: string;
-  description: string;
+  description?: string;
   prompt?: string;
 }
 
@@ -420,14 +420,6 @@ export function CampaignBuilderChat({
       : "Edited manually"
     : null;
 
-  const demoPlanItems = [
-    { label: lang === "en" ? "Campaign goal" : "Цель кампании", value: getPlanValue(preferences.goal) },
-    { label: lang === "en" ? "Product" : "Продукт", value: getPlanValue(preferences.product) },
-    { label: lang === "en" ? "Audience" : "Аудитория", value: getPlanValue(preferences.targetGroups) },
-    { label: lang === "en" ? "Channels" : "Каналы", value: getPlanValue(preferences.channels) },
-    { label: lang === "en" ? "Content constraints" : "Контентные ограничения", value: getPlanValue(preferences.content) },
-    { label: lang === "en" ? "Offer recommendations" : "Рекомендации по офферам", value: getPlanValue(preferences.offerRecommendations) },
-  ];
   const resultPanelTone = lastResponse ? getResultPanelTone(lastResponse) : "pending";
   const resultPanelItems = lastResponse
     ? [
@@ -511,49 +503,6 @@ export function CampaignBuilderChat({
           </label>
         </div>
       </details>
-
-      {variant === "demo" && (
-        <section className="builder-demo-plan" aria-label={lang === "en" ? "Builder plan" : "План для Builder"}>
-          <div className="builder-demo-plan-header">
-            <div>
-              <span>{lang === "en" ? "Demo plan" : "Demo-план"}</span>
-              <h3>{lang === "en" ? "Ready context for Campaign Builder" : "Готовый контекст для Campaign Builder"}</h3>
-            </div>
-            <button type="button" onClick={handlePrepareBuilderCommand} disabled={loading}>
-              {lang === "en" ? "Prepare Builder command" : "Сформировать команду для Builder"}
-            </button>
-          </div>
-          {demoPlaybook.length > 0 && (
-            <div className="fw-demo-playbook-grid builder-demo-actions">
-              {demoPlaybook.map((item) => (
-                <button
-                  key={item.label}
-                  type="button"
-                  onClick={() => handleApplyDemoPlaybook(item)}
-                  disabled={loading}
-                >
-                  <strong>{item.label}</strong>
-                  <span>{item.description}</span>
-                </button>
-              ))}
-            </div>
-          )}
-          <dl className="builder-demo-plan-grid">
-            {demoPlanItems.map((item) => (
-              <div key={item.label} className={item.value.length > 80 ? "wide" : undefined}>
-                <dt>{item.label}</dt>
-                <dd>{item.value}</dd>
-              </div>
-            ))}
-          </dl>
-          <p>
-            {lang === "en"
-              ? "The button only fills the composer. Send with the composer arrow after reviewing the prompt."
-              : "Кнопка только заполняет composer. Отправьте промпт стрелкой после проверки."}
-          </p>
-        </section>
-      )}
-
 
       {variant === "demo" && lastResponse && (
         <section
@@ -710,6 +659,23 @@ export function CampaignBuilderChat({
 
       {/* Composer */}
       <div className="composer" style={{ borderTop: "1px solid var(--border)" }}>
+        {variant === "demo" && (
+          <button
+            type="button"
+            className="builder-quick-action"
+            onClick={() => {
+              const [preset] = demoPlaybook;
+              if (preset) {
+                handleApplyDemoPlaybook(preset);
+              } else {
+                handlePrepareBuilderCommand();
+              }
+            }}
+            disabled={loading}
+          >
+            {demoPlaybook[0]?.label ?? (lang === "en" ? "Build flow" : "Собрать flow")}
+          </button>
+        )}
         <textarea
           value={input}
           onChange={e => setInput(e.target.value)}

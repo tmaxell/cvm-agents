@@ -520,6 +520,8 @@ function OptimizationRecommendationsSection({ recommendations, lang }: {
 }) {
   if (!recommendations.length) return null;
 
+  const phaseGroups = groupOptimizationRecommendationsByPhase(recommendations);
+
   return (
     <section className="fw-monitor-section fw-monitor-optimization">
       <div className="fw-monitor-section-header">
@@ -527,44 +529,76 @@ function OptimizationRecommendationsSection({ recommendations, lang }: {
         <span className="fw-monitor-recs-count">{recommendations.length}</span>
       </div>
       <div className="fw-monitor-optimization-list">
-        {recommendations.map((recommendation, index) => (
-          <article className="fw-monitor-optimization-card" key={`${recommendation.category}-${recommendation.phase}-${index}`}>
-            <div className="fw-monitor-optimization-badges">
-              <span className={`fw-monitor-optimization-badge category-${normaliseBadgeClass(recommendation.category)}`}>
-                {formatRecommendationCategory(recommendation.category, lang)}
-              </span>
-              <span className={`fw-monitor-optimization-badge phase-${normaliseBadgeClass(recommendation.phase)}`}>
-                {formatRecommendationPhase(recommendation.phase, lang)}
-              </span>
-              <span className="fw-monitor-optimization-badge confidence">
-                {formatConfidence(recommendation.confidence, lang)}
-              </span>
+        {phaseGroups.map((group) => (
+          <div className={`fw-monitor-optimization-phase phase-${normaliseBadgeClass(group.phase)}`} key={group.phase}>
+            <div className="fw-monitor-optimization-phase-header">
+              <span>{formatRecommendationPhase(group.phase, lang)}</span>
+              <span>{group.items.length}</span>
             </div>
-            <h4>{recommendation.change}</h4>
-            <dl className="fw-monitor-optimization-details">
-              <div>
-                <dt>{lang === "en" ? "Reason" : "Причина"}</dt>
-                <dd>{recommendation.reason}</dd>
-              </div>
-              <div>
-                <dt>{lang === "en" ? "Expected effect" : "Ожидаемый эффект"}</dt>
-                <dd>{recommendation.expected_effect}</dd>
-              </div>
-            </dl>
-          </article>
+            <div className="fw-monitor-optimization-phase-cards">
+              {group.items.map((recommendation, index) => (
+                <article className="fw-monitor-optimization-card" key={`${recommendation.category}-${recommendation.phase}-${index}`}>
+                  <div className="fw-monitor-optimization-badges">
+                    <span className={`fw-monitor-optimization-badge category-${normaliseBadgeClass(recommendation.category)}`}>
+                      {formatRecommendationCategory(recommendation.category, lang)}
+                    </span>
+                    <span className={`fw-monitor-optimization-badge phase-${normaliseBadgeClass(recommendation.phase)}`}>
+                      {formatRecommendationPhase(recommendation.phase, lang)}
+                    </span>
+                    <span className="fw-monitor-optimization-badge confidence">
+                      {formatConfidence(recommendation.confidence, lang)}
+                    </span>
+                  </div>
+                  <h4>{recommendation.change}</h4>
+                  <dl className="fw-monitor-optimization-details">
+                    <div>
+                      <dt>{lang === "en" ? "Reason" : "Причина"}</dt>
+                      <dd>{recommendation.reason}</dd>
+                    </div>
+                    <div>
+                      <dt>{lang === "en" ? "Expected effect" : "Ожидаемый эффект"}</dt>
+                      <dd>{recommendation.expected_effect}</dd>
+                    </div>
+                  </dl>
+                </article>
+              ))}
+            </div>
+          </div>
         ))}
       </div>
     </section>
   );
 }
 
+function groupOptimizationRecommendationsByPhase(recommendations: OptimizationRecommendation[]) {
+  const groups = new Map<string, OptimizationRecommendation[]>();
+  for (const recommendation of recommendations) {
+    const items = groups.get(recommendation.phase) ?? [];
+    items.push(recommendation);
+    groups.set(recommendation.phase, items);
+  }
+
+  const phasePriority: Record<string, number> = {
+    pre_launch: 0,
+    before_launch: 0,
+    post_launch: 1,
+    after_launch: 1,
+  };
+
+  return Array.from(groups.entries())
+    .map(([phase, items]) => ({ phase, items }))
+    .sort((left, right) => (phasePriority[left.phase] ?? 99) - (phasePriority[right.phase] ?? 99));
+}
+
 function formatRecommendationCategory(category: string, lang: "ru" | "en") {
   const labels: Record<string, { ru: string; en: string }> = {
     channel: { ru: "Канал", en: "Channel" },
     time: { ru: "Время", en: "Time" },
+    contact_time: { ru: "Contact window", en: "Contact window" },
     offer: { ru: "Offer", en: "Offer" },
     control_group: { ru: "Контрольная группа", en: "Control group" },
     text: { ru: "Текст", en: "Text" },
+    content: { ru: "Текст", en: "Content" },
     flow: { ru: "Flow", en: "Flow" },
   };
 

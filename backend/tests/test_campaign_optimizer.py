@@ -52,9 +52,9 @@ def test_optimizer_returns_prioritized_heuristic_recommendations():
     recs = run(flow, _metrics(), "editing")
 
     assert 3 <= len(recs) <= 5
-    assert [rec.category for rec in recs] == ["control_group", "channel", "flow", "content", "contact_time"]
-    assert recs[0].phase == "pre_launch"
-    assert recs[1].phase == "post_launch"
+    assert [rec.category for rec in recs] == ["control_group", "flow", "offer", "content", "contact_time"]
+    assert {rec.phase for rec in recs} == {"pre_launch"}
+    assert all(rec.source != "metrics" for rec in recs)
     assert recs[-1].id == "contact-window-review"
     assert recs[-1].confidence in {"low", "medium"}
 
@@ -97,3 +97,46 @@ def test_optimizer_uses_conversion_offer_rule_for_active_campaign_with_transacti
     assert recs[-1].category == "contact_time"
     assert recs[-1].confidence == "medium"
     assert 3 <= len(recs) <= 5
+
+
+def test_optimizer_treats_paused_as_post_launch_and_uses_metrics():
+    flow = {
+        "activities": [
+            {"id": "tg-1", "type": "TargetGroupActivity", "useLocalControlGroup": True},
+            {
+                "id": "email-1",
+                "type": "PushCommunicationActivity",
+                "name": "Email",
+                "contentType": "EmailContent",
+                "channelId": 11,
+                "content": {"parameters": [{"name": "Text", "value": "Подключите выгодный оффер сегодня"}]},
+            },
+            {"id": "bt-1", "type": "BusinessTransactionActivity", "offerTemplateId": 300},
+        ]
+    }
+
+    recs = run(flow, _metrics(), "paused")
+
+    assert any(rec.phase == "post_launch" and rec.source == "metrics" for rec in recs)
+    assert any("delivery rate" in rec.reason for rec in recs)
+
+
+def test_optimizer_does_not_use_metrics_for_non_post_launch_statuses():
+    flow = {
+        "activities": [
+            {"id": "tg-1", "type": "TargetGroupActivity", "useLocalControlGroup": True},
+            {
+                "id": "email-1",
+                "type": "PushCommunicationActivity",
+                "name": "Email",
+                "contentType": "EmailContent",
+                "channelId": 11,
+            },
+            {"id": "bt-1", "type": "BusinessTransactionActivity", "offerTemplateId": 300},
+        ]
+    }
+
+    recs = run(flow, _metrics(), "running")
+
+    assert {rec.phase for rec in recs} == {"pre_launch"}
+    assert all(rec.source != "metrics" for rec in recs)

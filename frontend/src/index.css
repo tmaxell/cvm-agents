@@ -3899,6 +3899,15 @@ button {
   box-shadow: 0 0 0 3px rgb(52 211 153 / 18%);
 }
 
+.fw-demo-status {
+  transition: background 180ms ease, box-shadow 180ms ease;
+}
+
+.fw-demo-status.canvas-updated {
+  background: rgba(22, 163, 74, 0.26);
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.18);
+}
+
 .fw-demo-body {
   gap: 10px;
   padding: 10px;
@@ -4584,6 +4593,32 @@ button {
 .builder-result-panel.warning .builder-result-panel-header strong {
   background: rgba(217, 119, 6, 0.16);
   color: #b45309;
+}
+
+.builder-canvas-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 7px 9px;
+  border: 1px solid rgba(22, 163, 74, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.8);
+  color: #15803d;
+  font-size: 11px;
+  font-weight: 900;
+  box-shadow: 0 8px 18px rgba(22, 163, 74, 0.12);
+}
+
+.builder-canvas-hint span {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #16a34a;
+  color: #ffffff;
+  font-size: 10px;
 }
 
 .builder-result-panel-grid {

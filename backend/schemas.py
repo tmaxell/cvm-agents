@@ -211,11 +211,29 @@ class MonitorMetrics(BaseModel):
     control_group: ControlGroupComparison | None = None
 
 
+class OptimizationRecommendation(BaseModel):
+    id: str
+    phase: Literal["pre_launch", "post_launch"]
+    category: Literal["channel", "contact_time", "offer", "control_group", "content", "flow"]
+    change: str
+    reason: str
+    expected_effect: str
+    confidence: Literal["low", "medium", "high"]
+    source: Literal["flow", "metrics", "heuristic", "llm"]
+    activity_id: str | None = None
+
+
+class OptimizationResponse(BaseModel):
+    summary: str
+    recommendations: list[OptimizationRecommendation]
+
+
 class MonitorResponse(BaseModel):
     metrics: MonitorMetrics
     recommendations: list[str] = Field(default_factory=list)  # legacy: объединённый список рекомендаций
     structure_recommendations: list[str] = Field(default_factory=list)  # рекомендации по структуре до/во время сборки
     launch_recommendations: list[str] = Field(default_factory=list)     # рекомендации по результатам после запуска
     similar_campaign_actions: list[str] = Field(default_factory=list)   # что сработало в похожих кампаниях
+    optimization_recommendations: list[OptimizationRecommendation] = Field(default_factory=list)
     overall_score: int                  # 0–100, общая оценка кампании
     summary: str                        # краткое заключение

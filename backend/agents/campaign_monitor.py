@@ -299,8 +299,15 @@ async def run(request: MonitorRequest) -> MonitorResponse:
         activities = []
         flow_data = {"activities": activities}
 
-    # Генерируем метрики детерминированно
+    # Генерируем метрики детерминированно и сразу запускаем детерминированный
+    # оптимизатор: Monitoring UI получает эти рекомендации из основного
+    # endpoint POST /api/monitor без отдельного API-вызова.
     metrics = _generate_metrics(request.campaign_id, request.refresh_seed, activities)
+    optimization_recs = optimizer_run(
+        flow_data if isinstance(flow_data, dict) else {"activities": activities},
+        metrics,
+        request.campaign_status,
+    )
 
     # Подготавливаем краткое описание flow для LLM (только нужные поля)
     flow_summary = []
@@ -374,8 +381,6 @@ async def run(request: MonitorRequest) -> MonitorResponse:
         if not similar_actions:
             similar_actions = _fallback_similar_campaign_actions(activities)
 
-        optimization_recs = optimizer_run(flow_data, metrics, request.campaign_status)
-
         return MonitorResponse(
             metrics=metrics,
             overall_score=int(data.get("overall_score", 65)),
@@ -391,11 +396,6 @@ async def run(request: MonitorRequest) -> MonitorResponse:
         structure_recs = _fallback_structure_recommendations(activities)
         launch_recs = _fallback_launch_recommendations(metrics)
         similar_actions = _fallback_similar_campaign_actions(activities)
-        optimization_recs = optimizer_run(
-            flow_data if isinstance(flow_data, dict) else {"activities": activities},
-            metrics,
-            request.campaign_status,
-        )
         return MonitorResponse(
             metrics=metrics,
             overall_score=62,

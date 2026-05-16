@@ -8,9 +8,18 @@ import type {
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
+interface SegmentDemoPlaybookItem {
+  label: string;
+  description: string;
+  product?: string;
+  campaignGoal?: string;
+  audienceConstraints?: string;
+}
+
 interface SegmentPanelProps {
   lang?: "ru" | "en";
   variant?: "classic" | "demo";
+  demoPlaybook?: SegmentDemoPlaybookItem[];
   onUseInBuilder?: () => void;
   onSegmentSelected?: (segment: SelectedSegmentForBuilder) => void;
 }
@@ -63,6 +72,7 @@ function targetGroupLabel(
 export function SegmentPanel({
   lang = "ru",
   variant = "classic",
+  demoPlaybook = [],
   onUseInBuilder,
   onSegmentSelected,
 }: SegmentPanelProps) {
@@ -111,6 +121,13 @@ export function SegmentPanel({
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleApplyDemoPlaybook = (item: SegmentDemoPlaybookItem) => {
+    setProduct(item.product ?? "");
+    setCampaignGoal(item.campaignGoal ?? "");
+    setAudienceConstraints(item.audienceConstraints ?? "");
+    setError(null);
   };
 
   const handleUseInBuilder = (hypothesis: SegmentHypothesis) => {
@@ -202,6 +219,28 @@ export function SegmentPanel({
             </button>
           </article>
         </div>
+      )}
+
+      {variant === "demo" && demoPlaybook.length > 0 && (
+        <section className="fw-demo-playbook" aria-label={lang === "en" ? "Segment quick actions" : "Быстрые действия сегментов"}>
+          <div className="fw-demo-playbook-header">
+            <span>{lang === "en" ? "Demo quick actions" : "Demo быстрые действия"}</span>
+            <strong>{lang === "en" ? "Fill product and goal" : "Заполнить продукт и цель"}</strong>
+          </div>
+          <div className="fw-demo-playbook-grid">
+            {demoPlaybook.map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                onClick={() => handleApplyDemoPlaybook(item)}
+                disabled={loading}
+              >
+                <strong>{item.label}</strong>
+                <span>{item.description}</span>
+              </button>
+            ))}
+          </div>
+        </section>
       )}
 
       <div className="fw-segments-form">

@@ -67,12 +67,19 @@ const STATUS_COLORS: Record<string, string> = {
   error: "#dc2626",
 };
 
+interface BuilderDemoPlaybookItem {
+  label: string;
+  description: string;
+  prompt?: string;
+}
+
 interface Props {
   onResponse: (response: BuilderResponse | null) => void;
   onOpenMonitoring?: () => void;
   lang?: "ru" | "en";
   selectedSegment?: SelectedSegmentForBuilder | null;
   variant?: "classic" | "demo";
+  demoPlaybook?: BuilderDemoPlaybookItem[];
 }
 
 function readStoredJson<T>(key: string, fallback: T): T {
@@ -242,6 +249,7 @@ export function CampaignBuilderChat({
   lang = "ru",
   selectedSegment = null,
   variant = "classic",
+  demoPlaybook = [],
 }: Props) {
   const [lastResponse, setLastResponse] = useState<BuilderResponse | null>(() =>
     readStoredJson<BuilderResponse | null>(BUILDER_RESPONSE_KEY, null),
@@ -402,6 +410,10 @@ export function CampaignBuilderChat({
     setInput(buildBuilderPrompt(preferences, lang));
   };
 
+  const handleApplyDemoPlaybook = (item: BuilderDemoPlaybookItem) => {
+    if (item.prompt) setInput(item.prompt);
+  };
+
   const targetGroupsStatusLabel = variant === "demo" && targetGroupsSource
     ? targetGroupsSource === "audience-builder"
       ? "Applied from Audience Builder"
@@ -511,6 +523,21 @@ export function CampaignBuilderChat({
               {lang === "en" ? "Prepare Builder command" : "Сформировать команду для Builder"}
             </button>
           </div>
+          {demoPlaybook.length > 0 && (
+            <div className="fw-demo-playbook-grid builder-demo-actions">
+              {demoPlaybook.map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  onClick={() => handleApplyDemoPlaybook(item)}
+                  disabled={loading}
+                >
+                  <strong>{item.label}</strong>
+                  <span>{item.description}</span>
+                </button>
+              ))}
+            </div>
+          )}
           <dl className="builder-demo-plan-grid">
             {demoPlanItems.map((item) => (
               <div key={item.label} className={item.value.length > 80 ? "wide" : undefined}>

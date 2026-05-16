@@ -35,6 +35,20 @@ type Tab = "copilot" | "segments" | "builder" | "monitoring";
 type Size = "normal" | "large";
 type Lang = "ru" | "en";
 type UiMode = "classic" | "demo";
+
+const UI_MODE_KEY = "cvm_ui_mode";
+
+const isUiMode = (value: string | null): value is UiMode =>
+  value === "classic" || value === "demo";
+
+const getInitialUiMode = (): UiMode => {
+  if (typeof window === "undefined") {
+    return "classic";
+  }
+
+  const storedUiMode = window.localStorage.getItem(UI_MODE_KEY);
+  return isUiMode(storedUiMode) ? storedUiMode : "classic";
+};
 type DemoStepState = "pending" | "active" | "completed" | "attention";
 
 interface DemoStep {
@@ -348,10 +362,14 @@ export function FloatingWidget({
   const [tab, setTab] = useState<Tab>("copilot");
   const [size, setSize] = useState<Size>("normal");
   const [lang, setLang] = useState<Lang>("ru");
-  const [uiMode, setUiMode] = useState<UiMode>("classic");
+  const [uiMode, setUiMode] = useState<UiMode>(getInitialUiMode);
   const [selectedSegment, setSelectedSegment] =
     useState<SelectedSegmentForBuilder | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    window.localStorage.setItem(UI_MODE_KEY, uiMode);
+  }, [uiMode]);
 
   // Close on outside click
   useEffect(() => {

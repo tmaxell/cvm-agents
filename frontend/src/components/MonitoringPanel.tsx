@@ -30,14 +30,12 @@ export function MonitoringPanel({
   campaignStatus,
   lang = "ru",
   variant = "classic",
-  demoPlaybook = [],
   onOpenBuilder,
 }: Props) {
   const [data, setData] = useState<MonitorResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [seed, setSeed] = useState(0);
-  const [prerequisiteHint, setPrerequisiteHint] = useState<string | null>(null);
 
   const fetchMonitor = useCallback(async (currentSeed: number, statusOverride: CampaignRuntimeStatus = campaignStatus) => {
     if (!campaignId || !draftFlowJson) return;
@@ -81,130 +79,17 @@ export function MonitoringPanel({
     fetchMonitor(nextSeed);
   };
 
-  const buildRecommendationsText = useCallback(() => {
-    const sections = [
-      [lang === "en" ? "Optimization recommendations" : "Рекомендации по оптимизации", data?.optimization_recommendations?.map((item) => item.change) ?? []],
-      [lang === "en" ? "Flow improvements" : "Доработка flow", data?.structure_recommendations ?? []],
-      [lang === "en" ? "Similar past campaigns" : "Похожие прошлые кампании", data?.similar_campaign_actions ?? []],
-      [lang === "en" ? "After launch" : "После запуска", data?.launch_recommendations ?? []],
-    ] as const;
-
-    const body = sections
-      .filter(([, items]) => items.length > 0)
-      .map(([title, items]) => `${title}:\n${items.map((item, index) => `${index + 1}. ${item}`).join("\n")}`)
-      .join("\n\n");
-
-    return body || (lang === "en"
-      ? "No monitoring recommendations loaded yet. Recommendations are not applied automatically."
-      : "Рекомендации Monitoring ещё не загружены. Рекомендации не применяются автоматически.");
-  }, [data, lang]);
-
-  const copyText = useCallback(async (text: string) => {
-    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return;
-    }
-    throw new Error("Clipboard API unavailable");
-  }, []);
-
-  const handleDemoAction = async (item: MonitoringDemoPlaybookItem) => {
-    setPrerequisiteHint(null);
-    const action = item.action ?? "copy";
-
-    if (action === "open_builder") {
-      onOpenBuilder?.();
-      return;
-    }
-
-    if (!campaignId || !draftFlowJson) {
-      setPrerequisiteHint(lang === "en"
-        ? "Prerequisite: build a campaign in Builder first so Monitoring receives campaignId and draft flow."
-        : "Prerequisite: сначала соберите кампанию в Builder, чтобы Monitoring получил campaignId и draft flow.");
-      return;
-    }
-
-    if (action === "review") {
-      const nextSeed = seed + 1;
-      setSeed(nextSeed);
-      await fetchMonitor(nextSeed);
-      setPrerequisiteHint(lang === "en" ? "Campaign checked." : "Кампания проверена.");
-      return;
-    }
-
-    if (!data) {
-      await fetchMonitor(seed);
-    }
-
-    const recommendationsText = buildRecommendationsText();
-    const textToCopy = action === "prompt_builder"
-      ? (lang === "en"
-        ? `Review these Monitoring recommendations in Builder. Do not apply changes automatically; propose a safe manual edit plan.\n\n${recommendationsText}`
-        : `Проверь эти рекомендации Monitoring в Builder. Не применяй изменения автоматически; предложи безопасный план ручной доработки.\n\n${recommendationsText}`)
-      : recommendationsText;
-
-    try {
-      await copyText(textToCopy);
-      setPrerequisiteHint(action === "prompt_builder"
-        ? (lang === "en" ? "Builder prompt copied. Open Builder and review it before sending." : "Промпт для Builder скопирован. Откройте Builder и проверьте его перед отправкой.")
-        : (lang === "en" ? "Recommendations copied. They were not applied automatically." : "Рекомендации скопированы. Они не применялись автоматически."));
-    } catch {
-      setPrerequisiteHint(lang === "en"
-        ? "Could not copy automatically. Select and copy the recommendations manually."
-        : "Не удалось скопировать автоматически. Выделите и скопируйте рекомендации вручную.");
-    }
-  };
-
-  const [monitorPreset] = demoPlaybook;
-  const demoReviewAction = variant === "demo" && (
-    <div className="fw-monitor-quick-cta">
-      <button
-        type="button"
-        onClick={() => monitorPreset ? handleDemoAction(monitorPreset) : handleRefresh()}
-        disabled={loading}
-      >
-        {lang === "en" ? "Check campaign" : "Проверить кампанию"}
-      </button>
-      {prerequisiteHint && <p>{prerequisiteHint}</p>}
-    </div>
-  );
-
-  if (variant === "demo" && (!campaignId || !draftFlowJson)) {
-    return (
-      <div className="fw-monitor-empty fw-monitor-empty-demo">
-        <div style={{ fontSize: 32, marginBottom: 10, opacity: 0.45 }}>🧭</div>
-        <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>
-          {lang === "en" ? "Build the flow in Builder first" : "Сначала соберите flow в Builder"}
-        </p>
-        <button
-          type="button"
-          className="fw-monitor-empty-cta"
-          onClick={onOpenBuilder}
-          disabled={!onOpenBuilder}
-        >
-          {lang === "en" ? "Build flow first" : "Сначала соберите flow"}
-        </button>
-      </div>
-    );
-  }
-
-  if (!campaignId) {
+  if (!campaignId || !draftFlowJson) {
     return (
       <div className="fw-monitor-empty">
-        <div style={{ fontSize: 32, marginBottom: 10, opacity: 0.3 }}>📊</div>
-        <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
-          {lang === "en" ? "No active campaign" : "Нет активной кампании"}
-        </p>
-        <p style={{ margin: "6px 0 0", fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.5 }}>
-          {lang === "en"
-            ? <>Build a campaign in the<br />&ldquo;Campaign Builder&rdquo; tab — data will appear here.<br />Recommendations are not applied automatically.</>
-            : <>Создайте кампанию во вкладке<br />«Campaign Builder» — данные появятся здесь.<br />Рекомендации не применяются автоматически.</>}
+        <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>
+          {lang === "en" ? "Build the flow in Builder first" : "Сначала соберите flow в Builder"}
         </p>
       </div>
     );
   }
 
   const isDemo = variant === "demo";
-  const draftFlowSize = draftFlowJson?.length ?? 0;
   const structureRecommendations = data?.structure_recommendations?.length
     ? data.structure_recommendations
     : data?.recommendations ?? [];
@@ -212,45 +97,10 @@ export function MonitoringPanel({
   const similarActions = data?.similar_campaign_actions ?? [];
   const visibleOptimizationRecommendations = (data?.optimization_recommendations ?? []).slice(0, 5);
   const hasLaunched = campaignStatus === "active" || campaignStatus === "paused";
+  const mainRecommendations = data ? getMainRecommendations(data, hasLaunched).slice(0, 5) : [];
 
   return (
     <div className="fw-monitor">
-      {isDemo && demoReviewAction}
-      {isDemo && (
-        <section className="fw-monitor-demo-review">
-          <div className="fw-monitor-demo-review-header">
-            <span>Reviewer agent checks</span>
-            {data ? (
-              <strong>{lang === "en" ? `Score ${data.overall_score}` : `Оценка ${data.overall_score}`}</strong>
-            ) : (
-              <strong>{lang === "en" ? "Queued" : "В очереди"}</strong>
-            )}
-          </div>
-          <p>
-            Reviewer agent checks: delivery risk, flow structure, launch readiness, next best action. {lang === "en" ? "Recommendations are not applied automatically." : "Рекомендации не применяются автоматически."}
-          </p>
-          <dl className="fw-monitor-demo-review-grid">
-            <div>
-              <dt>Campaign ID</dt>
-              <dd>#{campaignId}</dd>
-            </div>
-            <div>
-              <dt>{lang === "en" ? "Draft flow" : "Draft flow"}</dt>
-              <dd>{draftFlowSize > 0 ? `${draftFlowSize} chars` : (lang === "en" ? "missing" : "не собран")}</dd>
-            </div>
-            <div>
-              <dt>{lang === "en" ? "Status" : "Статус"}</dt>
-              <dd>{campaignStatus}</dd>
-            </div>
-            <div>
-              <dt>{lang === "en" ? "Monitor API" : "Monitor API"}</dt>
-              <dd>{data ? (lang === "en" ? "loaded" : "загружен") : loading ? (lang === "en" ? "loading" : "загрузка") : (lang === "en" ? "waiting" : "ожидает")}</dd>
-            </div>
-          </dl>
-          {data?.summary && <small>{data.summary}</small>}
-        </section>
-      )}
-
       {/* Header */}
       <div className="fw-monitor-header">
         <div>
@@ -300,71 +150,90 @@ export function MonitoringPanel({
             </p>
           </div>
 
-          <OptimizationRecommendationsSection
-            recommendations={visibleOptimizationRecommendations}
-            lang={lang}
+          <RecommendationSection
+            icon="🎯"
+            title={lang === "en" ? "Top recommendations" : "Главные рекомендации"}
+            recommendations={mainRecommendations}
           />
 
-          {!hasLaunched && (
-            <div className="fw-monitor-prelaunch-note">
-              <strong>{lang === "en" ? "Pre-launch mode" : "До запуска"}</strong>
-              <span>{lang === "en"
-                ? "Metrics will appear after Start is pressed. For now, use these recommendations to improve the flow."
-                : "Статистика появится после нажатия «Запуск». Пока здесь — советы по доработке flow."}</span>
-            </div>
-          )}
+          <button
+            type="button"
+            className="fw-monitor-builder-cta"
+            onClick={onOpenBuilder}
+            disabled={!onOpenBuilder}
+          >
+            {lang === "en" ? "Open Builder to fix" : "Открыть Builder для исправлений"}
+          </button>
 
-          {hasLaunched && (
+          {isDemo ? null : (
             <>
-              {/* KPI counts */}
-              <div className="fw-monitor-kpis">
-                <KpiCard
-                  label={lang === "en" ? "Activations" : "Активации"}
-                  value={data.metrics.activation_count ?? 0}
-                  accent="#8b5cf6"
+              <OptimizationRecommendationsSection
+                recommendations={visibleOptimizationRecommendations}
+                lang={lang}
+              />
+
+              {!hasLaunched && (
+                <div className="fw-monitor-prelaunch-note">
+                  <strong>{lang === "en" ? "Pre-launch mode" : "До запуска"}</strong>
+                  <span>{lang === "en"
+                    ? "Metrics will appear after Start is pressed. For now, use these recommendations to improve the flow."
+                    : "Статистика появится после нажатия «Запуск». Пока здесь — советы по доработке flow."}</span>
+                </div>
+              )}
+
+              {hasLaunched && (
+                <>
+                  {/* KPI counts */}
+                  <div className="fw-monitor-kpis">
+                    <KpiCard
+                      label={lang === "en" ? "Activations" : "Активации"}
+                      value={data.metrics.activation_count ?? 0}
+                      accent="#8b5cf6"
+                    />
+                    <KpiCard
+                      label={lang === "en" ? "Delivered" : "Доставлено"}
+                      value={data.metrics.delivered_count ?? 0}
+                      subValue={data.metrics.sent_count ? `${formatNumber(data.metrics.sent_count)} ${lang === "en" ? "sent" : "отправлено"}` : undefined}
+                      accent="#22c55e"
+                    />
+                  </div>
+
+                  {/* Metrics */}
+                  <div className="fw-monitor-metrics">
+                    <MetricCard label={lang === "en" ? "Delivery" : "Доставка"} value={data.metrics.delivery_rate} color="#22c55e" benchmark={92} lang={lang} />
+                    <MetricCard label={lang === "en" ? "Open rate" : "Прочтения"} value={data.metrics.open_rate} color="#3b82f6" benchmark={55} lang={lang} />
+                    <MetricCard label={lang === "en" ? "Conversion" : "Конверсия"} value={data.metrics.conversion_rate} color="#8b5cf6" benchmark={15} lang={lang} />
+                    <MetricCard label={lang === "en" ? "Clicks" : "Переходы"} value={data.metrics.click_rate} color="#f59e0b" benchmark={10} lang={lang} />
+                  </div>
+
+                  <Funnel metrics={data.metrics} lang={lang} />
+
+                  <ChannelDeliveryList channels={data.metrics.channel_deliveries ?? []} lang={lang} />
+
+                  {data.metrics.control_group && (
+                    <ControlGroupCard comparison={data.metrics.control_group} lang={lang} />
+                  )}
+                </>
+              )}
+
+              <RecommendationSection
+                icon="🧩"
+                title={lang === "en" ? "Flow improvements" : "Доработка flow"}
+                recommendations={structureRecommendations}
+              />
+              <RecommendationSection
+                icon="🕘"
+                title={lang === "en" ? "Similar past campaigns" : "Похожие прошлые кампании"}
+                recommendations={similarActions}
+              />
+              {hasLaunched && (
+                <RecommendationSection
+                  icon="🚀"
+                  title={lang === "en" ? "After launch" : "После запуска"}
+                  recommendations={launchRecommendations}
                 />
-                <KpiCard
-                  label={lang === "en" ? "Delivered" : "Доставлено"}
-                  value={data.metrics.delivered_count ?? 0}
-                  subValue={data.metrics.sent_count ? `${formatNumber(data.metrics.sent_count)} ${lang === "en" ? "sent" : "отправлено"}` : undefined}
-                  accent="#22c55e"
-                />
-              </div>
-
-              {/* Metrics */}
-              <div className="fw-monitor-metrics">
-                <MetricCard label={lang === "en" ? "Delivery" : "Доставка"} value={data.metrics.delivery_rate} color="#22c55e" benchmark={92} lang={lang} />
-                <MetricCard label={lang === "en" ? "Open rate" : "Прочтения"} value={data.metrics.open_rate} color="#3b82f6" benchmark={55} lang={lang} />
-                <MetricCard label={lang === "en" ? "Conversion" : "Конверсия"} value={data.metrics.conversion_rate} color="#8b5cf6" benchmark={15} lang={lang} />
-                <MetricCard label={lang === "en" ? "Clicks" : "Переходы"} value={data.metrics.click_rate} color="#f59e0b" benchmark={10} lang={lang} />
-              </div>
-
-              <Funnel metrics={data.metrics} lang={lang} />
-
-              <ChannelDeliveryList channels={data.metrics.channel_deliveries ?? []} lang={lang} />
-
-              {data.metrics.control_group && (
-                <ControlGroupCard comparison={data.metrics.control_group} lang={lang} />
               )}
             </>
-          )}
-
-          <RecommendationSection
-            icon="🧩"
-            title={lang === "en" ? "Flow improvements" : "Доработка flow"}
-            recommendations={structureRecommendations}
-          />
-          <RecommendationSection
-            icon="🕘"
-            title={lang === "en" ? "Similar past campaigns" : "Похожие прошлые кампании"}
-            recommendations={similarActions}
-          />
-          {hasLaunched && (
-            <RecommendationSection
-              icon="🚀"
-              title={lang === "en" ? "After launch" : "После запуска"}
-              recommendations={launchRecommendations}
-            />
           )}
         </>
       )}
@@ -373,6 +242,17 @@ export function MonitoringPanel({
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
+
+function getMainRecommendations(data: MonitorResponse, hasLaunched: boolean) {
+  const candidates = [
+    ...(data.optimization_recommendations ?? []).map((recommendation) => recommendation.change),
+    ...(data.structure_recommendations?.length ? data.structure_recommendations : data.recommendations ?? []),
+    ...(data.similar_campaign_actions ?? []),
+    ...(hasLaunched ? data.launch_recommendations ?? [] : []),
+  ];
+
+  return Array.from(new Set(candidates.map((item) => item.trim()).filter(Boolean)));
+}
 
 function ScoreBadge({ score, lang = "ru" }: { score: number; lang?: "ru" | "en" }) {
   const color = score >= 75 ? "#16a34a" : score >= 55 ? "#d97706" : "#dc2626";

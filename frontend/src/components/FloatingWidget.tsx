@@ -3,7 +3,7 @@
  *
  * Вкладки:
  *   💬 CVM Copilot    — вопросы по платформе
- *   🛠 Campaign Builder — создание кампании
+ *   🛠 Campaign Builder — draft-сборка flow
  *   🧩 Segments        — подбор целевых сегментов
  *   📊 Monitoring      — метрики и рекомендации
  *
@@ -71,9 +71,9 @@ const QUICK_PRESETS = {
   ],
   builder: [
     {
-      label: "Собрать flow",
+      label: "Собрать draft flow",
       prompt:
-        "Собери flow кампании по заполненным параметрам. Используй выбранный сегмент, SMS/Push как каналы и верни готовый draft flow для проверки.",
+        "Собери draft flow по заполненным параметрам. Используй выбранный сегмент, SMS/Push как каналы и верни готовый draft flow для проверки.",
     },
   ],
   monitoring: [

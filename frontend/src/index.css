@@ -2711,6 +2711,10 @@ button {
   font-size: 13px;
 }
 
+.fw-empty-state p {
+  margin: 0;
+}
+
 .fw-suggestion {
   width: 100%;
   min-height: 38px;
@@ -2724,6 +2728,17 @@ button {
   font-size: 12px;
   line-height: 1.35;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.fw-suggestion strong,
+.fw-suggestion span {
+  display: block;
+}
+
+.fw-suggestion span {
+  margin-top: 2px;
+  color: var(--text-secondary, #64748b);
+  font-size: 11px;
 }
 
 .fw-suggestion:hover {
@@ -3504,16 +3519,38 @@ button {
   width: 100%;
 }
 
+.builder-brief-summary {
+  flex-shrink: 0;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
+
+.builder-brief-summary strong {
+  display: block;
+  color: var(--text-primary, #111827);
+  font-size: 13px;
+}
+
+.builder-brief-summary p {
+  margin: 4px 0 0;
+  color: var(--text-secondary, #64748b);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 /* ── Builder multi-step context panels ───────────────────────── */
 .builder-params-panel,
-.builder-history-panel {
+.builder-history-panel,
+.builder-examples-panel {
   flex-shrink: 0;
   border-bottom: 1px solid var(--border, #e5e7eb);
   background: var(--surface-primary, #fff);
 }
 
 .builder-params-panel summary,
-.builder-history-panel summary {
+.builder-history-panel summary,
+.builder-examples-panel summary {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -3527,24 +3564,28 @@ button {
 }
 
 .builder-params-panel summary::-webkit-details-marker,
-.builder-history-panel summary::-webkit-details-marker {
+.builder-history-panel summary::-webkit-details-marker,
+.builder-examples-panel summary::-webkit-details-marker {
   display: none;
 }
 
 .builder-params-panel summary::before,
-.builder-history-panel summary::before {
+.builder-history-panel summary::before,
+.builder-examples-panel summary::before {
   content: "▸";
   color: var(--accent, #5257ff);
   font-size: 11px;
 }
 
 .builder-params-panel[open] summary::before,
-.builder-history-panel[open] summary::before {
+.builder-history-panel[open] summary::before,
+.builder-examples-panel[open] summary::before {
   content: "▾";
 }
 
 .builder-params-panel summary span,
-.builder-history-panel summary span {
+.builder-history-panel summary span,
+.builder-examples-panel summary span {
   margin-left: auto;
   padding: 2px 6px;
   border-radius: 999px;
@@ -3619,6 +3660,16 @@ button {
 
 .builder-params-wide {
   grid-column: 1 / -1;
+}
+
+.builder-examples-body {
+  display: grid;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.builder-examples-body .fw-suggestions-title {
+  margin-top: 0;
 }
 
 .builder-history-panel p {
@@ -4147,23 +4198,6 @@ button {
 .fw-monitor-builder-cta:disabled {
   cursor: not-allowed;
   opacity: 0.55;
-}
-
-.fw-builder-chat .composer {
-  grid-template-columns: auto 1fr 42px;
-  align-items: center;
-}
-
-.fw-builder-chat .composer .builder-quick-action {
-  min-height: 34px;
-  padding: 0 11px;
-  border: 1px solid rgba(82, 87, 255, 0.2);
-  border-radius: 999px;
-  background: #eef2ff;
-  color: var(--accent, #5257ff);
-  font-size: 12px;
-  font-weight: 900;
-  white-space: nowrap;
 }
 
 .fw-monitor-builder-cta {

@@ -33,13 +33,13 @@ const BUILDER_SESSION_KEY = "cvm.builder.sessionId.v1";
 const SUGGESTIONS: Record<"ru" | "en", string[]> = {
   ru: [
     "Запомни: продукт — тариф Family Max, цель — апсейл на семейную аудиторию",
-    "Собери кампанию из введённых параметров",
+    "Собери draft flow из введённых параметров",
     "Доработай текст: сделай тон более премиальным",
     "Добавь бизнес-транзакцию для активации оффера",
   ],
   en: [
     "Remember: product is Family Max, goal is family upsell",
-    "Build a campaign from the parameters",
+    "Build draft flow from the parameters",
     "Refine the copy: make the tone more premium",
     "Add a business transaction for offer activation",
   ],
@@ -214,8 +214,8 @@ function buildBuilderPrompt(preferences: BuilderPreferences, lang: "ru" | "en"):
     ];
 
   const intro = lang === "en"
-    ? "Build a Campaign Builder flow using the plan below. Use existing Target Group details when provided and return a ready-to-review draft flow."
-    : "Собери flow в Campaign Builder по плану ниже. Используй данные существующей Target Group, если они указаны, и верни готовый к проверке черновик flow.";
+    ? "Build a draft Campaign Builder flow using the plan below. Use existing Target Group details when provided and return a ready-to-review draft flow."
+    : "Собери draft flow в Campaign Builder по плану ниже. Используй данные существующей Target Group, если они указаны, и верни готовый к проверке draft flow.";
 
   return [intro, "", ...fields.map(([label, value]) => `- ${label}: ${value}`)].join("\n");
 }
@@ -612,8 +612,8 @@ export function CampaignBuilderChat({
             <strong style={{ color: "var(--text-primary)", fontSize: 14 }}>Campaign Builder</strong>
             <p style={{ margin: "6px 0 14px", fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.5 }}>
               {lang === "en"
-                ? "Describe product, content and goal step-by-step — then ask the builder to assemble or refine the campaign."
-                : "Опишите продукт, контент и цель по шагам — затем попросите собрать или доработать кампанию."}
+                ? "Describe product, content and goal step-by-step — then ask the builder to assemble or refine a draft flow."
+                : "Опишите продукт, контент и цель по шагам — затем попросите собрать или доработать draft flow."}
             </p>
             <div className="fw-suggestions-title">
               {lang === "en" ? "Multi-step examples" : "Примеры многошаговых команд"}
@@ -694,7 +694,7 @@ export function CampaignBuilderChat({
             <small>{getSelectedSegmentMeta(selectedSegment, lang)}</small>
           </div>
           <button type="button" onClick={handleUseSelectedSegment} disabled={loading}>
-            {lang === "en" ? "Build flow with this segment" : "Собрать flow с этим сегментом"}
+            {lang === "en" ? "Build draft flow with this segment" : "Собрать draft flow с этим сегментом"}
           </button>
         </section>
       )}
@@ -715,14 +715,14 @@ export function CampaignBuilderChat({
             }}
             disabled={loading}
           >
-            {demoPlaybook[0]?.label ?? (lang === "en" ? "Build flow" : "Собрать flow")}
+            {demoPlaybook[0]?.label ?? (lang === "en" ? "Build draft flow" : "Собрать draft flow")}
           </button>
         )}
         <textarea
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={lang === "en" ? "Add context or ask to build/refine the campaign…" : "Добавьте контекст или попросите собрать/доработать кампанию…"}
+          placeholder={lang === "en" ? "Add context or ask to build/refine the draft flow…" : "Добавьте контекст или попросите собрать/доработать draft flow…"}
           rows={1}
         />
         <button onClick={handleSend} disabled={loading || !input.trim()}>↑</button>

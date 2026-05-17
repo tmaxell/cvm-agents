@@ -231,20 +231,6 @@ function formatDate(value: string, lang: "ru" | "en"): string {
   }).format(date);
 }
 
-type ResultPanelTone = "success" | "warning" | "pending";
-
-function hasFlowIssues(response: BuilderResponse): boolean {
-  if ((response.validation_errors?.length ?? 0) > 0) return true;
-  return response.draft_flow?.activities?.some((activity) =>
-    (activity.errors?.length ?? 0) > 0 || (activity.warnings?.length ?? 0) > 0
-  ) ?? false;
-}
-
-function getResultPanelTone(response: BuilderResponse): ResultPanelTone {
-  if (!response.draft_flow) return "pending";
-  return hasFlowIssues(response) ? "warning" : "success";
-}
-
 function responseFromSession(session: BuilderSessionDetail): BuilderResponse | null {
   const lastAssistant = [...session.messages].reverse().find((message) => message.role === "assistant");
   const metadata = lastAssistant?.metadata ?? {};
@@ -446,20 +432,19 @@ export function CampaignBuilderChat({
       : "Edited manually"
     : null;
 
-  const resultPanelTone = lastResponse ? getResultPanelTone(lastResponse) : "pending";
-  const resultPanelItems = lastResponse
-    ? [
-      { label: "status", value: STATUS_LABELS[lang][lastResponse.status] ?? lastResponse.status },
-      { label: "campaign_id", value: lastResponse.campaign_id ? `#${lastResponse.campaign_id}` : "—" },
-      { label: "activities", value: String(lastResponse.draft_flow?.activities?.length ?? 0) },
-      { label: "validation errors", value: String(lastResponse.validation_errors?.length ?? 0) },
-      { label: "preference_patch", value: lastResponse.preference_patch ? (lang === "en" ? "yes" : "есть") : "—" },
-      { label: "draft_flow", value: lastResponse.draft_flow ? (lang === "en" ? "yes" : "есть") : "—" },
-    ]
-    : [];
+  const examplesCount = SUGGESTIONS[lang].length + (variant === "demo" ? demoPlaybook.length : 0) + 1;
 
   return (
     <div className="fw-builder-chat">
+      <section className="builder-brief-summary" aria-label={lang === "en" ? "Builder summary" : "Краткое описание Builder"}>
+        <strong>Campaign Builder</strong>
+        <p>
+          {lang === "en"
+            ? "Describe product, audience, content and goal step-by-step, then ask the builder to assemble or refine a draft flow."
+            : "Опишите продукт, аудиторию, контент и цель по шагам, затем попросите собрать или доработать draft flow."}
+        </p>
+      </section>
+
       <details className="builder-params-panel">
         <summary>
           {lang === "en" ? "Campaign parameters" : "Параметры для сборки"}
@@ -530,50 +515,6 @@ export function CampaignBuilderChat({
         </div>
       </details>
 
-      {variant === "demo" && lastResponse && (
-        <section
-          className={`builder-result-panel ${resultPanelTone}`}
-          aria-label={lang === "en" ? "Builder result" : "Результат Builder"}
-        >
-          <div className="builder-result-panel-header">
-            <div>
-              <span>{lang === "en" ? "Last response" : "Последний ответ"}</span>
-              <h3>{lang === "en" ? "Campaign assembly result" : "Результат сборки кампании"}</h3>
-            </div>
-            <strong>
-              {resultPanelTone === "success"
-                ? lang === "en" ? "Flow ready" : "Flow готов"
-                : resultPanelTone === "warning"
-                  ? lang === "en" ? "Review needed" : "Нужна проверка"
-                  : lang === "en" ? "Collecting context" : "Сбор контекста"}
-            </strong>
-          </div>
-          {lastResponse.draft_flow && (
-            <div className="builder-canvas-hint" role="status">
-              <span aria-hidden="true">✓</span>
-              Canvas updated
-            </div>
-          )}
-          <dl className="builder-result-panel-grid">
-            {resultPanelItems.map((item) => (
-              <div key={item.label}>
-                <dt>{item.label}</dt>
-                <dd>{item.value}</dd>
-              </div>
-            ))}
-          </dl>
-          <div className="builder-result-panel-actions">
-            <button type="button" className="secondary" onClick={() => onResponse(lastResponse)}>
-              {lang === "en" ? "View flow" : "Посмотреть flow"}
-              <span>{lang === "en" ? "Already mirrored in AdTarget canvas" : "Уже отображается в canvas AdTarget"}</span>
-            </button>
-            <button type="button" onClick={onOpenMonitoring} disabled={!onOpenMonitoring}>
-              {lang === "en" ? "Go to Monitoring" : "Перейти к Monitoring"}
-            </button>
-          </div>
-        </section>
-      )}
-
       <details className="builder-history-panel">
         <summary>
           {lang === "en" ? "Dialog sessions" : "Диалоги Builder"}
@@ -604,33 +545,69 @@ export function CampaignBuilderChat({
         )}
       </details>
 
+      <details className="builder-examples-panel">
+        <summary>
+          {lang === "en" ? "Examples" : "Примеры"}
+          <span>{examplesCount}</span>
+        </summary>
+        <div className="builder-examples-body">
+          <div className="fw-suggestions-title">
+            {lang === "en" ? "Useful prompts" : "Полезные команды"}
+          </div>
+          <div className="fw-suggestions-grid">
+            <button
+              className="fw-suggestion"
+              onClick={handlePrepareBuilderCommand}
+              disabled={loading}
+              type="button"
+            >
+              {lang === "en" ? "Build draft flow from current campaign parameters" : "Собрать draft flow из текущих параметров кампании"}
+            </button>
+            {SUGGESTIONS[lang].map((suggestion) => (
+              <button
+                key={suggestion}
+                className="fw-suggestion"
+                onClick={() => setInput(suggestion)}
+                disabled={loading}
+                type="button"
+              >
+                {suggestion}
+              </button>
+            ))}
+          </div>
+          {variant === "demo" && demoPlaybook.length > 0 && (
+            <>
+              <div className="fw-suggestions-title">
+                {lang === "en" ? "Demo playbook" : "Demo playbook"}
+              </div>
+              <div className="fw-suggestions-grid">
+                {demoPlaybook.map((item) => (
+                  <button
+                    key={`${item.label}-${item.prompt ?? "demo"}`}
+                    className="fw-suggestion"
+                    onClick={() => handleApplyDemoPlaybook(item)}
+                    disabled={loading || !item.prompt}
+                    type="button"
+                  >
+                    <strong>{item.label}</strong>
+                    {item.description && <span>{item.description}</span>}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </details>
+
       {/* Message feed */}
       <div className="message-feed">
         {messages.length === 0 && !loading && (
           <div className="fw-empty-state">
-            <div style={{ fontSize: 28, marginBottom: 8 }}>🤖</div>
-            <strong style={{ color: "var(--text-primary)", fontSize: 14 }}>Campaign Builder</strong>
-            <p style={{ margin: "6px 0 14px", fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+            <p>
               {lang === "en"
-                ? "Describe product, content and goal step-by-step — then ask the builder to assemble or refine a draft flow."
-                : "Опишите продукт, контент и цель по шагам — затем попросите собрать или доработать draft flow."}
+                ? "Start with one message, or open Examples for optional prompts."
+                : "Начните с одного сообщения или откройте «Примеры» для подсказок."}
             </p>
-            <div className="fw-suggestions-title">
-              {lang === "en" ? "Multi-step examples" : "Примеры многошаговых команд"}
-            </div>
-            <div className="fw-suggestions-grid">
-              {SUGGESTIONS[lang].map((s, i) => (
-                <button
-                  key={i}
-                  className="fw-suggestion"
-                  onClick={() => setInput(s)}
-                  disabled={loading}
-                  type="button"
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
           </div>
         )}
 
@@ -678,6 +655,11 @@ export function CampaignBuilderChat({
           ) : (
             <span>{lang === "en" ? "Draft context is saved locally" : "Черновой контекст сохранён локально"}</span>
           )}
+          {lastResponse && onOpenMonitoring && (
+            <button className="fw-clear-btn" onClick={onOpenMonitoring}>
+              {lang === "en" ? "Monitoring" : "Monitoring"}
+            </button>
+          )}
           <button className="fw-clear-btn" onClick={handleClear}>{lang === "en" ? "New chat" : "Новый чат"}</button>
           <button className="fw-clear-btn" onClick={handleClearAll}>{lang === "en" ? "Clear all" : "Очистить всё"}</button>
         </div>
@@ -701,23 +683,6 @@ export function CampaignBuilderChat({
 
       {/* Composer */}
       <div className="composer" style={{ borderTop: "1px solid var(--border)" }}>
-        {variant === "demo" && (
-          <button
-            type="button"
-            className="builder-quick-action"
-            onClick={() => {
-              const [preset] = demoPlaybook;
-              if (preset) {
-                handleApplyDemoPlaybook(preset);
-              } else {
-                handlePrepareBuilderCommand();
-              }
-            }}
-            disabled={loading}
-          >
-            {demoPlaybook[0]?.label ?? (lang === "en" ? "Build draft flow" : "Собрать draft flow")}
-          </button>
-        )}
         <textarea
           value={input}
           onChange={e => setInput(e.target.value)}

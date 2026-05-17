@@ -73,6 +73,11 @@ interface BuilderDemoPlaybookItem {
   prompt?: string;
 }
 
+interface ResultPanelItem {
+  label: string;
+  value: string;
+}
+
 interface Props {
   onResponse: (response: BuilderResponse | null) => void;
   onOpenMonitoring?: () => void;
@@ -218,6 +223,96 @@ function buildBuilderPrompt(preferences: BuilderPreferences, lang: "ru" | "en"):
     : "Собери draft flow в Campaign Builder по плану ниже. Используй данные существующей Target Group, если они указаны, и верни готовый к проверке draft flow.";
 
   return [intro, "", ...fields.map(([label, value]) => `- ${label}: ${value}`)].join("\n");
+}
+
+
+function pluralizeActivities(count: number, lang: "ru" | "en"): string {
+  if (lang === "en") return `${count} ${count === 1 ? "activity" : "activities"}`;
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  const suffix = mod10 === 1 && mod100 !== 11
+    ? "активность"
+    : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)
+      ? "активности"
+      : "активностей";
+  return `${count} ${suffix}`;
+}
+
+function getFlowSummary(response: BuilderResponse, lang: "ru" | "en"): string {
+  const activities = response.draft_flow?.activities ?? [];
+  if (activities.length === 0) {
+    return lang === "en" ? "No flow yet" : "Flow не собран";
+  }
+
+  const activityNames = activities
+    .slice(0, 3)
+    .map((activity) => activity.name || activity.type)
+    .filter(Boolean);
+  const suffix = activities.length > activityNames.length ? "…" : "";
+  const summary = activityNames.length > 0 ? ` · ${activityNames.join(" → ")}${suffix}` : "";
+  return `${pluralizeActivities(activities.length, lang)}${summary}`;
+}
+
+function getValidationSummary(response: BuilderResponse, lang: "ru" | "en"): string {
+  const validationErrorsCount = response.validation_errors?.length ?? 0;
+  const activityIssuesCount = response.draft_flow?.activities.reduce((count, activity) => {
+    const errors = Array.isArray(activity.errors) ? activity.errors.length : 0;
+    const warnings = Array.isArray(activity.warnings) ? activity.warnings.length : 0;
+    return count + errors + warnings;
+  }, 0) ?? 0;
+  const totalIssues = validationErrorsCount + activityIssuesCount;
+
+  if (response.status === "error") {
+    return totalIssues > 0
+      ? (lang === "en" ? `${totalIssues} issue(s) to review` : `${totalIssues} замечаний к проверке`)
+      : (lang === "en" ? "Needs review" : "Нужна проверка");
+  }
+  if (totalIssues > 0) {
+    return lang === "en" ? `${totalIssues} checklist issue(s)` : `${totalIssues} замечаний checklist`;
+  }
+  if (response.draft_flow?.activities?.length || response.campaign_id) {
+    return lang === "en" ? "Checklist passed" : "Checklist пройден";
+  }
+  return lang === "en" ? "Waiting for flow" : "Ожидаем flow";
+}
+
+function getResultPanelState(response: BuilderResponse): "success" | "warning" | "pending" {
+  const hasValidationErrors = (response.validation_errors?.length ?? 0) > 0;
+  const hasActivityIssues = response.draft_flow?.activities.some((activity) =>
+    (Array.isArray(activity.errors) && activity.errors.length > 0) ||
+    (Array.isArray(activity.warnings) && activity.warnings.length > 0)
+  ) ?? false;
+
+  if (response.status === "error" || hasValidationErrors || hasActivityIssues) return "warning";
+  if (response.campaign_id || response.draft_flow?.activities?.length) return "success";
+  return "pending";
+}
+
+function getResultPanelItems(response: BuilderResponse, lang: "ru" | "en"): ResultPanelItem[] {
+  const items: ResultPanelItem[] = [
+    {
+      label: lang === "en" ? "Status" : "Статус",
+      value: STATUS_LABELS[lang][response.status] ?? response.status,
+    },
+    {
+      label: lang === "en" ? "Flow summary" : "Сводка flow",
+      value: getFlowSummary(response, lang),
+    },
+  ];
+
+  if (response.campaign_id) {
+    items.push({
+      label: lang === "en" ? "Campaign" : "Кампания",
+      value: `#${response.campaign_id}`,
+    });
+  } else {
+    items.push({
+      label: lang === "en" ? "Checklist" : "Checklist",
+      value: getValidationSummary(response, lang),
+    });
+  }
+
+  return items;
 }
 
 function formatDate(value: string, lang: "ru" | "en"): string {
@@ -433,6 +528,8 @@ export function CampaignBuilderChat({
     : null;
 
   const examplesCount = SUGGESTIONS[lang].length + (variant === "demo" ? demoPlaybook.length : 0) + 1;
+  const resultPanelState = lastResponse ? getResultPanelState(lastResponse) : "pending";
+  const resultPanelItems = lastResponse ? getResultPanelItems(lastResponse, lang) : [];
 
   return (
     <div className="fw-builder-chat">
@@ -514,6 +611,61 @@ export function CampaignBuilderChat({
           </label>
         </div>
       </details>
+
+      {variant === "demo" && lastResponse && (
+        <section
+          className={`builder-result-panel ${resultPanelState}`}
+          aria-label={lang === "en" ? "Builder result" : "Результат Builder"}
+        >
+          <div className="builder-result-panel-header">
+            <div>
+              <span>{lang === "en" ? "Last response" : "Последний ответ"}</span>
+              <h3>{lang === "en" ? "Campaign assembly result" : "Результат сборки кампании"}</h3>
+            </div>
+            <strong>
+              {resultPanelState === "success"
+                ? (lang === "en" ? "Ready" : "Готово")
+                : resultPanelState === "warning"
+                  ? (lang === "en" ? "Review" : "Проверка")
+                  : (lang === "en" ? "Context" : "Контекст")}
+            </strong>
+          </div>
+          {lastResponse.draft_flow && (
+            <div className="builder-canvas-hint" role="status">
+              <span aria-hidden="true">✓</span>
+              {lang === "en" ? "Canvas updated" : "Canvas обновлён"}
+            </div>
+          )}
+          <dl className="builder-result-panel-grid">
+            {resultPanelItems.map((item) => (
+              <div key={item.label}>
+                <dt>{item.label}</dt>
+                <dd>{item.value}</dd>
+              </div>
+            ))}
+          </dl>
+          {onOpenMonitoring && (
+            <div className="builder-result-panel-actions">
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => onResponse(lastResponse)}
+              >
+                {lang === "en" ? "Refresh canvas" : "Обновить canvas"}
+                <span>{lang === "en" ? "Uses the current flow" : "Использует текущий flow"}</span>
+              </button>
+              <button
+                type="button"
+                onClick={onOpenMonitoring}
+                disabled={!lastResponse.draft_flow && !lastResponse.campaign_id}
+              >
+                {lang === "en" ? "Go to Monitoring" : "Перейти к Monitoring"}
+              </button>
+            </div>
+          )}
+        </section>
+      )}
+
 
       <details className="builder-history-panel">
         <summary>

@@ -1972,8 +1972,8 @@ async def run(request: BuilderRequest) -> BuilderResponse:
 
     # ── Recovery: some LLMs print pseudo tool calls instead of real tool_calls ──
     # Without this fallback the chat displays raw <tool>{...}</function> text and
-    # the prototype has no draft_flow to render. Recover the richest flow and let
-    # the existing auto-create path persist it in AdTarget.
+    # the prototype has no draft_flow to render. Recover the richest flow and
+    # return it as a draft for explicit user review/confirmation.
     recovered_from_text = False
     if not last_flow_json and isinstance(answer_text, str) and "</function>" in answer_text:
         recovered_flow = await _recover_flow_from_textual_tool_calls(answer_text)
@@ -2003,17 +2003,8 @@ async def run(request: BuilderRequest) -> BuilderResponse:
             status="error",
         )
 
-    # ── Авто-создание: если агент построил flow но не вызвал create_campaign ──
-    auto_created = False
-    if last_flow_json and not campaign_id:
-        try:
-            flow_data = flow_data_for_validation or json.loads(last_flow_json)
-            create_result = await adtarget.create_campaign(flow_data)
-            campaign_id = create_result.get("campaignId")
-            auto_created = bool(campaign_id)
-            print(f"[campaign_builder] Auto-created campaign: campaignId={campaign_id}")
-        except Exception as e:
-            print(f"[campaign_builder] Auto-create failed: {e}")
+    # ── Draft-only: flow собран, но create_campaign должен быть явным ─────────
+    draft_only = bool(last_flow_json and not campaign_id)
 
     # Парсим draft_flow для передачи в UI
     draft_flow = None
@@ -2045,7 +2036,7 @@ async def run(request: BuilderRequest) -> BuilderResponse:
         status = "in_progress"
 
     # ── Финализируем сообщение ────────────────────────────────────────────────
-    # Если auto_created/recovered_from_text — заменяем служебный вывод агента на
+    # Если draft_only/recovered_from_text — заменяем служебный вывод агента на
     # чёткое подтверждение. Это скрывает raw <tool>{...}</function> из чата.
     if flow_product_warning and campaign_id:
         answer_text = (
@@ -2053,7 +2044,7 @@ async def run(request: BuilderRequest) -> BuilderResponse:
             "Кампания уже могла быть создана tool-вызовом до серверной проверки; проверьте её перед запуском."
         )
 
-    if (auto_created and campaign_id) or recovered_from_text:
+    if draft_only or recovered_from_text:
         flow_name = ""
         if draft_flow and draft_flow.get("activities"):
             for act in draft_flow["activities"]:
@@ -2068,8 +2059,8 @@ async def run(request: BuilderRequest) -> BuilderResponse:
                 answer_text += "\n\nFlow собран и сохранён в AdTarget. Хотите запустить кампанию?"
         else:
             answer_text = (
-                f"Flow кампании{flow_name} собран и готов к отображению на прототипе. "
-                "Создание в AdTarget пока не выполнено — проверьте доступность API и повторите запрос."
+                f"Draft кампании{flow_name} собран и готов к review. "
+                "Создание в AdTarget требует отдельного подтверждения."
             )
 
     return BuilderResponse(

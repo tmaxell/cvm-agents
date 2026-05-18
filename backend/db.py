@@ -51,18 +51,26 @@ async def init_db() -> None:
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
 
-        def _has_campaign_state_version_column(sync_connection) -> bool:
+        def _campaign_state_columns(sync_connection) -> set[str]:
             inspector = inspect(sync_connection)
             if not inspector.has_table("campaign_states"):
-                return True
-            return any(
-                column["name"] == "draft_flow_version"
-                for column in inspector.get_columns("campaign_states")
-            )
+                return set()
+            return {column["name"] for column in inspector.get_columns("campaign_states")}
 
-        has_version_column = await connection.run_sync(_has_campaign_state_version_column)
-        if not has_version_column:
-            await connection.execute(text("ALTER TABLE campaign_states ADD COLUMN draft_flow_version INTEGER"))
+        columns = await connection.run_sync(_campaign_state_columns)
+        column_migrations = {
+            "draft_flow_version": "ALTER TABLE campaign_states ADD COLUMN draft_flow_version INTEGER",
+            "campaign_brief_json": "ALTER TABLE campaign_states ADD COLUMN campaign_brief_json JSON",
+            "brief_completeness_json": "ALTER TABLE campaign_states ADD COLUMN brief_completeness_json JSON",
+            "review_checklist_json": "ALTER TABLE campaign_states ADD COLUMN review_checklist_json JSON",
+            "review_status": "ALTER TABLE campaign_states ADD COLUMN review_status VARCHAR(32)",
+            "review_checklist_acknowledged": (
+                "ALTER TABLE campaign_states ADD COLUMN review_checklist_acknowledged BOOLEAN NOT NULL DEFAULT 0"
+            ),
+        }
+        for column_name, statement in column_migrations.items():
+            if columns and column_name not in columns:
+                await connection.execute(text(statement))
 
 
 class DatabaseSessionStore:
@@ -193,6 +201,11 @@ class DatabaseSessionStore:
         draft_flow_json: dict[str, Any] | None = None,
         runtime_status: str = "collect_brief",
         draft_flow_version: int | None = None,
+        campaign_brief_json: dict[str, Any] | None = None,
+        brief_completeness_json: dict[str, Any] | None = None,
+        review_checklist_json: dict[str, Any] | None = None,
+        review_status: str | None = None,
+        review_checklist_acknowledged: bool = False,
     ) -> None:
         async with session_scope() as db:
             session = await db.get(BuilderSessionModel, session_id)
@@ -206,6 +219,11 @@ class DatabaseSessionStore:
                     campaign_id=campaign_id,
                     draft_flow_json=draft_flow_json,
                     draft_flow_version=draft_flow_version,
+                    campaign_brief_json=campaign_brief_json,
+                    brief_completeness_json=brief_completeness_json,
+                    review_checklist_json=review_checklist_json,
+                    review_status=review_status,
+                    review_checklist_acknowledged=review_checklist_acknowledged,
                     runtime_status=runtime_status,
                     created_at=now,
                     updated_at=now,
@@ -215,6 +233,11 @@ class DatabaseSessionStore:
                 state.campaign_id = campaign_id
                 state.draft_flow_json = draft_flow_json
                 state.draft_flow_version = draft_flow_version
+                state.campaign_brief_json = campaign_brief_json
+                state.brief_completeness_json = brief_completeness_json
+                state.review_checklist_json = review_checklist_json
+                state.review_status = review_status
+                state.review_checklist_acknowledged = review_checklist_acknowledged
                 state.runtime_status = runtime_status
                 state.updated_at = now
             if campaign_id is not None:
@@ -233,11 +256,13 @@ class DatabaseSessionStore:
             created_at=session.created_at,
             updated_at=session.updated_at,
             status=session.status,
-            draft_flow_version=(
-                state.draft_flow_version
-                if state is not None
-                else None
-            ),
+            campaign_brief=state.campaign_brief_json if state is not None else None,
+            draft_flow=state.draft_flow_json if state is not None else None,
+            draft_flow_version=state.draft_flow_version if state is not None else None,
+            brief_completeness=state.brief_completeness_json if state is not None else None,
+            review_checklist=state.review_checklist_json if state is not None else None,
+            review_status=(state.review_status if state is not None and state.review_status else "blocked"),
+            review_checklist_acknowledged=(state.review_checklist_acknowledged if state is not None else False),
         )
 
     @staticmethod

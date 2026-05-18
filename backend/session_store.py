@@ -30,7 +30,7 @@ class SessionStore:
             sessions = [
                 Session(**{
                     **item,
-                    "draft_flow_version": states_by_session.get(item.get("id"), {}).get("draft_flow_version"),
+                    **self._state_fields(states_by_session.get(item.get("id"), {})),
                 })
                 for item in data.get("sessions", [])
             ]
@@ -45,7 +45,7 @@ class SessionStore:
             messages = [Message(**item) for item in data.get("messages", []) if item.get("session_id") == session_id]
             messages.sort(key=lambda message: message.created_at)
             state = next((item for item in data.get("campaign_states", []) if item.get("session_id") == session_id), {})
-            return SessionDetail(**{**session, "draft_flow_version": state.get("draft_flow_version")}, messages=messages)
+            return SessionDetail(**{**session, **self._state_fields(state)}, messages=messages)
 
     def create_session(
         self,
@@ -150,6 +150,11 @@ class SessionStore:
         draft_flow_json: dict[str, Any] | None = None,
         runtime_status: str = "collect_brief",
         draft_flow_version: int | None = None,
+        campaign_brief_json: dict[str, Any] | None = None,
+        brief_completeness_json: dict[str, Any] | None = None,
+        review_checklist_json: dict[str, Any] | None = None,
+        review_status: str | None = None,
+        review_checklist_acknowledged: bool = False,
     ) -> None:
         with self._lock:
             data = self._read()
@@ -165,6 +170,11 @@ class SessionStore:
                     "campaign_id": campaign_id,
                     "draft_flow_json": draft_flow_json,
                     "draft_flow_version": draft_flow_version,
+                    "campaign_brief_json": campaign_brief_json,
+                    "brief_completeness_json": brief_completeness_json,
+                    "review_checklist_json": review_checklist_json,
+                    "review_status": review_status,
+                    "review_checklist_acknowledged": review_checklist_acknowledged,
                     "runtime_status": runtime_status,
                     "created_at": now,
                     "updated_at": now,
@@ -174,6 +184,11 @@ class SessionStore:
                     "campaign_id": campaign_id,
                     "draft_flow_json": draft_flow_json,
                     "draft_flow_version": draft_flow_version,
+                    "campaign_brief_json": campaign_brief_json,
+                    "brief_completeness_json": brief_completeness_json,
+                    "review_checklist_json": review_checklist_json,
+                    "review_status": review_status,
+                    "review_checklist_acknowledged": review_checklist_acknowledged,
                     "runtime_status": runtime_status,
                     "updated_at": now,
                 })
@@ -202,6 +217,18 @@ class SessionStore:
         with tmp_path.open("w", encoding="utf-8") as fh:
             json.dump(data, fh, ensure_ascii=False, indent=2)
         tmp_path.replace(self.path)
+
+    @staticmethod
+    def _state_fields(state: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "campaign_brief": state.get("campaign_brief_json"),
+            "draft_flow": state.get("draft_flow_json"),
+            "draft_flow_version": state.get("draft_flow_version"),
+            "brief_completeness": state.get("brief_completeness_json"),
+            "review_checklist": state.get("review_checklist_json"),
+            "review_status": state.get("review_status") or "blocked",
+            "review_checklist_acknowledged": bool(state.get("review_checklist_acknowledged")),
+        }
 
     @staticmethod
     def _find_session(data: dict[str, list[dict[str, Any]]], session_id: str) -> dict[str, Any] | None:

@@ -44,7 +44,7 @@ def test_builder_blocks_create_without_green_or_acknowledged_checklist():
         campaign_brief=_brief(),
     )))
 
-    assert response.status == "error"
+    assert response.status == "needs_review"
     assert response.campaign_id is None
     assert response.review_status == "blocked"
     assert any(item.category == "consent" and item.status == "blocker" for item in response.review_checklist.items)
@@ -61,7 +61,7 @@ def test_builder_allows_acknowledged_warnings_but_not_blockers():
         review_checklist_acknowledged=True,
     )))
 
-    assert response.status == "error"
+    assert response.status == "needs_review"
     assert response.review_status == "blocked"
     assert response.campaign_id is None
 

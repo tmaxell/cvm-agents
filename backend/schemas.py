@@ -339,6 +339,15 @@ class MessageCreate(BaseModel):
 
 # ── Runtime campaign actions ──────────────────────────────────────────────────
 
+class BuilderCreateRequest(BaseModel):
+    session_id: str
+    draft_flow: dict[str, Any]
+    draft_flow_version: int = Field(ge=1)
+    campaign_brief: CampaignBrief | None = None
+    validation_errors: list[dict] = []
+    review_checklist_acknowledged: bool = False
+
+
 class CampaignActionRequest(BaseModel):
     campaign_id: int
     review_status: ReviewStatus = "blocked"

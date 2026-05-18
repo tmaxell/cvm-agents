@@ -489,6 +489,28 @@ function getResultPanelState(response: BuilderResponse): "success" | "warning" |
   return "pending";
 }
 
+
+function hasDraftValidationIssues(response: BuilderResponse): boolean {
+  const hasValidationErrors = (response.validation_errors?.length ?? 0) > 0;
+  const hasActivityIssues = response.draft_flow?.activities?.some((activity) => {
+    const errors = Array.isArray(activity.errors) ? activity.errors : [];
+    const warnings = Array.isArray(activity.warnings) ? activity.warnings : [];
+    return errors.length > 0 || warnings.length > 0;
+  }) ?? false;
+  return hasValidationErrors || hasActivityIssues;
+}
+
+function isDraftCreateReady(response: BuilderResponse | null, warningsAcknowledged: boolean): boolean {
+  if (!response?.draft_flow || response.campaign_id || !response.draft_flow_version) return false;
+  const hasActivities = (response.draft_flow.activities?.length ?? 0) > 0;
+  if (!hasActivities || hasDraftValidationIssues(response)) return false;
+  if (response.review_status === "green") return true;
+  if (response.review_status === "warnings") {
+    return Boolean(response.review_checklist_acknowledged || warningsAcknowledged);
+  }
+  return false;
+}
+
 function getResultPanelItems(response: BuilderResponse, lang: "ru" | "en"): ResultPanelItem[] {
   const items: ResultPanelItem[] = [
     {
@@ -586,6 +608,7 @@ export function CampaignBuilderChat({
   );
   const [targetGroupsSource, setTargetGroupsSource] = useState<"audience-builder" | "manual" | null>(null);
   const [reviewWarningsAcknowledged, setReviewWarningsAcknowledged] = useState(false);
+  const [creatingCampaign, setCreatingCampaign] = useState(false);
 
   const { messages, loading, error, send, clear, replaceMessages } = useChat({
     endpoint: "/api/builder",
@@ -778,6 +801,48 @@ export function CampaignBuilderChat({
     }
   };
 
+  const handleCreateCampaign = async () => {
+    if (!lastResponse?.draft_flow || !currentSessionId || creatingCampaign) return;
+    setCreatingCampaign(true);
+    try {
+      const userText = lang === "en" ? "Create in AdTarget" : "Создать кампанию в AdTarget";
+      replaceMessages([...messages, { role: "user", content: userText }]);
+      const response = await fetch(`${API_BASE}/api/builder/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: currentSessionId,
+          draft_flow: lastResponse.draft_flow,
+          draft_flow_version: lastResponse.draft_flow_version,
+          campaign_brief: campaignBrief,
+          validation_errors: lastResponse.validation_errors ?? [],
+          review_checklist_acknowledged: reviewWarningsAcknowledged || Boolean(lastResponse.review_checklist_acknowledged),
+        }),
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
+      }
+      const builderResponse = await response.json() as BuilderResponse;
+      setLastResponse(builderResponse);
+      replaceMessages([
+        ...messages,
+        { role: "user", content: userText },
+        { role: "assistant", content: builderResponse.message },
+      ]);
+      setCurrentSessionId(builderResponse.session_id ?? currentSessionId);
+      refreshSessions();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to create campaign";
+      replaceMessages([
+        ...messages,
+        { role: "assistant", content: lang === "en" ? `Create failed: ${message}` : `Создание не удалось: ${message}` },
+      ]);
+    } finally {
+      setCreatingCampaign(false);
+    }
+  };
+
   const handleApplyDemoPlaybook = (item: BuilderDemoPlaybookItem) => {
     if (item.prompt) setInput(item.prompt);
   };
@@ -800,6 +865,7 @@ export function CampaignBuilderChat({
   const constraintsSummary = getConstraintSummary(campaignBrief);
   const checklistItems = lastResponse?.review_checklist?.items ?? [];
   const canAcknowledgeWarnings = lastResponse?.review_status === "warnings";
+  const canCreateCampaign = isDraftCreateReady(lastResponse, reviewWarningsAcknowledged);
 
   return (
     <div className="fw-builder-chat">
@@ -1083,6 +1149,17 @@ export function CampaignBuilderChat({
                 {lang === "en" ? "Refresh canvas" : "Обновить canvas"}
                 <span>{lang === "en" ? "Uses the current flow" : "Использует текущий flow"}</span>
               </button>
+              {canCreateCampaign && (
+                <button
+                  type="button"
+                  onClick={handleCreateCampaign}
+                  disabled={creatingCampaign}
+                >
+                  {creatingCampaign
+                    ? (lang === "en" ? "Creating…" : "Создаём…")
+                    : (lang === "en" ? "Create in AdTarget" : "Создать кампанию")}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={onOpenMonitoring}

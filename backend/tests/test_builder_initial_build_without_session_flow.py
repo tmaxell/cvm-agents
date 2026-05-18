@@ -98,3 +98,79 @@ def test_draft_build_with_last_flow_does_not_auto_create_campaign(monkeypatch):
     assert "Draft" in response.message
     assert "готов к review" in response.message
     assert "отдельного подтверждения" in response.message
+
+
+def test_explicit_builder_create_endpoint_calls_adtarget_create(monkeypatch):
+    from unittest.mock import AsyncMock
+    import types
+
+    class PlaceholderSessionStore:
+        pass
+
+    async def fake_init_db():
+        return None
+
+    monkeypatch.setitem(sys.modules, "db", types.SimpleNamespace(
+        DatabaseSessionStore=PlaceholderSessionStore,
+        init_db=fake_init_db,
+    ))
+
+    from app import builder_create
+    import app as app_module
+    from schemas import BuilderCreateRequest, CampaignBrief, CampaignAudienceRef, CampaignConstraints, SessionDetail
+
+    flow = {
+        "activities": [
+            {"id": "common", "type": "CommonActivity", "name": "Retention"},
+            {"id": "tg", "type": "TargetGroupActivity", "name": "Target Group", "targetGroupId": 42},
+            {"id": "consent", "type": "ConsentCheckActivity", "name": "Consent opt-in"},
+            {
+                "id": "push",
+                "type": "PushCommunicationActivity",
+                "name": "Push",
+                "content": {"parameters": [{"name": "text", "value": "Проверьте персональное предложение."}]},
+            },
+        ],
+    }
+    brief = CampaignBrief(
+        product="тариф Max",
+        goal="удержание",
+        audience=CampaignAudienceRef(target_groups=["42"], description="Target Group #42"),
+        constraints=CampaignConstraints(content="Проверьте персональное предложение."),
+    )
+
+    class FakeSessionStore:
+        async def get_session(self, session_id):
+            return SessionDetail(
+                id=session_id,
+                campaign_id=None,
+                title="Test session",
+                created_at="2026-05-18T00:00:00Z",
+                updated_at="2026-05-18T00:00:00Z",
+                status="draft_ready",
+                draft_flow_version=3,
+                messages=[],
+            )
+
+        async def add_message(self, **kwargs):
+            return None
+
+        async def upsert_campaign_state(self, **kwargs):
+            return None
+
+    create_campaign_mock = AsyncMock(return_value={"campaignId": 777001})
+    monkeypatch.setattr(app_module, "session_store", FakeSessionStore())
+    monkeypatch.setattr(app_module.adtarget, "create_campaign", create_campaign_mock)
+
+    response = asyncio.run(builder_create(BuilderCreateRequest(
+        session_id="session-1",
+        draft_flow=flow,
+        draft_flow_version=3,
+        campaign_brief=brief,
+        review_checklist_acknowledged=True,
+    )))
+
+    create_campaign_mock.assert_awaited_once_with(flow)
+    assert response.campaign_id == 777001
+    assert response.status == "created_in_adtarget"
+    assert response.draft_flow == flow

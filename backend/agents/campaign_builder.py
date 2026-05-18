@@ -230,6 +230,13 @@ def _builder_response(request: BuilderRequest, **kwargs: Any) -> BuilderResponse
     return BuilderResponse(**kwargs)
 
 
+def _status_for_flow_context(campaign_id: int | None, draft_flow: dict[str, Any] | None) -> str:
+    if campaign_id:
+        return "created_in_adtarget"
+    if draft_flow is not None:
+        return "draft_ready"
+    return "collect_brief"
+
 def _looks_like_create_or_launch_request(goal: str) -> bool:
     text = _normalize_text(goal)
     return bool(re.search(r"\b(create|launch|start)\b|созда|запус|старт", text))
@@ -1926,7 +1933,7 @@ async def run(request: BuilderRequest) -> BuilderResponse:
                 draft_flow=existing_flow,
                 review_checklist=checklist,
                 review_status=checklist.status,
-                status="error",
+                status="needs_review",
             )
 
     # Context-only turns go through an LLM planner, but never create a campaign.
@@ -1956,7 +1963,7 @@ async def run(request: BuilderRequest) -> BuilderResponse:
             preference_patch=preference_patch,
             campaign_id=request.session_campaign_id,
             draft_flow=existing_flow,
-            status="created" if request.session_campaign_id else "in_progress",
+            status=_status_for_flow_context(request.session_campaign_id, existing_flow),
         )
 
     # ── Pre-fetch reference data in parallel → inject into system prompt ──────
@@ -2118,7 +2125,7 @@ async def run(request: BuilderRequest) -> BuilderResponse:
             campaign_id=request.session_campaign_id,
             draft_flow=updated_flow,
             draft_flow_version=_next_draft_flow_version(request),
-            status="created" if request.session_campaign_id else "in_progress",
+            status=_status_for_flow_context(request.session_campaign_id, updated_flow),
         )
 
     if planned_flow_patch and "add_activity" in planned_flow_patch.operations:
@@ -2217,7 +2224,7 @@ async def run(request: BuilderRequest) -> BuilderResponse:
             campaign_id=request.session_campaign_id,
             draft_flow=updated_flow,
             draft_flow_version=_next_draft_flow_version(request),
-            status="created" if request.session_campaign_id else "in_progress",
+            status=_status_for_flow_context(request.session_campaign_id, updated_flow),
         )
 
     messages = []
@@ -2341,11 +2348,13 @@ async def run(request: BuilderRequest) -> BuilderResponse:
             pass
 
     if started:
-        status = "started"
+        status = "running"
     elif campaign_id:
-        status = "created"
+        status = "created_in_adtarget"
+    elif draft_only or recovered_from_text or draft_flow is not None:
+        status = "draft_ready"
     else:
-        status = "in_progress"
+        status = "collect_brief"
 
     # ── Финализируем сообщение ────────────────────────────────────────────────
     # Если draft_only/recovered_from_text — заменяем служебный вывод агента на

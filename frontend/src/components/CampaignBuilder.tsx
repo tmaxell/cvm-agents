@@ -25,17 +25,27 @@ const SUGGESTIONS = [
 ];
 
 const STATUS_LABELS: Record<string, string> = {
+  collect_brief: "📝 Сбор brief",
+  draft_ready: "✅ Draft готов",
+  needs_review: "⚠️ Нужен review",
+  created_in_adtarget: "📌 Создана в AdTarget",
+  running: "🚀 Запущена",
+  error: "❌ Ошибка",
   in_progress: "В процессе",
   created: "✅ Создана",
   started: "🚀 Запущена",
-  error: "❌ Ошибка",
 };
 
 const STATUS_COLORS: Record<string, string> = {
+  collect_brief: "#b7791f",
+  draft_ready: "var(--accent)",
+  needs_review: "#d97706",
+  created_in_adtarget: "var(--accent)",
+  running: "var(--success)",
+  error: "var(--error)",
   in_progress: "#b7791f",
   created: "var(--accent)",
   started: "var(--success)",
-  error: "var(--error)",
 };
 
 export function CampaignBuilder() {

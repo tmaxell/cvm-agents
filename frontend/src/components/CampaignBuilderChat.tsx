@@ -51,24 +51,42 @@ const SUGGESTIONS: Record<"ru" | "en", string[]> = {
 
 const STATUS_LABELS: Record<"ru" | "en", Record<string, string>> = {
   ru: {
+    collect_brief: "📝 Сбор brief",
+    draft_ready: "✅ Draft готов",
+    needs_review: "⚠️ Нужен review",
+    created_in_adtarget: "📌 Создана в AdTarget",
+    running: "🚀 Запущена",
+    error: "❌ Ошибка",
+    // Legacy statuses kept for historical sessions.
     in_progress: "⏳ В процессе",
     created: "✅ Создана",
     started: "🚀 Запущена",
-    error: "❌ Ошибка",
   },
   en: {
+    collect_brief: "📝 Collecting brief",
+    draft_ready: "✅ Draft ready",
+    needs_review: "⚠️ Needs review",
+    created_in_adtarget: "📌 Created in AdTarget",
+    running: "🚀 Running",
+    error: "❌ Error",
+    // Legacy statuses kept for historical sessions.
     in_progress: "⏳ In progress",
     created: "✅ Created",
     started: "🚀 Started",
-    error: "❌ Error",
   },
 };
 
 const STATUS_COLORS: Record<string, string> = {
+  collect_brief: "#b7791f",
+  draft_ready: "#5257ff",
+  needs_review: "#d97706",
+  created_in_adtarget: "#4f46e5",
+  running: "#16a34a",
+  error: "#dc2626",
+  // Legacy statuses kept for historical sessions.
   in_progress: "#b7791f",
   created: "#5257ff",
   started: "#16a34a",
-  error: "#dc2626",
 };
 
 interface BuilderDemoPlaybookItem {
@@ -432,7 +450,7 @@ function getValidationSummary(response: BuilderResponse, lang: "ru" | "en"): str
   }, 0) ?? 0;
   const totalIssues = validationErrorsCount + activityIssuesCount;
 
-  if (response.status === "error") {
+  if (response.status === "error" || response.status === "needs_review") {
     return totalIssues > 0
       ? (lang === "en" ? `${totalIssues} issue(s) to review` : `${totalIssues} замечаний к проверке`)
       : (lang === "en" ? "Needs review" : "Нужна проверка");
@@ -447,16 +465,27 @@ function getValidationSummary(response: BuilderResponse, lang: "ru" | "en"): str
 }
 
 function getResultPanelState(response: BuilderResponse): "success" | "warning" | "pending" {
-  if (response.review_status === "blocked") return "warning";
-  if (response.review_status === "warnings") return "warning";
   const hasValidationErrors = (response.validation_errors?.length ?? 0) > 0;
   const hasActivityIssues = response.draft_flow?.activities.some((activity) =>
     (Array.isArray(activity.errors) && activity.errors.length > 0) ||
     (Array.isArray(activity.warnings) && activity.warnings.length > 0)
   ) ?? false;
 
-  if (response.status === "error" || hasValidationErrors || hasActivityIssues) return "warning";
-  if (response.campaign_id || response.draft_flow?.activities?.length) return "success";
+  if (
+    response.status === "error" ||
+    response.status === "needs_review" ||
+    response.review_status === "blocked" ||
+    response.review_status === "warnings" ||
+    hasValidationErrors ||
+    hasActivityIssues
+  ) return "warning";
+  if (
+    response.status === "draft_ready" ||
+    response.status === "created_in_adtarget" ||
+    response.status === "running" ||
+    response.campaign_id ||
+    response.draft_flow?.activities?.length
+  ) return "success";
   return "pending";
 }
 
@@ -997,12 +1026,12 @@ export function CampaignBuilderChat({
               <span>{lang === "en" ? "Last response" : "Последний ответ"}</span>
               <h3>{lang === "en" ? "Campaign assembly result" : "Результат сборки кампании"}</h3>
             </div>
-            <strong>
-              {resultPanelState === "success"
+            <strong style={{ color: STATUS_COLORS[lastResponse.status] ?? undefined }}>
+              {STATUS_LABELS[lang][lastResponse.status] ?? (resultPanelState === "success"
                 ? (lang === "en" ? "Ready" : "Готово")
                 : resultPanelState === "warning"
                   ? (lang === "en" ? "Review" : "Проверка")
-                  : (lang === "en" ? "Context" : "Контекст")}
+                  : (lang === "en" ? "Context" : "Контекст"))}
             </strong>
           </div>
           {lastResponse.draft_flow && (

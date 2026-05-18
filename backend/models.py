@@ -21,7 +21,7 @@ class BuilderSessionModel(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     campaign_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="in_progress")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="collect_brief")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
@@ -59,7 +59,7 @@ class CampaignStateModel(Base):
     campaign_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     draft_flow_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     draft_flow_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    runtime_status: Mapped[str] = mapped_column(String(32), nullable=False, default="in_progress")
+    runtime_status: Mapped[str] = mapped_column(String(32), nullable=False, default="collect_brief")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False

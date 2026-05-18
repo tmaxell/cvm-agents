@@ -28,7 +28,7 @@ from langchain_core.tools import tool
 from typing_extensions import TypedDict
 
 from llm import get_llm
-from schemas import BuilderRequest, BuilderResponse
+from schemas import BuilderRequest, BuilderResponse, CampaignBriefCompleteness
 from tools import adtarget
 from tools.flow_builder import (
     make_common_activity,
@@ -145,6 +145,67 @@ def _campaign_brief_context(request: BuilderRequest) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return {}
     return payload
+
+
+def _has_audience_context(audience: Any) -> bool:
+    if not audience:
+        return False
+    target_groups = getattr(audience, "target_groups", None) or []
+    description = (getattr(audience, "description", None) or "").strip()
+    selected_segment = getattr(audience, "selected_segment", None)
+    return bool(target_groups or description or selected_segment)
+
+
+def check_campaign_brief_completeness(request: BuilderRequest) -> CampaignBriefCompleteness:
+    """Validate required Campaign Builder brief fields and expose UI-safe metadata."""
+    brief = request.campaign_brief
+    preferences = request.builder_preferences or {}
+
+    def text_present(value: Any) -> bool:
+        return bool(str(value or "").strip())
+
+    missing_fields: list[str] = []
+    assumptions: list[str] = []
+    safety_checks = [
+        "Validate audience contactability and channel opt-in/opt-out before launch.",
+        "Validate offer eligibility, product fit, and legal copy before activation.",
+    ]
+
+    if not text_present(getattr(brief, "goal", None)) and not text_present(preferences.get("goal")):
+        missing_fields.append("goal")
+    brief_offer = getattr(getattr(brief, "constraints", None), "offer_recommendations", None)
+    if (
+        not text_present(getattr(brief, "product", None))
+        and not text_present(brief_offer)
+        and not text_present(preferences.get("product"))
+        and not text_present(preferences.get("offerRecommendations"))
+    ):
+        missing_fields.append("product/offer")
+    if (
+        not _has_audience_context(getattr(brief, "audience", None))
+        and not text_present(preferences.get("targetGroups"))
+    ):
+        missing_fields.append("audience")
+
+    channels = getattr(brief, "channels", None) or []
+    has_channels = any(
+        text_present(getattr(channel, "name", None)) for channel in channels
+    ) or text_present(preferences.get("channels"))
+    if not has_channels:
+        missing_fields.append("channels")
+        assumptions.append("channels: SMS + Push")
+
+    return CampaignBriefCompleteness(
+        missing_fields=missing_fields,
+        assumptions=assumptions,
+        safety_checks=safety_checks,
+    )
+
+
+def _builder_response(request: BuilderRequest, **kwargs: Any) -> BuilderResponse:
+    """Create BuilderResponse with brief completeness for UI consumption."""
+    kwargs.setdefault("brief_completeness", check_campaign_brief_completeness(request))
+    return BuilderResponse(**kwargs)
 
 
 def _structured_audience_context(request: BuilderRequest) -> dict[str, Any]:
@@ -1757,6 +1818,7 @@ async def run(request: BuilderRequest) -> BuilderResponse:
     existing_flow = _parse_flow_json(request.session_flow_json)
     flow_edit_intent = _parse_flow_edit_intent(request.goal)
     campaign_brief_context = _campaign_brief_context(request)
+    brief_completeness = check_campaign_brief_completeness(request)
     structured_audience_context = _structured_audience_context(request)
 
     # Context-only turns go through an LLM planner, but never create a campaign.
@@ -1779,7 +1841,8 @@ async def run(request: BuilderRequest) -> BuilderResponse:
         updated_preferences = _merge_builder_preferences(request.builder_preferences, preference_patch)
         if plan_warning:
             message += f"\n\n⚠️ LLM-планировщик не смог подтвердить шаг ({plan_warning}); контекст сохранён без сборки кампании."
-        return BuilderResponse(
+        return _builder_response(
+            request,
             message=message,
             builder_preferences=updated_preferences,
             preference_patch=preference_patch,
@@ -1799,6 +1862,17 @@ async def run(request: BuilderRequest) -> BuilderResponse:
     if campaign_brief_context:
         brief_json = json.dumps(campaign_brief_context, ensure_ascii=False)
         system_prompt += f"\nTyped campaign_brief (authoritative structured request context): {brief_json}\n"
+    completeness_json = json.dumps(brief_completeness.model_dump(), ensure_ascii=False)
+    system_prompt += (
+        "\nCampaign brief completeness (UI-safe server validation; do not expose debug output): "
+        f"{completeness_json}\n"
+    )
+    if brief_completeness.assumptions:
+        system_prompt += (
+            "Apply explicit assumptions unless the user overrides them: "
+            + "; ".join(brief_completeness.assumptions)
+            + "\n"
+        )
     if structured_audience_context:
         audience_json = json.dumps(structured_audience_context, ensure_ascii=False)
         target_group_id = _selected_target_group_id(structured_audience_context)
@@ -1872,7 +1946,8 @@ async def run(request: BuilderRequest) -> BuilderResponse:
 
     if planned_flow_edit and planned_flow_edit.get("action") == "remove_activity":
         if not existing_flow:
-            return BuilderResponse(
+            return _builder_response(
+                request,
                 message=(
                     "Не нашёл текущий flow для доработки. Сначала соберите кампанию, "
                     "затем повторите запрос на удаление активности."
@@ -1891,7 +1966,8 @@ async def run(request: BuilderRequest) -> BuilderResponse:
                 occurrence=planned_flow_edit.get("occurrence") or "last",
             )
         except Exception as e:
-            return BuilderResponse(
+            return _builder_response(
+                request,
                 message=f"Не удалось удалить активность из текущего flow: {type(e).__name__}: {e}",
                 campaign_id=request.session_campaign_id,
                 draft_flow=existing_flow,
@@ -1903,7 +1979,8 @@ async def run(request: BuilderRequest) -> BuilderResponse:
         message = planned_flow_edit.get("assistant_message") or f"Удалил{target_text} из flow и пересобрал связи."
         if planned_flow_edit_warning:
             message += f"\n\n⚠️ {planned_flow_edit_warning}"
-        return BuilderResponse(
+        return _builder_response(
+            request,
             message=message,
             campaign_id=request.session_campaign_id,
             draft_flow=updated_flow,
@@ -1913,7 +1990,8 @@ async def run(request: BuilderRequest) -> BuilderResponse:
     if planned_flow_edit and planned_flow_edit.get("action") == "add_activity":
         activity_type = planned_flow_edit.get("activity_type")
         if not _is_supported_activity_type(activity_type):
-            return BuilderResponse(
+            return _builder_response(
+                request,
                 message=_unsupported_activity_message(activity_type),
                 campaign_id=request.session_campaign_id,
                 draft_flow=existing_flow,
@@ -1921,7 +1999,8 @@ async def run(request: BuilderRequest) -> BuilderResponse:
             )
 
         if not existing_flow:
-            return BuilderResponse(
+            return _builder_response(
+                request,
                 message=(
                     "Не нашёл текущий flow для доработки. Сначала соберите кампанию, "
                     "затем повторите запрос на добавление активности."
@@ -1947,7 +2026,8 @@ async def run(request: BuilderRequest) -> BuilderResponse:
                     "справочник офферов пуст или недоступен. "
                     "Укажите offer_template_id и operation_id или проверьте доступ к AdTarget API."
                 )
-                return BuilderResponse(
+                return _builder_response(
+                    request,
                     message=f"Не удалось выбрать шаблон оффера для бизнес-транзакции: {details}",
                     campaign_id=request.session_campaign_id,
                     draft_flow=existing_flow,
@@ -1965,7 +2045,8 @@ async def run(request: BuilderRequest) -> BuilderResponse:
                 anchor_position=planned_flow_edit.get("anchor_position"),
             )
         except Exception as e:
-            return BuilderResponse(
+            return _builder_response(
+                request,
                 message=f"Не удалось добавить активность в текущий flow: {type(e).__name__}: {e}",
                 campaign_id=request.session_campaign_id,
                 draft_flow=existing_flow,
@@ -1987,7 +2068,8 @@ async def run(request: BuilderRequest) -> BuilderResponse:
         if planned_flow_edit_warning:
             message += f"\n\n⚠️ {planned_flow_edit_warning}"
 
-        return BuilderResponse(
+        return _builder_response(
+            request,
             message=message,
             campaign_id=request.session_campaign_id,
             draft_flow=updated_flow,
@@ -2023,7 +2105,8 @@ async def run(request: BuilderRequest) -> BuilderResponse:
         })
     except Exception as e:
         print(f"[campaign_builder] LLM/tool graph failed: {type(e).__name__}: {e}")
-        return BuilderResponse(
+        return _builder_response(
+            request,
             message=(
                 "Не удалось завершить шаг через LLM: "
                 f"{type(e).__name__}: {e}. "
@@ -2076,7 +2159,8 @@ async def run(request: BuilderRequest) -> BuilderResponse:
             flow_data_for_validation = None
 
     if flow_product_warning and not campaign_id:
-        return BuilderResponse(
+        return _builder_response(
+            request,
             message=f"⚠️ {flow_product_warning}",
             campaign_id=None,
             draft_flow=flow_data_for_validation,
@@ -2143,7 +2227,8 @@ async def run(request: BuilderRequest) -> BuilderResponse:
                 "Создание в AdTarget требует отдельного подтверждения."
             )
 
-    return BuilderResponse(
+    return _builder_response(
+        request,
         message=answer_text,
         campaign_id=campaign_id,
         draft_flow=draft_flow,

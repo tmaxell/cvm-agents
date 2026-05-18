@@ -184,6 +184,11 @@ async def builder(request: BuilderRequest) -> BuilderResponse:
             "preference_patch": response.preference_patch,
             "draft_flow_json": persisted_flow_json,
             "validation_errors": response.validation_errors,
+            "brief_completeness": (
+                response.brief_completeness.model_dump()
+                if response.brief_completeness
+                else None
+            ),
         },
     )
     await session_store.upsert_campaign_state(

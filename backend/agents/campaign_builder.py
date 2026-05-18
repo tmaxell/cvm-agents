@@ -29,6 +29,7 @@ from typing_extensions import TypedDict
 
 from llm import get_llm
 from schemas import BuilderRequest, BuilderResponse, CampaignBriefCompleteness
+from agents.flow_composer import compose_campaign_flow_result
 from tools import adtarget
 from tools.flow_builder import (
     make_common_activity,
@@ -1243,7 +1244,7 @@ Offer templates (offer_template_id / operation_id):
 Rules:
 - Work step-by-step: if the user only describes product, content, audience, goal, or offer preferences, acknowledge and keep these details in conversation; ask for missing inputs instead of forcing campaign creation.
 - Build/create only when the user asks to build/create/assemble, or when enough concrete inputs are available and the intent is clearly campaign creation.
-- For a new campaign: pick the right build_*_flow tool, then validate_flow_tool, then create_campaign_tool. Use start_campaign_tool only if user says to launch.
+- For a new campaign: use last_flow_json supplied by the deterministic Flow Composer as the canonical base route; do not build the base route with LLM/tool calls. Use validate_flow_tool/create_campaign_tool only after explicit user confirmation to create, and start_campaign_tool only if user says to launch.
 - For follow-up edits to an existing flow, use session_flow_json and update_existing_flow_with_activity instead of starting from scratch for all supported activity types: PushCommunicationActivity, PullCommunicationActivity, EventActivity, WaitActivity, BusinessTransactionActivity, RealTimeCheckActivity, ResponseActivity, InteractiveResponseActivity, OrJoinActivity.
 - For removal follow-up edits, use remove_existing_flow_activity with activity_type or activity_id/anchor_id; for "last transaction" remove the last BusinessTransactionActivity.
 - You may still use update_existing_flow_with_business_transaction for the legacy business-transaction-only edit path when only offer_template_id and operation_id are needed.
@@ -1709,14 +1710,8 @@ class BuilderState(TypedDict):
 # ── Tool list (lookup tools removed — data injected into prompt instead) ─────
 
 TOOLS = [
-    # Flow builders
-    build_sms_campaign_flow,
-    build_email_campaign_flow,
-    build_push_campaign_flow,
-    build_event_sms_campaign_flow,
-    build_business_transaction_flow,
-    build_event_sms_with_bt_flow,
-    build_sms_with_wait_flow,
+    # Flow editing tools. Initial base-route generation is handled by
+    # agents.flow_composer before the LLM is called.
     update_existing_flow_with_business_transaction,
     update_existing_flow_with_activity,
     remove_existing_flow_activity,
@@ -1894,12 +1889,24 @@ async def run(request: BuilderRequest) -> BuilderResponse:
         not existing_flow
         and _looks_like_initial_flow_build(request.goal, request.builder_preferences)
     )
+    deterministic_initial_flow: dict[str, Any] | None = None
     if initial_build_without_existing_flow:
         # Keep initial build requests on the normal draft-flow path even when
         # they mention an activity type that the deterministic edit parser knows
         # about (for example RealTimeCheck). Missing-flow errors are reserved for
         # follow-up edit commands that require an existing draft.
         flow_edit_intent = None
+        if request.campaign_brief is not None:
+            composition = compose_campaign_flow_result(request.campaign_brief)
+            deterministic_initial_flow = composition.flow
+            system_prompt += (
+                "\nDeterministic Flow Composer already supplied the canonical base route in "
+                "last_flow_json. Do not call build_*_flow tools or change the base route. "
+                "Use the LLM only to choose message/template variants and wording; keep "
+                "Start/Common, AudienceFilter, ConsentCheck, channel, Wait and "
+                "Response/ActivationCheck routing intact. "
+                f"Composer validation metadata: {json.dumps(composition.validation_metadata, ensure_ascii=False)}\n"
+            )
 
     planned_flow_edit: dict | None = None
     planned_flow_edit_warning: str | None = None
@@ -2094,6 +2101,8 @@ async def run(request: BuilderRequest) -> BuilderResponse:
 
     initial_campaign_id = request.session_campaign_id
     initial_flow_json = request.session_flow_json
+    if deterministic_initial_flow is not None:
+        initial_flow_json = json.dumps(deterministic_initial_flow, ensure_ascii=False)
 
     graph = get_graph()
     try:
@@ -2114,7 +2123,7 @@ async def run(request: BuilderRequest) -> BuilderResponse:
                 "попробуйте повторить запрос или уточнить параметры."
             ),
             campaign_id=initial_campaign_id,
-            draft_flow=existing_flow,
+            draft_flow=deterministic_initial_flow or existing_flow,
             status="error",
         )
 
@@ -2122,6 +2131,8 @@ async def run(request: BuilderRequest) -> BuilderResponse:
     answer_text = last_message.content if hasattr(last_message, "content") else str(last_message)
     campaign_id = result.get("campaign_id")
     last_flow_json = result.get("last_flow_json")
+    if not last_flow_json and deterministic_initial_flow is not None:
+        last_flow_json = json.dumps(deterministic_initial_flow, ensure_ascii=False)
 
     # ── Debug: log tool call sequence ────────────────────────────────────────────
     tool_calls_made = []

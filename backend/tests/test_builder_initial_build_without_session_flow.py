@@ -49,7 +49,7 @@ def test_initial_build_with_realtime_check_without_session_flow_uses_draft_build
     assert response.status != "error"
     assert "Не нашёл текущий flow" not in response.message
     assert "Builder UI preferences" in fake_graph.payload["system_prompt"]
-    assert fake_graph.payload["last_flow_json"] is None
+    assert fake_graph.payload["last_flow_json"] is not None
 
 
 def test_draft_build_with_last_flow_does_not_auto_create_campaign(monkeypatch):

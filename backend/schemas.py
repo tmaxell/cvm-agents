@@ -45,10 +45,31 @@ class CopilotResponse(BaseModel):
 
 # ── F2: Campaign Builder ──────────────────────────────────────────────────────
 
+class CampaignAudienceMatchedTargetGroup(BaseModel):
+    """Target Group match selected in Audience Builder."""
+    id: int | str | None = None
+    target_group_id: int | None = None
+    name: str = ""
+    clients_count: int | None = None
+    match_score: float | None = None
+    match_reasons: list[str] = Field(default_factory=list)
+
+
+class CampaignAudienceSelectedSegment(BaseModel):
+    """Structured selected-segment payload passed to Campaign Builder."""
+    hypothesis: dict[str, Any] = Field(default_factory=dict)
+    selection_criteria: dict[str, Any] = Field(default_factory=dict)
+    matched_target_group: CampaignAudienceMatchedTargetGroup | None = None
+    is_existing_target_group: bool = False
+    risk_or_limitation: str | None = None
+    recommendationOnly: bool = False
+
+
 class CampaignAudienceRef(BaseModel):
     """Нормализованное описание аудитории для Campaign Builder."""
     target_groups: list[str] = Field(default_factory=list)
     description: str | None = None
+    selected_segment: CampaignAudienceSelectedSegment | None = None
 
 
 class CampaignChannel(BaseModel):

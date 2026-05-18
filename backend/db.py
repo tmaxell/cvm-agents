@@ -65,7 +65,7 @@ async def init_db() -> None:
             "review_checklist_json": "ALTER TABLE campaign_states ADD COLUMN review_checklist_json JSON",
             "review_status": "ALTER TABLE campaign_states ADD COLUMN review_status VARCHAR(32)",
             "review_checklist_acknowledged": (
-                "ALTER TABLE campaign_states ADD COLUMN review_checklist_acknowledged BOOLEAN NOT NULL DEFAULT 0"
+                "ALTER TABLE campaign_states ADD COLUMN review_checklist_acknowledged BOOLEAN NOT NULL DEFAULT FALSE"
             ),
             "runtime_status": (
                 "ALTER TABLE campaign_states ADD COLUMN runtime_status VARCHAR(32) NOT NULL DEFAULT 'editing'"

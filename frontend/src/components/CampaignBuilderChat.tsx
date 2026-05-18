@@ -15,6 +15,8 @@ import type {
   BuilderSessionDetail,
   ChatMessage,
   SelectedSegmentForBuilder,
+  ReviewChecklistItem,
+  ReviewStatus,
 } from "../types/api";
 import { useChat } from "../hooks/useChat";
 import { MarkdownText } from "./MarkdownText";
@@ -403,6 +405,24 @@ function getFlowSummary(response: BuilderResponse, lang: "ru" | "en"): string {
   return `${pluralizeActivities(activities.length, lang)}${summary}`;
 }
 
+function getReviewStatusLabel(status: ReviewStatus | undefined, lang: "ru" | "en"): string {
+  if (status === "green") return lang === "en" ? "Green" : "Green";
+  if (status === "warnings") return lang === "en" ? "Warnings" : "Warnings";
+  return lang === "en" ? "Blocked" : "Blocked";
+}
+
+function getChecklistItemLabel(item: ReviewChecklistItem, lang: "ru" | "en"): string {
+  const labels: Record<string, string> = {
+    audience: lang === "en" ? "Audience" : "Аудитория",
+    consent: lang === "en" ? "Consent" : "Согласия",
+    contact_policy: lang === "en" ? "Contact policy" : "Контактная политика",
+    offer: lang === "en" ? "Offer" : "Оффер",
+    content: lang === "en" ? "Content" : "Контент",
+    validation: lang === "en" ? "Validation" : "Валидация",
+  };
+  return labels[item.category] ?? item.label;
+}
+
 function getValidationSummary(response: BuilderResponse, lang: "ru" | "en"): string {
   const validationErrorsCount = response.validation_errors?.length ?? 0;
   const activityIssuesCount = response.draft_flow?.activities.reduce((count, activity) => {
@@ -427,6 +447,8 @@ function getValidationSummary(response: BuilderResponse, lang: "ru" | "en"): str
 }
 
 function getResultPanelState(response: BuilderResponse): "success" | "warning" | "pending" {
+  if (response.review_status === "blocked") return "warning";
+  if (response.review_status === "warnings") return "warning";
   const hasValidationErrors = (response.validation_errors?.length ?? 0) > 0;
   const hasActivityIssues = response.draft_flow?.activities.some((activity) =>
     (Array.isArray(activity.errors) && activity.errors.length > 0) ||
@@ -457,8 +479,8 @@ function getResultPanelItems(response: BuilderResponse, lang: "ru" | "en"): Resu
     });
   } else {
     items.push({
-      label: lang === "en" ? "Checklist" : "Checklist",
-      value: getValidationSummary(response, lang),
+      label: lang === "en" ? "Review" : "Review",
+      value: response.review_status ? getReviewStatusLabel(response.review_status, lang) : getValidationSummary(response, lang),
     });
   }
 
@@ -507,6 +529,9 @@ function responseFromSession(session: BuilderSessionDetail): BuilderResponse | n
       : session.draft_flow_version ?? null,
     validation_errors: Array.isArray(metadata.validation_errors) ? metadata.validation_errors : [],
     brief_completeness: metadata.brief_completeness as BuilderResponse["brief_completeness"] ?? null,
+    review_checklist: metadata.review_checklist as BuilderResponse["review_checklist"] ?? null,
+    review_status: (metadata.review_status as BuilderResponse["review_status"]) ?? "blocked",
+    review_checklist_acknowledged: Boolean(metadata.review_checklist_acknowledged),
     status: session.status as BuilderResponse["status"],
   };
 }
@@ -531,6 +556,7 @@ export function CampaignBuilderChat({
       ?? preferencesToBrief(readStoredJson<BuilderPreferences>(BUILDER_PREFS_KEY, {})),
   );
   const [targetGroupsSource, setTargetGroupsSource] = useState<"audience-builder" | "manual" | null>(null);
+  const [reviewWarningsAcknowledged, setReviewWarningsAcknowledged] = useState(false);
 
   const { messages, loading, error, send, clear, replaceMessages } = useChat({
     endpoint: "/api/builder",
@@ -546,6 +572,7 @@ export function CampaignBuilderChat({
       draft_flow_version: lastResponse?.draft_flow_version ?? null,
       campaign_brief: campaignBrief,
       builder_preferences: briefToPreferences(campaignBrief),
+      review_checklist_acknowledged: reviewWarningsAcknowledged,
     }),
   });
 
@@ -715,6 +742,13 @@ export function CampaignBuilderChat({
     setInput(buildBuilderPrompt(nextBrief, lang));
   };
 
+  const handleReviewAckChange = (acknowledged: boolean) => {
+    setReviewWarningsAcknowledged(acknowledged);
+    if (lastResponse) {
+      onResponse({ ...lastResponse, review_checklist_acknowledged: acknowledged });
+    }
+  };
+
   const handleApplyDemoPlaybook = (item: BuilderDemoPlaybookItem) => {
     if (item.prompt) setInput(item.prompt);
   };
@@ -735,6 +769,8 @@ export function CampaignBuilderChat({
   const audienceSummary = getAudienceSummary(campaignBrief, lang);
   const audienceFullCriteria = getAudienceFullCriteria(campaignBrief, lang);
   const constraintsSummary = getConstraintSummary(campaignBrief);
+  const checklistItems = lastResponse?.review_checklist?.items ?? [];
+  const canAcknowledgeWarnings = lastResponse?.review_status === "warnings";
 
   return (
     <div className="fw-builder-chat">
@@ -983,6 +1019,31 @@ export function CampaignBuilderChat({
               </div>
             ))}
           </dl>
+          {checklistItems.length > 0 && (
+            <div className="builder-review-checklist" aria-label={lang === "en" ? "Safety checklist" : "Safety checklist"}>
+              {checklistItems.map((item) => (
+                <div key={item.category} className={`builder-review-checklist-item ${item.status}`}>
+                  <span aria-hidden="true">{item.status === "green" ? "✓" : item.status === "warning" ? "!" : "×"}</span>
+                  <div>
+                    <strong>{getChecklistItemLabel(item, lang)}</strong>
+                    <p>{item.message}</p>
+                  </div>
+                </div>
+              ))}
+              {canAcknowledgeWarnings && (
+                <label className="builder-review-ack">
+                  <input
+                    type="checkbox"
+                    checked={reviewWarningsAcknowledged}
+                    onChange={(event) => handleReviewAckChange(event.target.checked)}
+                  />
+                  {lang === "en"
+                    ? "I acknowledge acceptable warnings for create/launch"
+                    : "Подтверждаю допустимые warnings для create/launch"}
+                </label>
+              )}
+            </div>
+          )}
           {onOpenMonitoring && (
             <div className="builder-result-panel-actions">
               <button

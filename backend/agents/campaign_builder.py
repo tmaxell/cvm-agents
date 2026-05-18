@@ -29,6 +29,7 @@ from typing_extensions import TypedDict
 
 from llm import get_llm
 from schemas import BuilderRequest, BuilderResponse, CampaignBriefCompleteness, FlowPatch
+from agents.safety_review import build_review_checklist, is_review_allowed_for_runtime
 from agents.flow_composer import compose_campaign_flow_result
 from tools import adtarget
 from tools.flow_builder import (
@@ -213,12 +214,37 @@ def _next_draft_flow_version(request: BuilderRequest) -> int:
 
 
 def _builder_response(request: BuilderRequest, **kwargs: Any) -> BuilderResponse:
-    """Create BuilderResponse with brief completeness and draft version for UI consumption."""
+    """Create BuilderResponse with brief completeness, review checklist, and draft version."""
     kwargs.setdefault("brief_completeness", check_campaign_brief_completeness(request))
     if kwargs.get("draft_flow") is not None and kwargs.get("draft_flow_version") is None:
         current_version = _current_draft_flow_version(request)
         kwargs["draft_flow_version"] = current_version or 1
+    checklist = kwargs.get("review_checklist") or build_review_checklist(
+        request.campaign_brief,
+        kwargs.get("draft_flow"),
+        kwargs.get("validation_errors") or [],
+    )
+    kwargs["review_checklist"] = checklist
+    kwargs.setdefault("review_status", checklist.status)
+    kwargs.setdefault("review_checklist_acknowledged", request.review_checklist_acknowledged)
     return BuilderResponse(**kwargs)
+
+
+def _looks_like_create_or_launch_request(goal: str) -> bool:
+    text = _normalize_text(goal)
+    return bool(re.search(r"\b(create|launch|start)\b|созда|запус|старт", text))
+
+
+def _blocked_runtime_review_message(checklist_status: str) -> str:
+    if checklist_status == "warnings":
+        return (
+            "Create/launch заблокирован: review checklist содержит warnings. "
+            "Попросите пользователя явно подтвердить допустимые warnings и повторите действие."
+        )
+    return (
+        "Create/launch заблокирован: review checklist содержит blocking issues. "
+        "Исправьте checklist до green перед созданием или запуском кампании."
+    )
 
 
 def _structured_audience_context(request: BuilderRequest) -> dict[str, Any]:
@@ -1889,6 +1915,19 @@ async def run(request: BuilderRequest) -> BuilderResponse:
     campaign_brief_context = _campaign_brief_context(request)
     brief_completeness = check_campaign_brief_completeness(request)
     structured_audience_context = _structured_audience_context(request)
+
+    if existing_flow and _looks_like_create_or_launch_request(request.goal):
+        checklist = build_review_checklist(request.campaign_brief, existing_flow, [])
+        if not is_review_allowed_for_runtime(checklist.status, request.review_checklist_acknowledged):
+            return _builder_response(
+                request,
+                message=_blocked_runtime_review_message(checklist.status),
+                campaign_id=request.session_campaign_id,
+                draft_flow=existing_flow,
+                review_checklist=checklist,
+                review_status=checklist.status,
+                status="error",
+            )
 
     # Context-only turns go through an LLM planner, but never create a campaign.
     if _is_memory_only_request(request.goal):

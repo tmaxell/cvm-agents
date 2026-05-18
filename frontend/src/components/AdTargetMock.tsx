@@ -15,6 +15,7 @@ interface Props {
   campaignStatus: CampaignRuntimeStatus;
   isActionPending?: boolean;
   actionError?: string | null;
+  canStartCampaign?: boolean;
   onStartCampaign: () => void | Promise<void>;
   onPauseCampaign: () => void | Promise<void>;
 }
@@ -157,6 +158,7 @@ export function AdTargetMock({
   campaignStatus,
   isActionPending = false,
   actionError,
+  canStartCampaign = true,
   onStartCampaign,
   onPauseCampaign,
 }: Props) {
@@ -169,6 +171,7 @@ export function AdTargetMock({
         campaignStatus={campaignStatus}
         isActionPending={isActionPending}
         actionError={actionError}
+        canStartCampaign={canStartCampaign}
         onStartCampaign={onStartCampaign}
         onPauseCampaign={onPauseCampaign}
       />
@@ -233,6 +236,7 @@ function AdtCampaignBar({
   campaignStatus,
   isActionPending = false,
   actionError,
+  canStartCampaign = true,
   onStartCampaign,
   onPauseCampaign,
 }: {
@@ -241,6 +245,7 @@ function AdtCampaignBar({
   campaignStatus: CampaignRuntimeStatus;
   isActionPending?: boolean;
   actionError?: string | null;
+  canStartCampaign?: boolean;
   onStartCampaign: () => void | Promise<void>;
   onPauseCampaign: () => void | Promise<void>;
 }) {
@@ -253,6 +258,7 @@ function AdtCampaignBar({
   };
   const canStart = Boolean(campaignId)
     && !isActionPending
+    && canStartCampaign
     && (campaignStatus === "editing" || campaignStatus === "paused");
   const canPause = !isActionPending && campaignStatus === "active";
 
@@ -275,7 +281,7 @@ function AdtCampaignBar({
           className="adt-toolbar-btn adt-toolbar-btn-start"
           onClick={onStartCampaign}
           disabled={!canStart}
-          title={campaignId ? "Запустить кампанию" : "Сначала создайте кампанию"}
+          title={!campaignId ? "Сначала создайте кампанию" : !canStartCampaign ? "Review checklist должен быть green или acknowledged warnings" : "Запустить кампанию"}
         >
           {isActionPending ? "…" : "▶"} Запустить
         </button>

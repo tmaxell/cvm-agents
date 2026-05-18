@@ -44,6 +44,7 @@ from agents.segment_agent import suggest_segments as segment_suggest_run
 from agents.campaign_monitor import run as monitor_run
 from db import DatabaseSessionStore, init_db
 from tools import adtarget
+from agents.safety_review import is_review_allowed_for_runtime
 
 app = FastAPI(title="CVM Agents API", version="0.1.0")
 session_store = DatabaseSessionStore()
@@ -205,6 +206,13 @@ async def builder(request: BuilderRequest) -> BuilderResponse:
                 if response.brief_completeness
                 else None
             ),
+            "review_checklist": (
+                response.review_checklist.model_dump()
+                if response.review_checklist
+                else None
+            ),
+            "review_status": response.review_status,
+            "review_checklist_acknowledged": response.review_checklist_acknowledged,
         },
     )
     await session_store.upsert_campaign_state(
@@ -247,7 +255,7 @@ async def pause_campaign(
     request: CampaignActionRequest | None = Body(default=None),
 ) -> CampaignActionResponse:
     """Ставит кампанию на паузу/останавливает её в AdTarget."""
-    _validate_campaign_action_request(campaign_id, request)
+    _validate_campaign_action_request(campaign_id, request, enforce_review=False)
     try:
         result = await adtarget.pause_campaign(campaign_id)
     except Exception as e:
@@ -282,9 +290,20 @@ def _raise_for_failed_campaign_action(result: Any, action: str) -> None:
 def _validate_campaign_action_request(
     campaign_id: int,
     request: CampaignActionRequest | None,
+    *,
+    enforce_review: bool = True,
 ) -> None:
     if request is not None and request.campaign_id != campaign_id:
         raise HTTPException(status_code=400, detail="campaign_id in path and body must match")
+    if not enforce_review:
+        return
+    review_status = request.review_status if request is not None else "blocked"
+    acknowledged = bool(request.review_checklist_acknowledged) if request is not None else False
+    if not is_review_allowed_for_runtime(review_status, acknowledged):
+        raise HTTPException(
+            status_code=400,
+            detail="Campaign action blocked until review checklist is green or warnings are explicitly acknowledged",
+        )
 
 
 @app.post("/api/monitor", response_model=MonitorResponse)

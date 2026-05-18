@@ -80,6 +80,22 @@ export interface CampaignBrief {
   constraints: CampaignConstraints;
 }
 
+export type ReviewChecklistCategory = "audience" | "consent" | "contact_policy" | "offer" | "content" | "validation";
+export type ReviewChecklistItemStatus = "green" | "warning" | "blocker";
+export type ReviewStatus = "green" | "warnings" | "blocked";
+
+export interface ReviewChecklistItem {
+  category: ReviewChecklistCategory;
+  label: string;
+  status: ReviewChecklistItemStatus;
+  message: string;
+}
+
+export interface ReviewChecklist {
+  items: ReviewChecklistItem[];
+  status: ReviewStatus;
+}
+
 export interface BuilderRequest {
   goal: string;
   session_id?: string | null;
@@ -90,6 +106,7 @@ export interface BuilderRequest {
   draft_flow_version?: number | null;
   campaign_brief?: CampaignBrief;
   builder_preferences?: BuilderPreferences;
+  review_checklist_acknowledged?: boolean;
 }
 
 
@@ -182,11 +199,16 @@ export interface BuilderResponse {
   draft_flow_version?: number | null;
   validation_errors?: unknown[];
   brief_completeness?: CampaignBriefCompleteness | null;
+  review_checklist?: ReviewChecklist | null;
+  review_status: ReviewStatus;
+  review_checklist_acknowledged?: boolean;
   status: "in_progress" | "created" | "started" | "error";
 }
 
 export interface CampaignActionRequest {
   campaign_id: number;
+  review_status?: ReviewStatus;
+  review_checklist_acknowledged?: boolean;
 }
 
 export interface CampaignActionResponse {

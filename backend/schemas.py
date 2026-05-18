@@ -176,6 +176,23 @@ class FlowPatch(BaseModel):
     activity: FlowPatchActivity
 
 
+ReviewChecklistCategory = Literal["audience", "consent", "contact_policy", "offer", "content", "validation"]
+ReviewChecklistItemStatus = Literal["green", "warning", "blocker"]
+ReviewStatus = Literal["green", "warnings", "blocked"]
+
+
+class ReviewChecklistItem(BaseModel):
+    category: ReviewChecklistCategory
+    label: str
+    status: ReviewChecklistItemStatus
+    message: str
+
+
+class ReviewChecklist(BaseModel):
+    items: list[ReviewChecklistItem] = Field(default_factory=list)
+    status: ReviewStatus = "blocked"
+
+
 class BuilderRequest(BaseModel):
     goal: str                           # «хочу кампанию по утилизации пакета данных»
     context: AgentContext = AgentContext()
@@ -187,6 +204,7 @@ class BuilderRequest(BaseModel):
     draft_flow_version: int | None = None      # версия draft flow из предыдущего ответа
     campaign_brief: CampaignBrief | None = None
     builder_preferences: dict[str, Any] = Field(default_factory=dict)  # legacy UI payload during brief migration
+    review_checklist_acknowledged: bool = False  # user explicitly accepted non-blocking review warnings
 
     @model_validator(mode="after")
     def normalize_campaign_brief(self) -> "BuilderRequest":
@@ -215,6 +233,9 @@ class BuilderResponse(BaseModel):
     draft_flow_version: int | None = None      # версия черновика flow
     validation_errors: list[dict] = []
     brief_completeness: CampaignBriefCompleteness | None = None
+    review_checklist: ReviewChecklist | None = None
+    review_status: ReviewStatus = "blocked"
+    review_checklist_acknowledged: bool = False
     status: str = "in_progress"         # "in_progress" | "created" | "started" | "error"
 
 
@@ -312,6 +333,8 @@ class MessageCreate(BaseModel):
 
 class CampaignActionRequest(BaseModel):
     campaign_id: int
+    review_status: ReviewStatus = "blocked"
+    review_checklist_acknowledged: bool = False
 
 
 class CampaignActionResponse(BaseModel):

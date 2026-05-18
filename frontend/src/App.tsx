@@ -40,7 +40,11 @@ export function App() {
       const response = await fetch(`${API_BASE}/api/campaigns/${campaignId}/${action}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ campaign_id: campaignId }),
+        body: JSON.stringify({
+          campaign_id: campaignId,
+          review_status: currentResponse?.review_status ?? "blocked",
+          review_checklist_acknowledged: Boolean(currentResponse?.review_checklist_acknowledged),
+        }),
       });
       if (!response.ok) {
         throw new Error(await extractCampaignActionError(response, action));
@@ -87,6 +91,7 @@ export function App() {
         campaignStatus={campaignStatus}
         isActionPending={campaignActionPending}
         actionError={campaignActionError}
+        canStartCampaign={currentResponse?.review_status === "green" || Boolean(currentResponse?.review_checklist_acknowledged)}
         onStartCampaign={() => handleCampaignAction("start")}
         onPauseCampaign={() => handleCampaignAction("pause")}
       />

@@ -40,26 +40,26 @@ const PANEL_SIZES: Record<Size, { width: number; height: number }> = {
 };
 
 const COPILOT_PLACEHOLDER: Record<Lang, string> = {
-  ru: "Спросите о кампании, ошибках, настройках…",
-  en: "Ask about campaigns, errors, settings…",
+  ru: "Спросите о документации и возможностях платформы…",
+  en: "Ask about docs and platform capabilities…",
 };
 
 const COPILOT_SUGGESTIONS: Record<Lang, string[]> = {
   ru: [
-    "Почему кампания не запускается?",
-    "Проверь текущий flow и найди риски перед запуском",
-    "Какие поля нужно заполнить для корректной кампании?",
-    "Объясни ошибки в canvas простым языком",
-    "Что улучшить в сегменте и оффере?",
-    "Как проверить настройки каналов перед запуском?",
+    "Как создать кампанию?",
+    "Какие шаги нужны для запуска кампании?",
+    "Как выбрать и настроить сегмент аудитории?",
+    "Какие каналы коммуникации поддерживаются?",
+    "Где посмотреть статусы и результаты кампании?",
+    "Как работает Campaign Builder?",
   ],
   en: [
-    "Why is the campaign not launching?",
-    "Review the current flow and find risks before launch",
-    "Which fields must be filled for a valid campaign?",
-    "Explain the canvas errors in simple terms",
-    "What should be improved in the segment and offer?",
-    "How can I check channel settings before launch?",
+    "How do I create a campaign?",
+    "What steps are required to launch a campaign?",
+    "How do I select and configure an audience segment?",
+    "Which communication channels are supported?",
+    "Where can I view campaign statuses and results?",
+    "How does Campaign Builder work?",
   ],
 };
 

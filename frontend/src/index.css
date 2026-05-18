@@ -3528,10 +3528,18 @@ button {
 }
 
 .builder-brief-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   flex-shrink: 0;
-  padding: 10px 12px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--border, #e5e7eb);
   background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
+
+.builder-brief-summary-main {
+  min-width: 0;
 }
 
 .builder-brief-summary strong {
@@ -3541,16 +3549,39 @@ button {
 }
 
 .builder-brief-summary p {
-  margin: 4px 0 0;
+  max-width: 100%;
+  margin: 3px 0 0;
+  overflow: hidden;
   color: var(--text-secondary, #64748b);
   font-size: 12px;
-  line-height: 1.4;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.builder-result-status {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: var(--accent, #5257ff);
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.builder-result-status.pending {
+  background: var(--surface-secondary, #f8fafc);
+  color: var(--text-secondary, #64748b);
 }
 
 .builder-brief-card {
   flex-shrink: 0;
-  padding: 10px 12px 12px;
   border-bottom: 1px solid var(--border, #e5e7eb);
+  background: #fff;
+}
+
+.builder-brief-details {
   background: #fff;
 }
 
@@ -3592,7 +3623,11 @@ button {
 
 .builder-brief-lines {
   display: grid;
-  gap: 6px;
+  gap: 8px;
+}
+
+.builder-brief-details .builder-brief-lines {
+  padding-top: 2px;
 }
 
 .builder-brief-line {
@@ -3600,7 +3635,7 @@ button {
   grid-template-columns: 112px minmax(0, 1fr);
   gap: 8px;
   align-items: center;
-  min-height: 32px;
+  min-height: 30px;
 }
 
 .builder-brief-label {
@@ -3639,14 +3674,20 @@ button {
   width: 100%;
   min-width: 0;
   padding: 7px 8px;
-  border: 1px solid var(--accent, #5257ff);
+  border: 1px solid var(--border, #e5e7eb);
   border-radius: 8px;
   outline: 0;
-  background: #fff;
+  background: var(--surface-secondary, #f8fafc);
   color: var(--text-primary, #111827);
   font-size: 12px;
   font-weight: 600;
   resize: vertical;
+}
+
+.builder-brief-line input:focus,
+.builder-brief-line textarea:focus {
+  border-color: var(--accent, #5257ff);
+  background: #fff;
 }
 
 .builder-brief-audience-value {
@@ -3712,9 +3753,9 @@ button {
   background: var(--surface-primary, #fff);
 }
 
-.builder-params-panel summary,
-.builder-history-panel summary,
-.builder-examples-panel summary {
+.builder-params-panel > summary,
+.builder-history-panel > summary,
+.builder-examples-panel > summary {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -3727,29 +3768,29 @@ button {
   list-style: none;
 }
 
-.builder-params-panel summary::-webkit-details-marker,
-.builder-history-panel summary::-webkit-details-marker,
-.builder-examples-panel summary::-webkit-details-marker {
+.builder-params-panel > summary::-webkit-details-marker,
+.builder-history-panel > summary::-webkit-details-marker,
+.builder-examples-panel > summary::-webkit-details-marker {
   display: none;
 }
 
-.builder-params-panel summary::before,
-.builder-history-panel summary::before,
-.builder-examples-panel summary::before {
+.builder-params-panel > summary::before,
+.builder-history-panel > summary::before,
+.builder-examples-panel > summary::before {
   content: "▸";
   color: var(--accent, #5257ff);
   font-size: 11px;
 }
 
-.builder-params-panel[open] summary::before,
-.builder-history-panel[open] summary::before,
-.builder-examples-panel[open] summary::before {
+.builder-params-panel[open] > summary::before,
+.builder-history-panel[open] > summary::before,
+.builder-examples-panel[open] > summary::before {
   content: "▾";
 }
 
-.builder-params-panel summary span,
-.builder-history-panel summary span,
-.builder-examples-panel summary span {
+.builder-params-panel > summary span,
+.builder-history-panel > summary span,
+.builder-examples-panel > summary span {
   margin-left: auto;
   padding: 2px 6px;
   border-radius: 999px;
@@ -3764,7 +3805,7 @@ button {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
-  padding: 0 12px 12px;
+  padding: 0 12px 10px;
 }
 
 .builder-params-grid label {

@@ -139,6 +139,8 @@ def test_explicit_builder_create_endpoint_calls_adtarget_create(monkeypatch):
         constraints=CampaignConstraints(content="Проверьте персональное предложение."),
     )
 
+    upsert_calls = []
+
     class FakeSessionStore:
         async def get_session(self, session_id):
             return SessionDetail(
@@ -156,6 +158,7 @@ def test_explicit_builder_create_endpoint_calls_adtarget_create(monkeypatch):
             return None
 
         async def upsert_campaign_state(self, **kwargs):
+            upsert_calls.append(kwargs)
             return None
 
     create_campaign_mock = AsyncMock(return_value={"campaignId": 777001})
@@ -173,4 +176,5 @@ def test_explicit_builder_create_endpoint_calls_adtarget_create(monkeypatch):
     create_campaign_mock.assert_awaited_once_with(flow)
     assert response.campaign_id == 777001
     assert response.status == "created_in_adtarget"
+    assert upsert_calls[0]["runtime_status"] == "editing"
     assert response.draft_flow == flow

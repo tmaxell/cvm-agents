@@ -187,6 +187,7 @@ BuilderStatus = Literal[
     "running",
     "error",
 ]
+CampaignRuntimeStatus = Literal["editing", "active", "paused"]
 
 
 class ReviewChecklistItem(BaseModel):
@@ -362,7 +363,7 @@ class CampaignActionRequest(BaseModel):
 
 class CampaignActionResponse(BaseModel):
     campaign_id: int
-    status: str
+    status: CampaignRuntimeStatus
     result: Any
 
 
@@ -372,7 +373,7 @@ class MonitorRequest(BaseModel):
     campaign_id: int
     draft_flow_json: str                # JSON flow кампании (activities[])
     refresh_seed: int = 0               # инкрементируется при каждом Refresh
-    campaign_status: str = "editing"     # "editing" | "active" | "paused"
+    campaign_status: CampaignRuntimeStatus = "editing"
 
 
 class ChannelDeliveryMetric(BaseModel):

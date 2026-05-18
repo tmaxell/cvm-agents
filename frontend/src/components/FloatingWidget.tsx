@@ -54,6 +54,13 @@ const TAB_LABELS: Record<
   monitoring: { icon: "📊", label: "Monitoring", shortLabel: "Monitor" },
 };
 
+function isMonitoringReady(response: BuilderResponse | null): boolean {
+  return Boolean(
+    response?.campaign_id &&
+    (response.status === "created_in_adtarget" || response.status === "running")
+  );
+}
+
 const QUICK_PRESETS = {
   segments: [
     {
@@ -109,7 +116,7 @@ export function FloatingWidget({
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
-  const hasMonitorData = builderResponse?.campaign_id != null;
+  const hasMonitorData = isMonitoringReady(builderResponse);
 
   const handleBuilderResponse = useCallback(
     (response: BuilderResponse | null) => {
@@ -128,22 +135,38 @@ export function FloatingWidget({
     : null;
 
   const { width, height } = PANEL_SIZES[size];
-  const renderTabButton = (tabId: Tab) => (
-    <button
-      key={tabId}
-      className={`fw-tab${tab === tabId ? " active" : ""}`}
-      onClick={() => setTab(tabId)}
-      style={tabId === "monitoring" ? { position: "relative" } : undefined}
-    >
-      <span className="fw-tab-icon" aria-hidden="true">
-        {TAB_LABELS[tabId].icon}
-      </span>
-      <span className="fw-tab-label">{TAB_LABELS[tabId].shortLabel}</span>
-      {tabId === "monitoring" && hasMonitorData && tab !== "monitoring" && (
-        <span className="fw-tab-badge" />
-      )}
-    </button>
-  );
+  useEffect(() => {
+    if (tab === "monitoring" && !hasMonitorData) {
+      setTab("builder");
+    }
+  }, [hasMonitorData, tab]);
+
+  const renderTabButton = (tabId: Tab) => {
+    const isMonitoringDisabled = tabId === "monitoring" && !hasMonitorData;
+
+    return (
+      <button
+        key={tabId}
+        className={`fw-tab${tab === tabId ? " active" : ""}`}
+        onClick={() => {
+          if (!isMonitoringDisabled) setTab(tabId);
+        }}
+        disabled={isMonitoringDisabled}
+        title={isMonitoringDisabled
+          ? (lang === "en" ? "Create the campaign in AdTarget first" : "Сначала создайте кампанию в AdTarget")
+          : TAB_LABELS[tabId].label}
+        style={tabId === "monitoring" ? { position: "relative" } : undefined}
+      >
+        <span className="fw-tab-icon" aria-hidden="true">
+          {TAB_LABELS[tabId].icon}
+        </span>
+        <span className="fw-tab-label">{TAB_LABELS[tabId].shortLabel}</span>
+        {tabId === "monitoring" && hasMonitorData && tab !== "monitoring" && (
+          <span className="fw-tab-badge" />
+        )}
+      </button>
+    );
+  };
 
   const activePanelStyle = (tabId: Tab) => ({
     display: tab === tabId ? "contents" : "none",
@@ -223,7 +246,9 @@ export function FloatingWidget({
           <div className="fw-panel-slot" style={activePanelStyle("builder")}>
             <CampaignBuilderChat
               onResponse={handleBuilderResponse}
-              onOpenMonitoring={() => setTab("monitoring")}
+              onOpenMonitoring={() => {
+                if (hasMonitorData) setTab("monitoring");
+              }}
               lang={lang}
               selectedSegment={selectedSegment}
               variant="demo"

@@ -582,6 +582,96 @@ def _is_supported_activity_type(activity_type: str | None) -> bool:
     return bool(activity_type) and activity_type in SUPPORTED_ACTIVITY_TYPES
 
 
+def _looks_like_add_audience_and_offer(goal: str) -> bool:
+    """Detect the common follow-up: add audience + offer to an existing draft."""
+    text = _normalize_text(goal)
+    if not text:
+        return False
+    has_add = bool(re.search(r"\badd\b|добав\w*|встав\w*|append|insert", text))
+    has_audience = any(marker in text for marker in (
+        "аудитор", "цг", "целев", "target group", "audience",
+    ))
+    has_offer = any(marker in text for marker in (
+        "оффер", "offer", "предлож",
+    ))
+    return has_add and has_audience and has_offer
+
+
+def _missing_flow_edit_message() -> str:
+    return 'Сначала соберите черновик кампании или нажмите “Доработать флоу агентом”.'
+
+
+def _extract_int_from_any(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, dict):
+        for key in ("id", "target_group_id", "targetGroupId", "clientSourceId"):
+            extracted = _extract_int_from_any(value.get(key))
+            if extracted is not None:
+                return extracted
+        return None
+    if isinstance(value, (list, tuple, set)):
+        for item in value:
+            extracted = _extract_int_from_any(item)
+            if extracted is not None:
+                return extracted
+        return None
+    match = re.search(r"\d+", str(value))
+    return int(match.group(0)) if match else None
+
+
+def _resolve_target_group_id(
+    ref: dict,
+    goal: str,
+    preferences: dict | None,
+    audience: dict[str, Any] | None,
+) -> tuple[int | None, dict | None, str | None]:
+    """Resolve TargetGroupActivity params without falling back to an arbitrary id."""
+    selected_id = _selected_target_group_id(audience or {})
+    if selected_id is not None:
+        return selected_id, {"id": selected_id, "source": "structured_audience"}, None
+
+    preference_value = (preferences or {}).get("targetGroups") if isinstance(preferences, dict) else None
+    preference_id = _extract_int_from_any(preference_value)
+    groups = ref.get("target_groups", []) if isinstance(ref, dict) else []
+    if preference_id is not None:
+        match = next((tg for tg in groups if _extract_int_from_any(tg.get("id")) == preference_id), None)
+        return preference_id, match or {"id": preference_id}, None
+
+    query = _stringify_preference_value(preference_value) or goal
+    query_tokens = _text_tokens(query)
+    if query_tokens:
+        best_score = 0
+        best_group = None
+        for group in groups:
+            group_tokens = _text_tokens(f"{group.get('id', '')} {group.get('name', '')}")
+            score = len(query_tokens & group_tokens)
+            if score > best_score:
+                best_score = score
+                best_group = group
+        if best_group and best_score > 0:
+            return int(best_group["id"]), best_group, None
+
+    return None, None, "Не удалось выбрать аудиторию: укажите target_group_id или выберите сегмент Audience Builder."
+
+
+def _last_activity_type(flow: dict[str, Any], activity_types: set[str]) -> str | None:
+    for activity in reversed(flow.get("activities") or []):
+        if isinstance(activity, dict) and activity.get("type") in activity_types:
+            return str(activity["type"])
+    return None
+
+
+def _safe_flow_edit_error(action: str) -> str:
+    return (
+        f"Не удалось {action} текущий flow. Проверьте, что черновик открыт и актуален, "
+        "затем повторите действие или нажмите “Доработать флоу агентом”."
+    )
+
 def _looks_like_flow_activity_edit(goal: str) -> bool:
     text = _normalize_text(goal)
     if not text:
@@ -1913,6 +2003,16 @@ async def run(request: BuilderRequest) -> BuilderResponse:
     campaign_brief_context = _campaign_brief_context(request)
     brief_completeness = check_campaign_brief_completeness(request)
     structured_audience_context = _structured_audience_context(request)
+    add_audience_and_offer_intent = _looks_like_add_audience_and_offer(request.goal)
+
+    if add_audience_and_offer_intent and not existing_flow:
+        return _builder_response(
+            request,
+            message=_missing_flow_edit_message(),
+            campaign_id=request.session_campaign_id,
+            draft_flow=None,
+            status="collect_brief",
+        )
 
     if existing_flow and _looks_like_create_or_launch_request(request.goal):
         checklist = build_review_checklist(request.campaign_brief, existing_flow, [])
@@ -2024,6 +2124,126 @@ async def run(request: BuilderRequest) -> BuilderResponse:
     planned_flow_patch_warning: str | None = None
     patch_base_version = _current_draft_flow_version(request)
 
+    if add_audience_and_offer_intent and existing_flow:
+        preference_patch = _extract_preference_patch_from_text(request.goal)
+        preference_patch.setdefault("targetGroups", _stringify_preference_value(request.builder_preferences.get("targetGroups")) or "добавить аудиторию")
+        preference_patch.setdefault("offerRecommendations", _stringify_preference_value(request.builder_preferences.get("offerRecommendations")) or "добавить оффер")
+        updated_preferences = _merge_builder_preferences(request.builder_preferences, preference_patch)
+
+        target_group_id, target_group, target_warning = _resolve_target_group_id(
+            ref_full,
+            request.goal,
+            updated_preferences,
+            structured_audience_context,
+        )
+        if target_group_id is None:
+            return _builder_response(
+                request,
+                message=target_warning or "Не удалось выбрать аудиторию для TargetGroupActivity.",
+                builder_preferences=updated_preferences,
+                preference_patch=preference_patch,
+                campaign_id=request.session_campaign_id,
+                draft_flow=existing_flow,
+                status="error",
+            )
+
+        resolved_params, offer, offer_warning = _resolve_business_transaction_activity_params(
+            {},
+            ref_full,
+            request.goal,
+            updated_preferences,
+        )
+        if not resolved_params:
+            details = offer_warning or "укажите offer_template_id и operation_id или уточните продукт/оффер."
+            return _builder_response(
+                request,
+                message=f"Не удалось выбрать шаблон оффера для бизнес-транзакции: {details}",
+                builder_preferences=updated_preferences,
+                preference_patch=preference_patch,
+                campaign_id=request.session_campaign_id,
+                draft_flow=existing_flow,
+                status="error",
+            )
+
+        try:
+            target_patch = FlowPatch(
+                base_version=patch_base_version,
+                operations=["add_activity"],
+                anchor_activity_type="CommonActivity",
+                insert_position="after",
+                activity={"type": "TargetGroupActivity", "params": {"target_group_id": target_group_id}},
+            )
+            updated_flow = _apply_flow_patch(
+                existing_flow,
+                target_patch,
+                current_version=patch_base_version,
+            )
+            communication_anchor = _last_activity_type(
+                updated_flow,
+                {"PushCommunicationActivity", "PullCommunicationActivity"},
+            )
+            offer_patch = FlowPatch(
+                base_version=patch_base_version,
+                operations=["add_activity"],
+                anchor_activity_type=communication_anchor,
+                insert_position="after" if communication_anchor else "end",
+                activity={"type": "BusinessTransactionActivity", "params": resolved_params},
+            )
+            updated_flow = _apply_flow_patch(
+                updated_flow,
+                offer_patch,
+                current_version=patch_base_version,
+            )
+        except FlowPatchConflictError as e:
+            return _builder_response(
+                request,
+                message=f"Конфликт версии flow: {e}. Обновите черновик и повторите действие.",
+                builder_preferences=updated_preferences,
+                preference_patch=preference_patch,
+                campaign_id=request.session_campaign_id,
+                draft_flow=existing_flow,
+                draft_flow_version=_current_draft_flow_version(request) or None,
+                status="error",
+            )
+        except Exception:
+            return _builder_response(
+                request,
+                message=_safe_flow_edit_error("добавить аудиторию и оффер в"),
+                builder_preferences=updated_preferences,
+                preference_patch=preference_patch,
+                campaign_id=request.session_campaign_id,
+                draft_flow=existing_flow,
+                status="error",
+            )
+
+        if target_group and target_group.get("name"):
+            preference_patch["targetGroups"] = f"{target_group['name']} (id={target_group_id})"
+        if offer:
+            preference_patch["offerRecommendations"] = f"{offer.get('name', offer['id'])} (id={offer['id']})"
+        updated_preferences = _merge_builder_preferences(updated_preferences, preference_patch)
+
+        message = "Добавил аудиторию и оффер в текущий flow без LLM tool-call."
+        if target_group:
+            message += f"\n\nАудитория: **{target_group.get('name', target_group_id)}** (id={target_group_id})."
+        if offer:
+            message += (
+                f"\n\nШаблон оффера: **{offer.get('name', offer['id'])}** "
+                f"(id={offer['id']}, operationId={resolved_params['operation_id']})."
+            )
+        if offer_warning:
+            message += f"\n\n⚠️ {offer_warning}"
+
+        return _builder_response(
+            request,
+            message=message,
+            builder_preferences=updated_preferences,
+            preference_patch=preference_patch,
+            campaign_id=request.session_campaign_id,
+            draft_flow=updated_flow,
+            draft_flow_version=_next_draft_flow_version(request),
+            status=_status_for_flow_context(request.session_campaign_id, updated_flow),
+        )
+
     if flow_edit_intent and flow_edit_intent.action in {"add_activity", "remove_activity"}:
         planned_flow_plan = {
             "action": flow_edit_intent.action,
@@ -2098,7 +2318,7 @@ async def run(request: BuilderRequest) -> BuilderResponse:
         except Exception as e:
             return _builder_response(
                 request,
-                message=f"Не удалось удалить активность из текущего flow: {type(e).__name__}: {e}",
+                message=_safe_flow_edit_error("удалить активность из"),
                 campaign_id=request.session_campaign_id,
                 draft_flow=existing_flow,
                 status="error",
@@ -2188,7 +2408,7 @@ async def run(request: BuilderRequest) -> BuilderResponse:
         except Exception as e:
             return _builder_response(
                 request,
-                message=f"Не удалось добавить активность в текущий flow: {type(e).__name__}: {e}",
+                message=_safe_flow_edit_error("добавить активность в"),
                 campaign_id=request.session_campaign_id,
                 draft_flow=existing_flow,
                 status="error",
@@ -2229,7 +2449,11 @@ async def run(request: BuilderRequest) -> BuilderResponse:
     if request.session_campaign_id:
         ctx_hint = f"[Контекст сессии] Уже создана кампания ID: {request.session_campaign_id}."
         if request.session_flow_json:
-            ctx_hint += " Flow кампании доступен в session_flow_json."
+            ctx_hint += (
+                " Flow кампании ниже — authoritative current draft; "
+                "для follow-up edits передавай в flow_json именно этот JSON, не восстанавливай flow из истории.\n"
+                f"session_flow_json={request.session_flow_json}"
+            )
         messages.append(AIMessage(content=ctx_hint))
 
     messages.append(HumanMessage(content=request.goal))
@@ -2252,10 +2476,9 @@ async def run(request: BuilderRequest) -> BuilderResponse:
         return _builder_response(
             request,
             message=(
-                "Не удалось завершить шаг через LLM: "
-                f"{type(e).__name__}: {e}. "
-                "Риск: текущая модель или tool-call могли вернуть некорректный JSON/пустой ответ; "
-                "попробуйте повторить запрос или уточнить параметры."
+                "Не удалось завершить шаг через LLM/tool-call. "
+                "Проверьте, что черновик открыт и актуален, затем повторите запрос "
+                "или уточните параметры."
             ),
             campaign_id=initial_campaign_id,
             draft_flow=deterministic_initial_flow or existing_flow,

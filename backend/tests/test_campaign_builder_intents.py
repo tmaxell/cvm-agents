@@ -394,3 +394,78 @@ def test_flow_patch_version_conflict_does_not_mutate_draft():
         )
 
     assert flow["activities"] == original_activities
+
+
+def test_add_audience_and_offer_with_existing_draft_uses_deterministic_patch(monkeypatch):
+    import asyncio
+    import json
+
+    from agents import campaign_builder
+    from schemas import BuilderRequest
+    from tools.flow_builder import assemble_flow, make_common_activity, make_push_communication_activity
+
+    async def fail_planner(*args, **kwargs):  # pragma: no cover - should not be called
+        raise AssertionError("LLM planner must not be used for add audience+offer deterministic branch")
+
+    async def fake_fetch_reference_data():
+        return {
+            "target_groups": [{"id": 42, "name": "VIP аудитория"}],
+            "channels": [],
+            "events": [],
+            "offers": [{"id": 301, "name": "Тариф Max", "operationId": "ActivateMaxTariff"}],
+        }
+
+    monkeypatch.setattr(campaign_builder, "_fetch_reference_data", fake_fetch_reference_data)
+    monkeypatch.setattr(campaign_builder, "_llm_plan_special_turn", fail_planner)
+
+    flow = assemble_flow([
+        make_common_activity("Draft"),
+        make_push_communication_activity(201, "SmsContent", "Текст SMS"),
+    ])
+
+    response = asyncio.run(campaign_builder.run(BuilderRequest(
+        goal="Добавь аудиторию и оффер",
+        session_flow_json=json.dumps(flow, ensure_ascii=False),
+        draft_flow_version=5,
+        builder_preferences={"targetGroups": "42", "product": "Тариф Max"},
+    )))
+
+    assert response.draft_flow_version == 6
+    assert response.draft_flow is not None
+    assert response.builder_preferences is not None
+    assert response.preference_patch is not None
+    assert response.preference_patch["targetGroups"] == "VIP аудитория (id=42)"
+    assert response.preference_patch["offerRecommendations"] == "Тариф Max (id=301)"
+    assert [activity["type"] for activity in response.draft_flow["activities"]] == [
+        "CommonActivity",
+        "TargetGroupActivity",
+        "PushCommunicationActivity",
+        "BusinessTransactionActivity",
+    ]
+    target_activity = response.draft_flow["activities"][1]
+    transaction_activity = response.draft_flow["activities"][3]
+    assert target_activity["clientSourceId"] == 42
+    assert transaction_activity["offerTemplateId"] == 301
+    assert transaction_activity["businessOperation"]["id"] == "ActivateMaxTariff"
+
+
+def test_add_audience_and_offer_without_existing_draft_returns_safe_message(monkeypatch):
+    import asyncio
+
+    from agents import campaign_builder
+    from schemas import BuilderRequest
+
+    async def fail_fetch_reference_data():  # pragma: no cover - should not be called
+        raise AssertionError("Reference data should not be fetched when there is no draft flow to edit")
+
+    monkeypatch.setattr(campaign_builder, "_fetch_reference_data", fail_fetch_reference_data)
+
+    response = asyncio.run(campaign_builder.run(BuilderRequest(
+        goal="Добавь аудиторию и оффер",
+        session_flow_json=None,
+        builder_preferences={"targetGroups": "42", "product": "Тариф Max"},
+    )))
+
+    assert response.draft_flow is None
+    assert response.status == "collect_brief"
+    assert response.message == "Сначала соберите черновик кампании или нажмите “Доработать флоу агентом”."

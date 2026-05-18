@@ -215,6 +215,20 @@ VITE_API_PROXY=http://localhost:8000 npm run dev
 
 Если frontend собирается отдельно и должен ходить на другой backend без Vite proxy, задайте `VITE_API_BASE`.
 
+#### E2E smoke-тесты
+
+Перед первым запуском Playwright установите Chromium:
+
+```bash
+npx playwright install chromium
+```
+
+Запуск e2e-тестов frontend:
+
+```bash
+npm run test:e2e
+```
+
 ## Docker Compose
 
 Production-like demo-стек поднимает PostgreSQL, backend и frontend:

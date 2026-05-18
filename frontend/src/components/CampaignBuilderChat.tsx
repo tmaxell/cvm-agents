@@ -80,6 +80,8 @@ interface ResultPanelItem {
   value: string;
 }
 
+type BriefInlineField = "goal" | "product" | "audience" | "constraints";
+
 interface Props {
   onResponse: (response: BuilderResponse | null) => void;
   onOpenMonitoring?: () => void;
@@ -262,6 +264,88 @@ function getSelectedSegmentMeta(selectedSegment: SelectedSegmentForBuilder, lang
 function getPlanValue(value?: string | null): string {
   const trimmed = value?.trim();
   return trimmed || "—";
+}
+
+function stringifyBriefCriteria(criteria?: Record<string, unknown> | null): string[] {
+  if (!criteria) return [];
+  return Object.entries(criteria).map(([key, value]) => {
+    if (Array.isArray(value)) return `${key}: ${value.join(", ")}`;
+    if (value && typeof value === "object") return `${key}: ${JSON.stringify(value)}`;
+    return `${key}: ${String(value)}`;
+  });
+}
+
+function formatCriteriaToken(key: string, value: unknown, lang: "ru" | "en"): string | null {
+  const normalizedKey = key.replace(/_/g, " ").trim();
+  const keyLower = normalizedKey.toLowerCase();
+  const stringify = (item: unknown) => String(item).replace(/_/g, " ").trim();
+
+  if (Array.isArray(value)) {
+    const joined = value.map(stringify).filter(Boolean).join(", ");
+    if (!joined) return null;
+    if (keyLower.includes("exclude") || keyLower.includes("opt")) return `${joined} excluded`;
+    return joined;
+  }
+
+  if (value && typeof value === "object") {
+    const nested = Object.entries(value as Record<string, unknown>)
+      .map(([nestedKey, nestedValue]) => formatCriteriaToken(nestedKey, nestedValue, lang))
+      .filter(Boolean);
+    return nested[0] ?? null;
+  }
+
+  const rawValue = stringify(value);
+  if (!rawValue || rawValue === "true") {
+    if (keyLower.includes("travel")) return lang === "en" ? "travelers" : "путешествующие";
+    if (keyLower.includes("opt")) return "opt-out excluded";
+    return normalizedKey;
+  }
+
+  const valueLower = rawValue.toLowerCase();
+  if (keyLower.includes("arpu") || valueLower.includes("arpu")) {
+    if (valueLower.includes("low") || valueLower.includes("низ")) return lang === "en" ? "Low ARPU" : "Низкий ARPU";
+    return rawValue.includes("ARPU") ? rawValue : `${rawValue} ARPU`;
+  }
+  if (keyLower.includes("travel") || valueLower.includes("travel")) {
+    return lang === "en" ? "travelers" : "путешествующие";
+  }
+  if (keyLower.includes("exclude") || keyLower.includes("opt") || valueLower.includes("opt-out")) {
+    return rawValue.includes("excluded") ? rawValue : `${rawValue} excluded`;
+  }
+  return rawValue;
+}
+
+function getAudienceSummary(brief: CampaignBrief, lang: "ru" | "en"): string {
+  const selected = brief.audience.selected_segment;
+  if (!selected) return brief.audience.description ?? (brief.audience.target_groups.join(", ") || "");
+
+  const criteriaTokens = Object.entries(selected.selection_criteria ?? {})
+    .map(([key, value]) => formatCriteriaToken(key, value, lang))
+    .filter((value): value is string => Boolean(value));
+  const riskToken = selected.risk_or_limitation?.toLowerCase().includes("opt") ? "opt-out excluded" : null;
+  const tokens = [...criteriaTokens, riskToken].filter((value): value is string => Boolean(value));
+  const uniqueTokens = [...new Set(tokens)];
+
+  if (uniqueTokens.length > 0) return uniqueTokens.slice(0, 3).join(" · ");
+  return selected.hypothesis.name || brief.audience.description || "";
+}
+
+function getAudienceFullCriteria(brief: CampaignBrief, lang: "ru" | "en"): string[] {
+  const selected = brief.audience.selected_segment;
+  if (!selected) return [];
+  const criteria = stringifyBriefCriteria(selected.selection_criteria);
+  return [
+    `${lang === "en" ? "Segment" : "Сегмент"}: ${selected.hypothesis.name}`,
+    ...criteria,
+    selected.risk_or_limitation ? `${lang === "en" ? "Risk / limitation" : "Риск / ограничение"}: ${selected.risk_or_limitation}` : null,
+  ].filter((value): value is string => Boolean(value));
+}
+
+function getConstraintSummary(brief: CampaignBrief): string {
+  return [brief.constraints.content, brief.constraints.offer_recommendations]
+    .map((value) => value?.trim())
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function buildBuilderPrompt(brief: CampaignBrief, lang: "ru" | "en"): string {
@@ -462,6 +546,7 @@ export function CampaignBuilderChat({
   });
 
   const [input, setInput] = useState("");
+  const [editingBriefField, setEditingBriefField] = useState<BriefInlineField | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const refreshSessions = useCallback(async () => {
@@ -534,6 +619,15 @@ export function CampaignBuilderChat({
       }
       return nextBrief;
     });
+  };
+
+  const toggleChannel = (channelName: string) => {
+    const currentChannels = campaignBrief.channels.map((channel) => channel.name).filter(Boolean);
+    const channelExists = currentChannels.some((channel) => channel.toLowerCase() === channelName.toLowerCase());
+    const nextChannels = channelExists
+      ? currentChannels.filter((channel) => channel.toLowerCase() !== channelName.toLowerCase())
+      : [...currentChannels, channelName];
+    handlePreferenceChange("channels", nextChannels.join(", "));
   };
 
   const handleSend = async () => {
@@ -630,6 +724,13 @@ export function CampaignBuilderChat({
   const examplesCount = SUGGESTIONS[lang].length + (variant === "demo" ? demoPlaybook.length : 0) + 1;
   const resultPanelState = lastResponse ? getResultPanelState(lastResponse) : "pending";
   const resultPanelItems = lastResponse ? getResultPanelItems(lastResponse, lang) : [];
+  const selectedChannelNames = campaignBrief.channels.map((channel) => channel.name).filter(Boolean);
+  const selectedChannelNamesLower = selectedChannelNames.map((channel) => channel.toLowerCase());
+  const hasExplicitChannels = selectedChannelNames.length > 0;
+  const displayedChannelNames = hasExplicitChannels ? selectedChannelNames : ["SMS", "Push"];
+  const audienceSummary = getAudienceSummary(campaignBrief, lang);
+  const audienceFullCriteria = getAudienceFullCriteria(campaignBrief, lang);
+  const constraintsSummary = getConstraintSummary(campaignBrief);
 
   return (
     <div className="fw-builder-chat">
@@ -642,10 +743,144 @@ export function CampaignBuilderChat({
         </p>
       </section>
 
-      <details className="builder-params-panel">
+      <section className="builder-brief-card" aria-label={lang === "en" ? "Campaign brief" : "Brief кампании"}>
+        <div className="builder-brief-card-header">
+          <div>
+            <span>{lang === "en" ? "Compact brief" : "Компактный brief"}</span>
+            <strong>{lang === "en" ? "Campaign inputs" : "Вводные кампании"}</strong>
+          </div>
+          {hasBrief(campaignBrief) && <em>{lang === "en" ? "filled" : "заполнено"}</em>}
+        </div>
+
+        <div className="builder-brief-lines">
+          <div className="builder-brief-line">
+            <span className="builder-brief-label">{lang === "en" ? "Goal" : "Цель"}</span>
+            {editingBriefField === "goal" ? (
+              <input
+                autoFocus
+                value={campaignBrief.goal ?? ""}
+                onChange={(e) => handlePreferenceChange("goal", e.target.value)}
+                onBlur={() => setEditingBriefField(null)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") setEditingBriefField(null);
+                  if (e.key === "Escape") setEditingBriefField(null);
+                }}
+                placeholder={lang === "en" ? "upsell, retention, activation…" : "апсейл, удержание, активация…"}
+              />
+            ) : (
+              <button type="button" className="builder-brief-value" onClick={() => setEditingBriefField("goal")}>
+                {campaignBrief.goal || (lang === "en" ? "Add goal" : "Укажите цель")}
+              </button>
+            )}
+          </div>
+
+          <div className="builder-brief-line">
+            <span className="builder-brief-label">{lang === "en" ? "Product / offer" : "Продукт / оффер"}</span>
+            {editingBriefField === "product" ? (
+              <input
+                autoFocus
+                value={campaignBrief.product ?? ""}
+                onChange={(e) => handlePreferenceChange("product", e.target.value)}
+                onBlur={() => setEditingBriefField(null)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") setEditingBriefField(null);
+                  if (e.key === "Escape") setEditingBriefField(null);
+                }}
+                placeholder={lang === "en" ? "e.g. Family Max tariff" : "Напр. тариф Family Max"}
+              />
+            ) : (
+              <button type="button" className="builder-brief-value" onClick={() => setEditingBriefField("product")}>
+                {campaignBrief.product || (lang === "en" ? "Add product or offer" : "Укажите продукт или оффер")}
+              </button>
+            )}
+          </div>
+
+          <div className="builder-brief-line audience">
+            <span className="builder-brief-label">{lang === "en" ? "Audience" : "Аудитория"}</span>
+            {editingBriefField === "audience" ? (
+              <input
+                autoFocus
+                value={campaignBrief.audience.description ?? campaignBrief.audience.target_groups.join(", ")}
+                onChange={(e) => handlePreferenceChange("targetGroups", e.target.value)}
+                onBlur={() => setEditingBriefField(null)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") setEditingBriefField(null);
+                  if (e.key === "Escape") setEditingBriefField(null);
+                }}
+                placeholder={lang === "en" ? "low ARPU, data users…" : "низкий ARPU, пользователи data…"}
+              />
+            ) : (
+              <div className="builder-brief-audience-value">
+                <button type="button" className="builder-brief-value" onClick={() => setEditingBriefField("audience")}>
+                  {audienceSummary || (lang === "en" ? "Add audience" : "Укажите аудиторию")}
+                </button>
+                {audienceFullCriteria.length > 0 && (
+                  <details className="builder-audience-criteria">
+                    <summary>{lang === "en" ? "Full criteria" : "Полный критерий"}</summary>
+                    <ul>
+                      {audienceFullCriteria.map((criterion) => (
+                        <li key={criterion}>{criterion}</li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="builder-brief-line channels">
+            <span className="builder-brief-label">{lang === "en" ? "Channels" : "Каналы"}</span>
+            <div className="builder-channel-chips" aria-label={lang === "en" ? "Channel selection" : "Выбор каналов"}>
+              {["SMS", "Push", "Email"].map((channel) => {
+                const selected = hasExplicitChannels
+                  ? selectedChannelNamesLower.includes(channel.toLowerCase())
+                  : channel === "SMS" || channel === "Push";
+                return (
+                  <button
+                    key={channel}
+                    type="button"
+                    className={selected ? "selected" : undefined}
+                    onClick={() => toggleChannel(channel)}
+                  >
+                    {channel}
+                  </button>
+                );
+              })}
+              {!hasExplicitChannels && (
+                <span className="builder-assumption-chip">
+                  {lang === "en" ? "assumption" : "допущение"}: {displayedChannelNames.join(" + ")}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="builder-brief-line constraints">
+            <span className="builder-brief-label">{lang === "en" ? "Constraints" : "Ограничения"}</span>
+            {editingBriefField === "constraints" ? (
+              <textarea
+                autoFocus
+                value={campaignBrief.constraints.content ?? ""}
+                onChange={(e) => handlePreferenceChange("content", e.target.value)}
+                onBlur={() => setEditingBriefField(null)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setEditingBriefField(null);
+                }}
+                rows={2}
+                placeholder={lang === "en" ? "message, tone, mandatory wording" : "текст, тональность, обязательные формулировки"}
+              />
+            ) : (
+              <button type="button" className="builder-brief-value" onClick={() => setEditingBriefField("constraints")}>
+                {constraintsSummary || (lang === "en" ? "Add content or offer limits" : "Укажите ограничения")}
+              </button>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <details className="builder-params-panel builder-params-panel-advanced">
         <summary>
-          {lang === "en" ? "Campaign parameters" : "Параметры для сборки"}
-          {hasBrief(campaignBrief) && <span>{lang === "en" ? "filled" : "заполнено"}</span>}
+          {lang === "en" ? "Advanced parameters" : "Расширенные параметры"}
+          <span>{lang === "en" ? "legacy" : "legacy"}</span>
         </summary>
         <div className="builder-params-grid">
           <label>

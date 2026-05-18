@@ -40,7 +40,10 @@ def test_full_brief_has_no_missing_fields_or_assumptions():
 
     assert completeness.missing_fields == []
     assert completeness.assumptions == []
-    assert completeness.safety_checks
+    assert completeness.safety_checks == [
+        "Проверьте доступность аудитории для контакта, согласия на канал и возможность отписки.",
+        "Проверьте право клиента на оффер, соответствие продукта и юридический текст.",
+    ]
 
 
 def test_incomplete_brief_reports_missing_required_fields():

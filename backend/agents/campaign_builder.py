@@ -169,8 +169,8 @@ def check_campaign_brief_completeness(request: BuilderRequest) -> CampaignBriefC
     missing_fields: list[str] = []
     assumptions: list[str] = []
     safety_checks = [
-        "Validate audience contactability and channel opt-in/opt-out before launch.",
-        "Validate offer eligibility, product fit, and legal copy before activation.",
+        "Проверьте доступность аудитории для контакта, согласия на канал и возможность отписки.",
+        "Проверьте право клиента на оффер, соответствие продукта и юридический текст.",
     ]
 
     if not text_present(getattr(brief, "goal", None)) and not text_present(preferences.get("goal")):
@@ -245,12 +245,12 @@ def _looks_like_create_or_launch_request(goal: str) -> bool:
 def _blocked_runtime_review_message(checklist_status: str) -> str:
     if checklist_status == "warnings":
         return (
-            "Create/launch заблокирован: review checklist содержит warnings. "
-            "Попросите пользователя явно подтвердить допустимые warnings и повторите действие."
+            "Действие заблокировано: чеклист готовности содержит предупреждения. "
+            "Попросите пользователя явно подтвердить допустимые предупреждения и повторите действие."
         )
     return (
-        "Create/launch заблокирован: review checklist содержит blocking issues. "
-        "Исправьте checklist до green перед созданием или запуском кампании."
+        "Действие заблокировано: чеклист готовности содержит критичные замечания. "
+        "Исправьте чеклист до статуса «Готово» перед созданием или запуском кампании."
     )
 
 

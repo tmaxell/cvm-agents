@@ -455,7 +455,7 @@ function pluralizeActivities(count: number, lang: "ru" | "en"): string {
 function getFlowSummary(response: BuilderResponse, lang: "ru" | "en"): string {
   const activities = response.draft_flow?.activities ?? [];
   if (activities.length === 0) {
-    return lang === "en" ? "No flow yet" : "Flow не собран";
+    return lang === "en" ? "No flow yet" : "Флоу не собран";
   }
 
   const activityNames = activities
@@ -468,9 +468,9 @@ function getFlowSummary(response: BuilderResponse, lang: "ru" | "en"): string {
 }
 
 function getReviewStatusLabel(status: ReviewStatus | undefined, lang: "ru" | "en"): string {
-  if (status === "green") return lang === "en" ? "Green" : "Green";
-  if (status === "warnings") return lang === "en" ? "Warnings" : "Warnings";
-  return lang === "en" ? "Blocked" : "Blocked";
+  if (status === "green") return lang === "en" ? "Green" : "Готово";
+  if (status === "warnings") return lang === "en" ? "Warnings" : "Есть замечания";
+  return lang === "en" ? "Blocked" : "Нужно доработать";
 }
 
 function getChecklistItemLabel(item: ReviewChecklistItem, lang: "ru" | "en"): string {
@@ -500,12 +500,12 @@ function getValidationSummary(response: BuilderResponse, lang: "ru" | "en"): str
       : (lang === "en" ? "Needs review" : "Нужна проверка");
   }
   if (totalIssues > 0) {
-    return lang === "en" ? `${totalIssues} checklist issue(s)` : `${totalIssues} замечаний checklist`;
+    return lang === "en" ? `${totalIssues} checklist issue(s)` : `${totalIssues} замечаний чеклиста`;
   }
   if (response.draft_flow?.activities?.length || response.campaign_id) {
-    return lang === "en" ? "Checklist passed" : "Checklist пройден";
+    return lang === "en" ? "Checklist passed" : "чеклист пройден";
   }
-  return lang === "en" ? "Waiting for flow" : "Ожидаем flow";
+  return lang === "en" ? "Waiting for flow" : "Ожидаем флоу";
 }
 
 function getResultPanelState(response: BuilderResponse): "success" | "warning" | "pending" {
@@ -563,6 +563,17 @@ function isMonitoringReady(response: BuilderResponse | null): boolean {
   );
 }
 
+function getMissingFieldLabel(field: string, lang: "ru" | "en"): string {
+  if (lang === "en") return field;
+  const labels: Record<string, string> = {
+    goal: "цель",
+    "product/offer": "продукт или оффер",
+    audience: "аудитория",
+    channels: "каналы",
+  };
+  return labels[field] ?? field;
+}
+
 function getPreLaunchRecommendations(response: BuilderResponse | null, lang: "ru" | "en"): string[] {
   if (!response || response.status === "running") return [];
 
@@ -572,7 +583,7 @@ function getPreLaunchRecommendations(response: BuilderResponse | null, lang: "ru
       lang === "en" ? `Confirm assumption before launch: ${assumption}` : `Подтвердите допущение перед запуском: ${assumption}`
     ),
     ...(response.brief_completeness?.missing_fields ?? []).map((field) =>
-      lang === "en" ? `Complete missing brief field: ${field}` : `Заполните недостающее поле brief: ${field}`
+      lang === "en" ? `Complete missing brief field: ${field}` : `Заполните недостающее поле brief: ${getMissingFieldLabel(field, lang)}`
     ),
     ...(response.review_checklist?.items ?? [])
       .filter((item) => item.status !== "green")
@@ -589,7 +600,7 @@ function getResultPanelItems(response: BuilderResponse, lang: "ru" | "en"): Resu
       value: STATUS_LABELS[lang][response.status] ?? response.status,
     },
     {
-      label: lang === "en" ? "Flow summary" : "Сводка flow",
+      label: lang === "en" ? "Flow summary" : "Флоу",
       value: getFlowSummary(response, lang),
     },
   ];
@@ -601,7 +612,7 @@ function getResultPanelItems(response: BuilderResponse, lang: "ru" | "en"): Resu
     });
   } else {
     items.push({
-      label: lang === "en" ? "Review" : "Review",
+      label: lang === "en" ? "Review" : "Проверка",
       value: response.review_status ? getReviewStatusLabel(response.review_status, lang) : getValidationSummary(response, lang),
     });
   }
@@ -965,7 +976,7 @@ export function CampaignBuilderChat({
       : resultPanelState === "warning"
         ? (lang === "en" ? "Review" : "Проверка")
         : (lang === "en" ? "Context" : "Контекст"))
-    : (lang === "en" ? "No draft yet" : "Draft ещё не собран");
+    : (lang === "en" ? "No draft yet" : "Черновик ещё не собран");
   const briefSummaryParts = [
     campaignBrief.product,
     campaignBrief.goal,
@@ -1014,7 +1025,7 @@ export function CampaignBuilderChat({
           <div className="builder-result-details-stack">
             <details className="builder-result-details">
               <summary>
-                {lang === "en" ? "Flow summary / Review" : "Сводка flow / Review"}
+                {lang === "en" ? "Flow summary / Review" : "Флоу / Проверка"}
                 <span>{getFlowSummary(lastResponse, lang)}</span>
               </summary>
               {lastResponse.draft_flow && (
@@ -1025,7 +1036,7 @@ export function CampaignBuilderChat({
               )}
               <dl className="builder-result-panel-grid">
                 {resultPanelItems
-                  .filter((item) => [lang === "en" ? "Flow summary" : "Сводка flow", "Review"].includes(item.label))
+                  .filter((item) => [lang === "en" ? "Flow summary" : "Флоу", lang === "en" ? "Review" : "Проверка"].includes(item.label))
                   .map((item) => (
                     <div key={item.label}>
                       <dt>{item.label}</dt>
@@ -1051,7 +1062,7 @@ export function CampaignBuilderChat({
                   ))}
                 {(lastResponse.brief_completeness?.safety_checks ?? []).map((check) => (
                   <div key={check}>
-                    <dt>{lang === "en" ? "Safety check" : "Safety check"}</dt>
+                    <dt>{lang === "en" ? "Safety check" : "Проверка перед запуском"}</dt>
                     <dd>{check}</dd>
                   </div>
                 ))}
@@ -1061,10 +1072,10 @@ export function CampaignBuilderChat({
             {preLaunchRecommendations.length > 0 && (
               <details className="builder-result-details">
                 <summary>
-                  {lang === "en" ? "Pre-launch recommendations" : "Pre-launch recommendations"}
+                  {lang === "en" ? "Pre-launch recommendations" : "Рекомендации перед запуском"}
                   <span>{preLaunchRecommendations.length}</span>
                 </summary>
-                <div className="builder-review-checklist" aria-label={lang === "en" ? "Pre-launch recommendations" : "Pre-launch рекомендации"}>
+                <div className="builder-review-checklist" aria-label={lang === "en" ? "Pre-launch recommendations" : "Рекомендации перед запуском"}>
                   {preLaunchRecommendations.map((recommendation) => (
                     <div key={recommendation} className="builder-review-checklist-item warning">
                       <span aria-hidden="true">!</span>
@@ -1081,10 +1092,10 @@ export function CampaignBuilderChat({
             {checklistItems.length > 0 && (
               <details className="builder-result-details">
                 <summary>
-                  {lang === "en" ? "Safety checklist" : "Safety checklist"}
+                  {lang === "en" ? "Safety checklist" : "Чеклист готовности"}
                   <span>{getReviewStatusLabel(lastResponse.review_status, lang)}</span>
                 </summary>
-                <div className="builder-review-checklist" aria-label={lang === "en" ? "Safety checklist" : "Safety checklist"}>
+                <div className="builder-review-checklist" aria-label={lang === "en" ? "Safety checklist" : "Чеклист готовности"}>
                   {checklistItems.map((item) => (
                     <div key={item.category} className={`builder-review-checklist-item ${item.status}`}>
                       <span aria-hidden="true">{item.status === "green" ? "✓" : item.status === "warning" ? "!" : "×"}</span>
@@ -1103,7 +1114,7 @@ export function CampaignBuilderChat({
                       />
                       {lang === "en"
                         ? "I acknowledge acceptable warnings for create/launch"
-                        : "Подтверждаю допустимые warnings для create/launch"}
+                        : "Подтверждаю допустимые предупреждения перед запуском"}
                     </label>
                   )}
                 </div>
@@ -1123,7 +1134,7 @@ export function CampaignBuilderChat({
                     onClick={() => onResponse(lastResponse)}
                   >
                     {lang === "en" ? "Refresh canvas" : "Обновить canvas"}
-                    <span>{lang === "en" ? "Uses the current flow" : "Использует текущий flow"}</span>
+                    <span>{lang === "en" ? "Uses the current flow" : "Использует текущий флоу"}</span>
                   </button>
                   {canCreateCampaign && (
                     <button

@@ -142,7 +142,14 @@ async def builder(request: BuilderRequest) -> BuilderResponse:
         for message in (stored_session.messages if stored_session else [])
         if message.role in {"user", "assistant"}
     ]
-    effective_request = request.model_copy(update={"session_id": session.id, "history": stored_history})
+    stored_version = _stored_draft_flow_version(stored_session)
+    effective_version = request.draft_flow_version or stored_version
+    request_flow_json = _parse_flow_json(request.session_flow_json)
+    effective_request = request.model_copy(update={
+        "session_id": session.id,
+        "history": stored_history,
+        "draft_flow_version": effective_version,
+    })
 
     await session_store.add_message(
         session_id=session.id,
@@ -151,7 +158,8 @@ async def builder(request: BuilderRequest) -> BuilderResponse:
         metadata={
             "builder_preferences": request.builder_preferences,
             "campaign_id": request.session_campaign_id,
-            "draft_flow_json": _parse_flow_json(request.session_flow_json),
+            "draft_flow_json": request_flow_json,
+            "draft_flow_version": effective_version,
             "status": "in_progress",
         },
     )
@@ -163,16 +171,23 @@ async def builder(request: BuilderRequest) -> BuilderResponse:
         await session_store.upsert_campaign_state(
             session_id=session.id,
             campaign_id=request.session_campaign_id,
-            draft_flow_json=_parse_flow_json(request.session_flow_json),
+            draft_flow_json=request_flow_json,
             runtime_status="error",
+            draft_flow_version=effective_version,
         )
         _handle_llm_error(e)
 
     response.session_id = session.id
     persisted_campaign_id = response.campaign_id or request.session_campaign_id or session.campaign_id
-    persisted_flow_json = response.draft_flow or _parse_flow_json(request.session_flow_json)
+    persisted_flow_json = response.draft_flow or request_flow_json
+    persisted_draft_flow_version = _resolve_response_draft_flow_version(
+        response=response,
+        request_flow_json=request_flow_json,
+        current_version=effective_version,
+    )
     response.campaign_id = persisted_campaign_id
     response.draft_flow = persisted_flow_json
+    response.draft_flow_version = persisted_draft_flow_version
     await session_store.add_message(
         session_id=session.id,
         role="assistant",
@@ -183,6 +198,7 @@ async def builder(request: BuilderRequest) -> BuilderResponse:
             "builder_preferences": response.builder_preferences,
             "preference_patch": response.preference_patch,
             "draft_flow_json": persisted_flow_json,
+            "draft_flow_version": persisted_draft_flow_version,
             "validation_errors": response.validation_errors,
             "brief_completeness": (
                 response.brief_completeness.model_dump()
@@ -196,6 +212,7 @@ async def builder(request: BuilderRequest) -> BuilderResponse:
         campaign_id=persisted_campaign_id,
         draft_flow_json=persisted_flow_json,
         runtime_status=response.status,
+        draft_flow_version=persisted_draft_flow_version,
     )
     return response
 
@@ -289,6 +306,38 @@ def _parse_flow_json(flow_json: str | None) -> dict[str, Any] | None:
         return {"raw": flow_json}
     return parsed if isinstance(parsed, dict) else {"value": parsed}
 
+
+
+def _metadata_draft_flow_version(metadata: dict[str, Any] | None) -> int | None:
+    value = (metadata or {}).get("draft_flow_version")
+    return value if isinstance(value, int) and value > 0 else None
+
+
+def _stored_draft_flow_version(session: SessionDetail | None) -> int | None:
+    if session is None:
+        return None
+    if session.draft_flow_version is not None and session.draft_flow_version > 0:
+        return session.draft_flow_version
+    for message in reversed(session.messages):
+        version = _metadata_draft_flow_version(message.metadata)
+        if version is not None:
+            return version
+    return None
+
+
+def _resolve_response_draft_flow_version(
+    *,
+    response: BuilderResponse,
+    request_flow_json: dict[str, Any] | None,
+    current_version: int | None,
+) -> int | None:
+    if response.draft_flow_version is not None and response.draft_flow_version > 0:
+        return response.draft_flow_version
+    if response.draft_flow is None and request_flow_json is None:
+        return None
+    if response.draft_flow is not None and response.draft_flow != request_flow_json:
+        return (current_version or 0) + 1
+    return current_version or (1 if response.draft_flow is not None else None)
 
 def _make_session_title(goal: str) -> str:
     """Builds a compact title from the first user prompt."""

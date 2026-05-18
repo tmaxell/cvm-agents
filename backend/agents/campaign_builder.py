@@ -203,9 +203,21 @@ def check_campaign_brief_completeness(request: BuilderRequest) -> CampaignBriefC
     )
 
 
+def _current_draft_flow_version(request: BuilderRequest) -> int:
+    value = request.draft_flow_version
+    return value if isinstance(value, int) and value > 0 else 0
+
+
+def _next_draft_flow_version(request: BuilderRequest) -> int:
+    return _current_draft_flow_version(request) + 1
+
+
 def _builder_response(request: BuilderRequest, **kwargs: Any) -> BuilderResponse:
-    """Create BuilderResponse with brief completeness for UI consumption."""
+    """Create BuilderResponse with brief completeness and draft version for UI consumption."""
     kwargs.setdefault("brief_completeness", check_campaign_brief_completeness(request))
+    if kwargs.get("draft_flow") is not None and kwargs.get("draft_flow_version") is None:
+        current_version = _current_draft_flow_version(request)
+        kwargs["draft_flow_version"] = current_version or 1
     return BuilderResponse(**kwargs)
 
 
@@ -351,7 +363,7 @@ def _extract_position_anchor(text: str) -> str | None:
             "BusinessTransactionActivity",
         ),
         (
-            r"\b(?:после|after)\s+(?:e-?mail|email|им[еэ]йл\w*|письм\w*)\b",
+            r"\b(?:после|after)\s+(?:sms|смс|с\.?м\.?с\.?|сообщен\w*|e-?mail|email|им[еэ]йл\w*|письм\w*)\b",
             "PushCommunicationActivity",
         ),
         (r"\b(?:после|after)\s+(?:событ\w*|event)\b", "EventActivity"),
@@ -366,7 +378,7 @@ def _strip_position_anchors(text: str) -> str:
     """Removes positional anchor phrases before detecting the entity to add."""
     patterns = (
         r"\b(?:после|after)\s+(?:бизнес[-\s]?транзакц\w*|транзакц\w*|business\s+transaction|transaction)\b",
-        r"\b(?:после|after)\s+(?:e-?mail|email|им[еэ]йл\w*|письм\w*)\b",
+        r"\b(?:после|after)\s+(?:sms|смс|с\.?м\.?с\.?|сообщен\w*|e-?mail|email|им[еэ]йл\w*|письм\w*)\b",
         r"\b(?:после|after)\s+(?:событ\w*|event)\b",
     )
     result = text
@@ -1991,6 +2003,7 @@ async def run(request: BuilderRequest) -> BuilderResponse:
             message=message,
             campaign_id=request.session_campaign_id,
             draft_flow=updated_flow,
+            draft_flow_version=_next_draft_flow_version(request),
             status="created" if request.session_campaign_id else "in_progress",
         )
 
@@ -2080,6 +2093,7 @@ async def run(request: BuilderRequest) -> BuilderResponse:
             message=message,
             campaign_id=request.session_campaign_id,
             draft_flow=updated_flow,
+            draft_flow_version=_next_draft_flow_version(request),
             status="created" if request.session_campaign_id else "in_progress",
         )
 
@@ -2243,5 +2257,10 @@ async def run(request: BuilderRequest) -> BuilderResponse:
         message=answer_text,
         campaign_id=campaign_id,
         draft_flow=draft_flow,
+        draft_flow_version=(
+            _next_draft_flow_version(request)
+            if draft_flow is not None and draft_flow != existing_flow
+            else (_current_draft_flow_version(request) or (1 if draft_flow is not None else None))
+        ),
         status=status,
     )

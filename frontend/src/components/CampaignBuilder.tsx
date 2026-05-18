@@ -51,6 +51,7 @@ export function CampaignBuilder() {
       session_flow_json: lastResponse?.draft_flow
         ? JSON.stringify(lastResponse.draft_flow)
         : null,
+      draft_flow_version: lastResponse?.draft_flow_version ?? null,
     }),
   });
   const [input, setInput] = useState("");

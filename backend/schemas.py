@@ -158,6 +158,7 @@ class BuilderRequest(BaseModel):
     # Контекст текущей сессии — передаётся при follow-up запросах
     session_campaign_id: int | None = None    # campaignId из предыдущего ответа
     session_flow_json: str | None = None      # JSON flow из предыдущего ответа
+    draft_flow_version: int | None = None      # версия draft flow из предыдущего ответа
     campaign_brief: CampaignBrief | None = None
     builder_preferences: dict[str, Any] = Field(default_factory=dict)  # legacy UI payload during brief migration
 
@@ -185,6 +186,7 @@ class BuilderResponse(BaseModel):
     session_id: str | None = None       # backend-сессия, к которой сохранён ответ
     campaign_id: int | None = None      # если кампания уже создана
     draft_flow: dict[str, Any] | None = None  # черновик flow, если ещё не создан
+    draft_flow_version: int | None = None      # версия черновика flow
     validation_errors: list[dict] = []
     brief_completeness: CampaignBriefCompleteness | None = None
     status: str = "in_progress"         # "in_progress" | "created" | "started" | "error"
@@ -260,6 +262,7 @@ class Session(BaseModel):
     created_at: datetime
     updated_at: datetime
     status: str = "in_progress"
+    draft_flow_version: int | None = None
 
 
 class SessionDetail(Session):

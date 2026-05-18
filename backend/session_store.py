@@ -23,7 +23,17 @@ class SessionStore:
     def list_sessions(self) -> list[Session]:
         with self._lock:
             data = self._read()
-            sessions = [Session(**item) for item in data.get("sessions", [])]
+            states_by_session = {
+                item.get("session_id"): item
+                for item in data.get("campaign_states", [])
+            }
+            sessions = [
+                Session(**{
+                    **item,
+                    "draft_flow_version": states_by_session.get(item.get("id"), {}).get("draft_flow_version"),
+                })
+                for item in data.get("sessions", [])
+            ]
             return sorted(sessions, key=lambda session: session.updated_at, reverse=True)
 
     def get_session(self, session_id: str) -> SessionDetail | None:
@@ -34,7 +44,8 @@ class SessionStore:
                 return None
             messages = [Message(**item) for item in data.get("messages", []) if item.get("session_id") == session_id]
             messages.sort(key=lambda message: message.created_at)
-            return SessionDetail(**session, messages=messages)
+            state = next((item for item in data.get("campaign_states", []) if item.get("session_id") == session_id), {})
+            return SessionDetail(**{**session, "draft_flow_version": state.get("draft_flow_version")}, messages=messages)
 
     def create_session(
         self,
@@ -131,17 +142,59 @@ class SessionStore:
             self._write(data)
             return Session(**session)
 
+    def upsert_campaign_state(
+        self,
+        *,
+        session_id: str,
+        campaign_id: int | None = None,
+        draft_flow_json: dict[str, Any] | None = None,
+        runtime_status: str = "in_progress",
+        draft_flow_version: int | None = None,
+    ) -> None:
+        with self._lock:
+            data = self._read()
+            session = self._find_session(data, session_id)
+            if session is None:
+                raise KeyError(session_id)
+            states = data.setdefault("campaign_states", [])
+            state = next((item for item in states if item.get("session_id") == session_id), None)
+            now = self._now().isoformat()
+            if state is None:
+                states.append({
+                    "session_id": session_id,
+                    "campaign_id": campaign_id,
+                    "draft_flow_json": draft_flow_json,
+                    "draft_flow_version": draft_flow_version,
+                    "runtime_status": runtime_status,
+                    "created_at": now,
+                    "updated_at": now,
+                })
+            else:
+                state.update({
+                    "campaign_id": campaign_id,
+                    "draft_flow_json": draft_flow_json,
+                    "draft_flow_version": draft_flow_version,
+                    "runtime_status": runtime_status,
+                    "updated_at": now,
+                })
+            if campaign_id is not None:
+                session["campaign_id"] = campaign_id
+            session["status"] = runtime_status
+            session["updated_at"] = now
+            self._write(data)
+
     def _read(self) -> dict[str, list[dict[str, Any]]]:
         if not self.path.exists():
-            return {"sessions": [], "messages": []}
+            return {"sessions": [], "messages": [], "campaign_states": []}
         try:
             with self.path.open("r", encoding="utf-8") as fh:
                 data = json.load(fh)
         except json.JSONDecodeError:
-            return {"sessions": [], "messages": []}
+            return {"sessions": [], "messages": [], "campaign_states": []}
         return {
             "sessions": data.get("sessions", []),
             "messages": data.get("messages", []),
+            "campaign_states": data.get("campaign_states", []),
         }
 
     def _write(self, data: dict[str, list[dict[str, Any]]]) -> None:

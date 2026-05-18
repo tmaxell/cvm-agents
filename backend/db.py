@@ -10,9 +10,10 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import inspect, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.attributes import NO_VALUE
 
 from models import Base, BuilderMessageModel, BuilderSessionModel, CampaignStateModel
 from schemas import Message, Session, SessionDetail
@@ -50,13 +51,30 @@ async def init_db() -> None:
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
 
+        def _has_campaign_state_version_column(sync_connection) -> bool:
+            inspector = inspect(sync_connection)
+            if not inspector.has_table("campaign_states"):
+                return True
+            return any(
+                column["name"] == "draft_flow_version"
+                for column in inspector.get_columns("campaign_states")
+            )
+
+        has_version_column = await connection.run_sync(_has_campaign_state_version_column)
+        if not has_version_column:
+            await connection.execute(text("ALTER TABLE campaign_states ADD COLUMN draft_flow_version INTEGER"))
+
 
 class DatabaseSessionStore:
     """SQL-backed repository for builder sessions, messages, and campaign state."""
 
     async def list_sessions(self) -> list[Session]:
         async with session_scope() as db:
-            result = await db.scalars(select(BuilderSessionModel).order_by(BuilderSessionModel.updated_at.desc()))
+            result = await db.scalars(
+                select(BuilderSessionModel)
+                .options(selectinload(BuilderSessionModel.campaign_state))
+                .order_by(BuilderSessionModel.updated_at.desc())
+            )
             return [self._to_session(item) for item in result]
 
     async def get_session(self, session_id: str) -> SessionDetail | None:
@@ -64,7 +82,7 @@ class DatabaseSessionStore:
             result = await db.scalars(
                 select(BuilderSessionModel)
                 .where(BuilderSessionModel.id == session_id)
-                .options(selectinload(BuilderSessionModel.messages))
+                .options(selectinload(BuilderSessionModel.messages), selectinload(BuilderSessionModel.campaign_state))
             )
             session = result.first()
             if session is None:
@@ -174,6 +192,7 @@ class DatabaseSessionStore:
         campaign_id: int | None = None,
         draft_flow_json: dict[str, Any] | None = None,
         runtime_status: str = "in_progress",
+        draft_flow_version: int | None = None,
     ) -> None:
         async with session_scope() as db:
             session = await db.get(BuilderSessionModel, session_id)
@@ -186,6 +205,7 @@ class DatabaseSessionStore:
                     session_id=session_id,
                     campaign_id=campaign_id,
                     draft_flow_json=draft_flow_json,
+                    draft_flow_version=draft_flow_version,
                     runtime_status=runtime_status,
                     created_at=now,
                     updated_at=now,
@@ -194,6 +214,7 @@ class DatabaseSessionStore:
             else:
                 state.campaign_id = campaign_id
                 state.draft_flow_json = draft_flow_json
+                state.draft_flow_version = draft_flow_version
                 state.runtime_status = runtime_status
                 state.updated_at = now
             if campaign_id is not None:
@@ -203,6 +224,8 @@ class DatabaseSessionStore:
 
     @staticmethod
     def _to_session(session: BuilderSessionModel) -> Session:
+        state_value = inspect(session).attrs.campaign_state.loaded_value
+        state = None if state_value is NO_VALUE else state_value
         return Session(
             id=session.id,
             campaign_id=session.campaign_id,
@@ -210,6 +233,11 @@ class DatabaseSessionStore:
             created_at=session.created_at,
             updated_at=session.updated_at,
             status=session.status,
+            draft_flow_version=(
+                state.draft_flow_version
+                if state is not None
+                else None
+            ),
         )
 
     @staticmethod

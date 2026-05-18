@@ -44,6 +44,25 @@ const COPILOT_PLACEHOLDER: Record<Lang, string> = {
   en: "Ask about campaigns, errors, settings…",
 };
 
+const COPILOT_SUGGESTIONS: Record<Lang, string[]> = {
+  ru: [
+    "Почему кампания не запускается?",
+    "Проверь текущий flow и найди риски перед запуском",
+    "Какие поля нужно заполнить для корректной кампании?",
+    "Объясни ошибки в canvas простым языком",
+    "Что улучшить в сегменте и оффере?",
+    "Как проверить настройки каналов перед запуском?",
+  ],
+  en: [
+    "Why is the campaign not launching?",
+    "Review the current flow and find risks before launch",
+    "Which fields must be filled for a valid campaign?",
+    "Explain the canvas errors in simple terms",
+    "What should be improved in the segment and offer?",
+    "How can I check channel settings before launch?",
+  ],
+};
+
 const TAB_LABELS: Record<
   Tab,
   { icon: string; label: string; shortLabel: string }
@@ -222,7 +241,7 @@ export function FloatingWidget({
               endpoint="/api/copilot"
               messageKey="question"
               placeholder={COPILOT_PLACEHOLDER[lang]}
-              suggestions={[]}
+              suggestions={COPILOT_SUGGESTIONS[lang]}
             />
           </div>
           <div className="fw-panel-slot" style={activePanelStyle("segments")}>

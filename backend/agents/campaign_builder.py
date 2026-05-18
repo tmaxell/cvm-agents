@@ -28,7 +28,7 @@ from langchain_core.tools import tool
 from typing_extensions import TypedDict
 
 from llm import get_llm
-from schemas import BuilderRequest, BuilderResponse, CampaignBriefCompleteness
+from schemas import BuilderRequest, BuilderResponse, CampaignBriefCompleteness, FlowPatch
 from agents.flow_composer import compose_campaign_flow_result
 from tools import adtarget
 from tools.flow_builder import (
@@ -1075,6 +1075,68 @@ def _add_activity_to_flow(
     )
 
 
+class FlowPatchConflictError(ValueError):
+    """Raised when a typed flow patch targets a stale draft version."""
+
+
+def _flow_patch_from_plan(plan: dict[str, Any], base_version: int) -> FlowPatch:
+    """Convert parser/LLM planner output into the typed FlowPatch contract."""
+    return FlowPatch(
+        base_version=base_version,
+        operations=[plan.get("action")],
+        anchor_activity_id=plan.get("anchor_id"),
+        anchor_activity_type=plan.get("anchor_type"),
+        insert_position=plan.get("anchor_position") or (
+            "after" if plan.get("anchor_type") or plan.get("anchor_id") else "end"
+        ),
+        activity={
+            "type": plan.get("activity_type"),
+            "params": dict(plan.get("activity_params") or {}),
+            "id": plan.get("activity_id"),
+            "occurrence": plan.get("occurrence") or "last",
+        },
+    )
+
+
+def _apply_flow_patch(
+    flow: dict,
+    patch: FlowPatch,
+    *,
+    current_version: int,
+) -> dict:
+    """Apply a typed FlowPatch through the existing flow edit helpers.
+
+    The draft is never mutated when the patch was based on a stale version.
+    """
+    if patch.base_version != current_version:
+        raise FlowPatchConflictError(
+            f"Flow patch base_version={patch.base_version} does not match "
+            f"current draft_flow_version={current_version}"
+        )
+
+    updated_flow = flow
+    for operation in patch.operations:
+        if operation == "add_activity":
+            updated_flow = _add_activity_to_flow(
+                updated_flow,
+                str(patch.activity.type),
+                activity_params=patch.activity.params,
+                anchor_activity_type=patch.anchor_activity_type,
+                anchor_id=patch.anchor_activity_id,
+                anchor_position=patch.insert_position,
+            )
+        elif operation == "remove_activity":
+            updated_flow = _remove_activity_from_flow(
+                updated_flow,
+                activity_type=patch.activity.type,
+                activity_id=patch.activity.id or patch.anchor_activity_id,
+                occurrence=patch.activity.occurrence,
+            )
+        else:
+            raise ValueError(f"Неподдерживаемая patch operation: {operation}")
+    return updated_flow
+
+
 def _parse_activity_params(activity_params: dict[str, Any] | str | None) -> dict[str, Any]:
     if activity_params is None:
         return {}
@@ -1920,11 +1982,13 @@ async def run(request: BuilderRequest) -> BuilderResponse:
                 f"Composer validation metadata: {json.dumps(composition.validation_metadata, ensure_ascii=False)}\n"
             )
 
-    planned_flow_edit: dict | None = None
-    planned_flow_edit_warning: str | None = None
+    planned_flow_patch: FlowPatch | None = None
+    planned_flow_plan: dict[str, Any] | None = None
+    planned_flow_patch_warning: str | None = None
+    patch_base_version = _current_draft_flow_version(request)
 
     if flow_edit_intent and flow_edit_intent.action in {"add_activity", "remove_activity"}:
-        planned_flow_edit = {
+        planned_flow_plan = {
             "action": flow_edit_intent.action,
             "activity_type": flow_edit_intent.activity_type,
             "anchor_type": flow_edit_intent.anchor_activity_type,
@@ -1936,7 +2000,7 @@ async def run(request: BuilderRequest) -> BuilderResponse:
             "assistant_message": "",
         }
         if existing_flow and flow_edit_intent.action == "add_activity" and flow_edit_intent.activity_type == "BusinessTransactionActivity":
-            planner_plan, planned_flow_edit_warning = await _llm_plan_special_turn(
+            planner_plan, planned_flow_patch_warning = await _llm_plan_special_turn(
                 request.goal,
                 preferences=request.builder_preferences,
                 existing_flow=existing_flow,
@@ -1950,9 +2014,9 @@ async def run(request: BuilderRequest) -> BuilderResponse:
                     planner_plan["anchor_type"] = flow_edit_intent.anchor_activity_type
                 if not planner_plan.get("anchor_position") and flow_edit_intent.anchor_activity_type:
                     planner_plan["anchor_position"] = "after"
-                planned_flow_edit = planner_plan
+                planned_flow_plan = planner_plan
     elif existing_flow and _looks_like_flow_activity_edit(request.goal):
-        planned_flow_edit, planned_flow_edit_warning = await _llm_plan_special_turn(
+        planned_flow_plan, planned_flow_patch_warning = await _llm_plan_special_turn(
             request.goal,
             preferences=request.builder_preferences,
             existing_flow=existing_flow,
@@ -1960,10 +2024,13 @@ async def run(request: BuilderRequest) -> BuilderResponse:
             campaign_brief=campaign_brief_context,
             audience=structured_audience_context,
         )
-        if planned_flow_edit and planned_flow_edit.get("action") not in {"add_activity", "remove_activity"}:
-            planned_flow_edit = None
+        if planned_flow_plan and planned_flow_plan.get("action") not in {"add_activity", "remove_activity"}:
+            planned_flow_plan = None
 
-    if planned_flow_edit and planned_flow_edit.get("action") == "remove_activity":
+    if planned_flow_plan:
+        planned_flow_patch = _flow_patch_from_plan(planned_flow_plan, patch_base_version)
+
+    if planned_flow_patch and "remove_activity" in planned_flow_patch.operations:
         if not existing_flow:
             return _builder_response(
                 request,
@@ -1977,12 +2044,19 @@ async def run(request: BuilderRequest) -> BuilderResponse:
             )
 
         try:
-            activity_id = planned_flow_edit.get("activity_id") or planned_flow_edit.get("anchor_id")
-            updated_flow = _remove_activity_from_flow(
+            updated_flow = _apply_flow_patch(
                 existing_flow,
-                activity_type=planned_flow_edit.get("activity_type"),
-                activity_id=activity_id,
-                occurrence=planned_flow_edit.get("occurrence") or "last",
+                planned_flow_patch,
+                current_version=_current_draft_flow_version(request),
+            )
+        except FlowPatchConflictError as e:
+            return _builder_response(
+                request,
+                message=f"Конфликт версии flow: {e}. Обновите черновик и повторите действие.",
+                campaign_id=request.session_campaign_id,
+                draft_flow=existing_flow,
+                draft_flow_version=_current_draft_flow_version(request) or None,
+                status="error",
             )
         except Exception as e:
             return _builder_response(
@@ -1993,11 +2067,12 @@ async def run(request: BuilderRequest) -> BuilderResponse:
                 status="error",
             )
 
-        activity_type = planned_flow_edit.get("activity_type")
+        activity_id = planned_flow_patch.activity.id or planned_flow_patch.anchor_activity_id
+        activity_type = planned_flow_patch.activity.type
         target_text = f" с id={activity_id}" if activity_id else f" {activity_type}" if activity_type else ""
-        message = planned_flow_edit.get("assistant_message") or f"Удалил{target_text} из flow и пересобрал связи."
-        if planned_flow_edit_warning:
-            message += f"\n\n⚠️ {planned_flow_edit_warning}"
+        message = (planned_flow_plan or {}).get("assistant_message") or f"Удалил{target_text} из flow и пересобрал связи."
+        if planned_flow_patch_warning:
+            message += f"\n\n⚠️ {planned_flow_patch_warning}"
         return _builder_response(
             request,
             message=message,
@@ -2007,8 +2082,8 @@ async def run(request: BuilderRequest) -> BuilderResponse:
             status="created" if request.session_campaign_id else "in_progress",
         )
 
-    if planned_flow_edit and planned_flow_edit.get("action") == "add_activity":
-        activity_type = planned_flow_edit.get("activity_type")
+    if planned_flow_patch and "add_activity" in planned_flow_patch.operations:
+        activity_type = planned_flow_patch.activity.type
         if not _is_supported_activity_type(activity_type):
             return _builder_response(
                 request,
@@ -2030,7 +2105,7 @@ async def run(request: BuilderRequest) -> BuilderResponse:
                 status="error",
             )
 
-        activity_params = dict(planned_flow_edit.get("activity_params") or {})
+        activity_params = dict(planned_flow_patch.activity.params or {})
         offer = None
         if activity_type == "BusinessTransactionActivity":
             resolved_params, offer, fallback_warning = _resolve_business_transaction_activity_params(
@@ -2039,8 +2114,8 @@ async def run(request: BuilderRequest) -> BuilderResponse:
                 request.goal,
                 request.builder_preferences,
             )
-            if fallback_warning and not planned_flow_edit_warning:
-                planned_flow_edit_warning = fallback_warning
+            if fallback_warning and not planned_flow_patch_warning:
+                planned_flow_patch_warning = fallback_warning
             if not resolved_params:
                 details = fallback_warning or (
                     "справочник офферов пуст или недоступен. "
@@ -2054,15 +2129,24 @@ async def run(request: BuilderRequest) -> BuilderResponse:
                     status="error",
                 )
             activity_params = resolved_params
+            planned_flow_patch = planned_flow_patch.model_copy(update={
+                "activity": planned_flow_patch.activity.model_copy(update={"params": activity_params}),
+            })
 
         try:
-            updated_flow = _add_activity_to_flow(
+            updated_flow = _apply_flow_patch(
                 existing_flow,
-                str(activity_type),
-                activity_params=activity_params,
-                anchor_activity_type=planned_flow_edit.get("anchor_type"),
-                anchor_id=planned_flow_edit.get("anchor_id"),
-                anchor_position=planned_flow_edit.get("anchor_position"),
+                planned_flow_patch,
+                current_version=_current_draft_flow_version(request),
+            )
+        except FlowPatchConflictError as e:
+            return _builder_response(
+                request,
+                message=f"Конфликт версии flow: {e}. Обновите черновик и повторите действие.",
+                campaign_id=request.session_campaign_id,
+                draft_flow=existing_flow,
+                draft_flow_version=_current_draft_flow_version(request) or None,
+                status="error",
             )
         except Exception as e:
             return _builder_response(
@@ -2073,20 +2157,20 @@ async def run(request: BuilderRequest) -> BuilderResponse:
                 status="error",
             )
 
-        anchor_type = planned_flow_edit.get("anchor_type")
-        anchor_position = planned_flow_edit.get("anchor_position") or "after"
+        anchor_type = planned_flow_patch.anchor_activity_type
+        anchor_position = planned_flow_patch.insert_position or "after"
         if anchor_type:
             anchor_text = f" {anchor_position} {anchor_type}"
         else:
             anchor_text = " в конец flow"
-        message = planned_flow_edit.get("assistant_message") or f"Добавил {activity_type}{anchor_text}."
+        message = (planned_flow_plan or {}).get("assistant_message") or f"Добавил {activity_type}{anchor_text}."
         if offer:
             message += (
                 f"\n\nШаблон оффера: **{offer.get('name', offer['id'])}** "
                 f"(id={offer['id']}, operationId={activity_params['operation_id']})."
             )
-        if planned_flow_edit_warning:
-            message += f"\n\n⚠️ {planned_flow_edit_warning}"
+        if planned_flow_patch_warning:
+            message += f"\n\n⚠️ {planned_flow_patch_warning}"
 
         return _builder_response(
             request,

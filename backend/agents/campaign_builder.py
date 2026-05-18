@@ -431,6 +431,72 @@ def _looks_like_flow_activity_edit(goal: str) -> bool:
     return any(marker in text for marker in edit_markers) and any(marker in text for marker in activity_markers)
 
 
+def _has_filled_builder_preferences(preferences: dict | None) -> bool:
+    """Return True when Builder UI preferences contain usable build context."""
+    if not isinstance(preferences, dict):
+        return False
+    return any(bool(_stringify_preference_value(value).strip()) for value in preferences.values())
+
+
+def _looks_like_initial_flow_build(goal: str, preferences: dict | None = None) -> bool:
+    """Distinguish an initial campaign/flow build request from a follow-up edit.
+
+    Some initial prompts mention activity names (for example RealTimeCheck) and
+    would otherwise be parsed as an add-activity edit.  Without an existing
+    session flow, explicit build wording should stay on the normal draft-build
+    path so the agent can create a new flow from goal/preferences.
+    """
+    text = _normalize_text(goal)
+    if not text:
+        return False
+
+    build_markers = (
+        "собер",
+        "состав",
+        "созда",
+        "постро",
+        "сгенер",
+        "build",
+        "create",
+        "assemble",
+        "generate",
+    )
+    build_object_markers = (
+        "flow",
+        "флоу",
+        "кампан",
+        "campaign",
+        "draft",
+        "чернов",
+    )
+    explicit_edit_markers = (
+        "добав",
+        "встав",
+        "add",
+        "append",
+        "insert",
+        "убер",
+        "удал",
+        "remove",
+        "delete",
+    )
+
+    has_build_wording = any(marker in text for marker in build_markers)
+    if not has_build_wording:
+        return False
+
+    # Pure edit commands such as "добавь RealTimeCheck после SMS" must still
+    # fail with missing flow when there is no draft to edit.  If the prompt also
+    # says to build/create a flow, treat it as an initial build with constraints.
+    has_explicit_edit_wording = any(marker in text for marker in explicit_edit_markers)
+    has_build_object = any(marker in text for marker in build_object_markers)
+    has_preferences = _has_filled_builder_preferences(preferences)
+    if has_explicit_edit_wording and not has_build_object:
+        return False
+
+    return has_build_object or has_preferences
+
+
 async def _llm_plan_special_turn(
     goal: str,
     *,
@@ -1673,6 +1739,17 @@ async def run(request: BuilderRequest) -> BuilderResponse:
           f"{len(ref_full.get('channels', []))}→{len(ref['channels'])} channels, "
           f"{len(ref_full.get('events', []))}→{len(ref['events'])} events, "
           f"{len(ref_full.get('offers', []))}→{len(ref['offers'])} offers")
+
+    initial_build_without_existing_flow = (
+        not existing_flow
+        and _looks_like_initial_flow_build(request.goal, request.builder_preferences)
+    )
+    if initial_build_without_existing_flow:
+        # Keep initial build requests on the normal draft-flow path even when
+        # they mention an activity type that the deterministic edit parser knows
+        # about (for example RealTimeCheck). Missing-flow errors are reserved for
+        # follow-up edit commands that require an existing draft.
+        flow_edit_intent = None
 
     planned_flow_edit: dict | None = None
     planned_flow_edit_warning: str | None = None

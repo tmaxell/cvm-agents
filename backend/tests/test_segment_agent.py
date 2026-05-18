@@ -4,6 +4,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
@@ -108,6 +110,37 @@ class ComposeNewFakeLLM:
                 },
             ]
         }, ensure_ascii=False))
+
+
+@pytest.mark.parametrize(("clients_count", "expected"), [
+    (67890, 67890),
+    ("67890", 67890),
+    ("67 890", 67890),
+    ("", None),
+    ("unknown", None),
+])
+def test_segment_agent_normalises_clients_count_values(clients_count, expected):
+    from agents import segment_agent
+
+    group = {
+        "id": 105,
+        "name": "Утилизаторы пакета данных (≥80%)",
+        "clientsCount": clients_count,
+        "status": "Active",
+    }
+    compact_groups = segment_agent._compact_target_groups([group])
+
+    assert compact_groups[0]["clients_count"] == expected
+    assert segment_agent._candidate_matched_model({
+        "id": 105,
+        "name": "Утилизаторы пакета данных (≥80%)",
+        "clientsCount": clients_count,
+    }).clients_count == expected
+    assert segment_agent._matched_model(group, 0.9, []).clients_count == expected
+    assert segment_agent._compact_group_match({
+        "id": 105,
+        "name": "Утилизаторы пакета данных (≥80%)",
+    }, compact_groups)["clients_count"] == expected
 
 
 def test_segment_agent_returns_two_to_three_hypotheses_for_product_and_goal(monkeypatch):

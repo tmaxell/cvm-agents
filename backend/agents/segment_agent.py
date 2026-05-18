@@ -109,10 +109,41 @@ def _compact_target_groups(target_groups: list[dict[str, Any]]) -> list[dict[str
         compact.append({
             "id": group.get("id"),
             "name": group.get("name") or group.get("title") or "Без названия",
-            "clients_count": group.get("clientsCount") or group.get("clients_count"),
+            "clients_count": _normalise_clients_count(_clients_count_value(group)),
             "status": group.get("status"),
         })
     return compact
+
+
+def _clients_count_value(group: dict[str, Any]) -> Any:
+    if "clientsCount" in group:
+        return group.get("clientsCount")
+    return group.get("clients_count")
+
+
+def _normalise_clients_count(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(value, float):
+        if value.is_integer():
+            return int(value)
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        cleaned = re.sub(r"[\s\u00a0,_'’]", "", text)
+        if re.fullmatch(r"[+-]?\d+", cleaned):
+            return int(cleaned)
+        try:
+            as_float = float(cleaned)
+        except ValueError:
+            return None
+        if as_float.is_integer():
+            return int(as_float)
+    return None
 
 
 async def _ask_llm(request: SegmentSuggestRequest, compact_groups: list[dict[str, Any]]) -> _RawSegmentResponse:
@@ -256,12 +287,20 @@ def _compact_group_match(candidate: Any, compact_groups: list[dict[str, Any]]) -
     for group in compact_groups:
         group_id = group.get("id")
         group_name = str(group.get("name") or "")
-        id_matches = candidate_match.target_group_id is not None and str(candidate_match.target_group_id) == str(group_id)
-        name_matches = bool(candidate_match.name and group_name and _normalise_text(candidate_match.name) == _normalise_text(group_name))
+        id_matches = (
+            candidate_match.target_group_id is not None
+            and str(candidate_match.target_group_id) == str(group_id)
+        )
+        name_matches = bool(
+            candidate_match.name
+            and group_name
+            and _normalise_text(candidate_match.name) == _normalise_text(group_name)
+        )
+        clients_count = _normalise_clients_count(group.get("clients_count"))
         if id_matches and (not candidate_match.name or name_matches):
-            return {"id": group_id, "name": group_name, "clients_count": group.get("clients_count")}
+            return {"id": group_id, "name": group_name, "clients_count": clients_count}
         if candidate_match.target_group_id is None and name_matches:
-            return {"id": group_id, "name": group_name, "clients_count": group.get("clients_count")}
+            return {"id": group_id, "name": group_name, "clients_count": clients_count}
     return None
 
 
@@ -422,7 +461,9 @@ def _candidate_matched_model(candidate: Any) -> MatchedTargetGroup | None:
     if not candidate:
         return None
     if isinstance(candidate, MatchedTargetGroup):
-        return candidate
+        return candidate.model_copy(update={
+            "clients_count": _normalise_clients_count(candidate.clients_count),
+        })
     if isinstance(candidate, dict):
         raw_id = candidate.get("target_group_id") or candidate.get("id")
         try:
@@ -435,7 +476,7 @@ def _candidate_matched_model(candidate: Any) -> MatchedTargetGroup | None:
         return MatchedTargetGroup(
             target_group_id=target_group_id,
             name=name,
-            clients_count=candidate.get("clientsCount") or candidate.get("clients_count"),
+            clients_count=_normalise_clients_count(_clients_count_value(candidate)),
             match_score=0.0,
             match_reasons=[],
         )
@@ -541,7 +582,7 @@ def _matched_model(group: dict[str, Any], score: float, reasons: list[str]) -> M
     return MatchedTargetGroup(
         target_group_id=group.get("id"),
         name=str(group.get("name") or group.get("title") or "Без названия"),
-        clients_count=group.get("clientsCount") or group.get("clients_count"),
+        clients_count=_normalise_clients_count(_clients_count_value(group)),
         match_score=round(max(0.0, min(score, 1.0)), 2),
         match_reasons=reasons,
     )

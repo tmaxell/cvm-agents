@@ -125,6 +125,56 @@ def _stringify_preference_value(value: Any) -> str:
     return str(value)
 
 
+def _model_to_plain(value: Any) -> Any:
+    """Convert Pydantic models/lists into JSON-serializable primitives."""
+    if hasattr(value, "model_dump"):
+        return value.model_dump(exclude_none=True)
+    if isinstance(value, dict):
+        return {key: _model_to_plain(item) for key, item in value.items() if item is not None}
+    if isinstance(value, list):
+        return [_model_to_plain(item) for item in value]
+    return value
+
+
+def _campaign_brief_context(request: BuilderRequest) -> dict[str, Any]:
+    """Return typed campaign brief context for planner/composer prompts."""
+    brief = request.campaign_brief
+    if not brief:
+        return {}
+    payload = _model_to_plain(brief)
+    if not isinstance(payload, dict):
+        return {}
+    return payload
+
+
+def _structured_audience_context(request: BuilderRequest) -> dict[str, Any]:
+    """Return selected Audience Builder segment without relying on human text parsing."""
+    brief_context = _campaign_brief_context(request)
+    audience = brief_context.get("audience") if isinstance(brief_context, dict) else None
+    if not isinstance(audience, dict):
+        return {}
+    selected = audience.get("selected_segment")
+    if isinstance(selected, dict) and selected:
+        return selected
+    return {}
+
+
+def _selected_target_group_id(audience: dict[str, Any]) -> int | None:
+    """Extract an existing Target Group id from structured selected-segment context."""
+    if not audience or audience.get("recommendationOnly"):
+        return None
+    if not audience.get("is_existing_target_group"):
+        return None
+    match = audience.get("matched_target_group")
+    if not isinstance(match, dict):
+        return None
+    raw_id = match.get("id") if match.get("id") not in (None, "") else match.get("target_group_id")
+    try:
+        return int(raw_id)
+    except (TypeError, ValueError):
+        return None
+
+
 def _is_memory_only_request(goal: str) -> bool:
     """Определяет сообщения, где пользователь только задаёт контекст для будущей сборки."""
     text = _normalize_text(goal)
@@ -503,6 +553,8 @@ async def _llm_plan_special_turn(
     preferences: dict | None,
     existing_flow: dict | None,
     ref: dict | None = None,
+    campaign_brief: dict[str, Any] | None = None,
+    audience: dict[str, Any] | None = None,
 ) -> tuple[dict | None, str | None]:
     """Uses the LLM as a planner for iterative non-standard Builder turns.
 
@@ -532,6 +584,9 @@ async def _llm_plan_special_turn(
                 f"Поддержанные activity_type: {SUPPORTED_ACTIVITY_TYPES_TEXT}. "
                 "Если пользователь только просит запомнить вводные — action=remember_context. "
                 "Для remember_context извлеки новые вводные в preference_patch. "
+                "Если передан structured_audience, используй его как основной источник аудитории; не извлекай аудиторию из длинного текста. "
+                "Если selected_target_group_id не null, используй его как существующую Target Group. "
+                "Если structured_audience.recommendationOnly=true, не выдумывай target_group_id и попроси подтвердить/создать Target Group. "
                 "Если просит добавить активность в текущий flow — action=add_activity; "
                 "activity_type заполни точным типом активности, даже если тип не входит в поддержанный список. "
                 "Для BusinessTransactionActivity выбери лучший оффер из available_offers и положи "
@@ -547,6 +602,9 @@ async def _llm_plan_special_turn(
             HumanMessage(content=json.dumps({
                 "user_goal": goal,
                 "builder_preferences": preferences or {},
+                "campaign_brief": campaign_brief or {},
+                "structured_audience": audience or {},
+                "selected_target_group_id": _selected_target_group_id(audience or {}),
                 "has_existing_flow": bool(existing_flow),
                 "existing_activity_types": [
                     activity.get("type")
@@ -1698,6 +1756,8 @@ async def run(request: BuilderRequest) -> BuilderResponse:
     """Запускает один шаг агента и возвращает ответ."""
     existing_flow = _parse_flow_json(request.session_flow_json)
     flow_edit_intent = _parse_flow_edit_intent(request.goal)
+    campaign_brief_context = _campaign_brief_context(request)
+    structured_audience_context = _structured_audience_context(request)
 
     # Context-only turns go through an LLM planner, but never create a campaign.
     if _is_memory_only_request(request.goal):
@@ -1705,6 +1765,8 @@ async def run(request: BuilderRequest) -> BuilderResponse:
             request.goal,
             preferences=request.builder_preferences,
             existing_flow=existing_flow,
+            campaign_brief=campaign_brief_context,
+            audience=structured_audience_context,
         )
         message = (
             plan.get("assistant_message")
@@ -1734,6 +1796,20 @@ async def run(request: BuilderRequest) -> BuilderResponse:
     if request.builder_preferences:
         preferences_json = json.dumps(request.builder_preferences, ensure_ascii=False)
         system_prompt += f"\nBuilder UI preferences (use as user-provided constraints): {preferences_json}\n"
+    if campaign_brief_context:
+        brief_json = json.dumps(campaign_brief_context, ensure_ascii=False)
+        system_prompt += f"\nTyped campaign_brief (authoritative structured request context): {brief_json}\n"
+    if structured_audience_context:
+        audience_json = json.dumps(structured_audience_context, ensure_ascii=False)
+        target_group_id = _selected_target_group_id(structured_audience_context)
+        system_prompt += (
+            "\nStructured Audience Builder selection (primary audience source; do not parse audience from free-form text): "
+            f"{audience_json}\n"
+        )
+        if target_group_id is not None:
+            system_prompt += f"Use existing target_group_id={target_group_id} for TargetGroupActivity.\n"
+        elif structured_audience_context.get("recommendationOnly"):
+            system_prompt += "Audience is recommendation-only; do not invent target_group_id. Ask to confirm/create a Target Group before building with a TargetGroupActivity.\n"
     print(f"[campaign_builder] Ref data (API total → prompt): "
           f"{len(ref_full.get('target_groups', []))}→{len(ref['target_groups'])} TGs, "
           f"{len(ref_full.get('channels', []))}→{len(ref['channels'])} channels, "
@@ -1772,6 +1848,8 @@ async def run(request: BuilderRequest) -> BuilderResponse:
                 preferences=request.builder_preferences,
                 existing_flow=existing_flow,
                 ref=ref_full,
+                campaign_brief=campaign_brief_context,
+                audience=structured_audience_context,
             )
             if planner_plan and planner_plan.get("action") == "add_activity":
                 planner_plan.setdefault("activity_type", "BusinessTransactionActivity")
@@ -1786,6 +1864,8 @@ async def run(request: BuilderRequest) -> BuilderResponse:
             preferences=request.builder_preferences,
             existing_flow=existing_flow,
             ref=ref_full,
+            campaign_brief=campaign_brief_context,
+            audience=structured_audience_context,
         )
         if planned_flow_edit and planned_flow_edit.get("action") not in {"add_activity", "remove_activity"}:
             planned_flow_edit = None

@@ -161,25 +161,33 @@ function hasPreferences(preferences: BuilderPreferences): boolean {
   return Object.values(preferences).some((value) => Boolean(value?.trim()));
 }
 
+function preserveStructuredAudience(current: CampaignBrief, next: CampaignBrief): CampaignBrief {
+  if (!next.audience.selected_segment && current.audience.selected_segment) {
+    return {
+      ...next,
+      audience: {
+        ...next.audience,
+        selected_segment: current.audience.selected_segment,
+      },
+    };
+  }
+  return next;
+}
+
 function mergeResponseBrief(
   current: CampaignBrief,
   response: BuilderResponse,
 ): CampaignBrief | null {
   if (response.builder_preferences) {
-    return preferencesToBrief(response.builder_preferences);
+    return preserveStructuredAudience(current, preferencesToBrief(response.builder_preferences));
   }
   if (response.preference_patch) {
-    return preferencesToBrief({ ...briefToPreferences(current), ...response.preference_patch });
+    return preserveStructuredAudience(
+      current,
+      preferencesToBrief({ ...briefToPreferences(current), ...response.preference_patch }),
+    );
   }
   return null;
-}
-
-function stringifyCriteria(criteria: Record<string, unknown>): string[] {
-  return Object.entries(criteria).map(([key, value]) => {
-    if (Array.isArray(value)) return `${key}: ${value.join(", ")}`;
-    if (value && typeof value === "object") return `${key}: ${JSON.stringify(value)}`;
-    return `${key}: ${String(value)}`;
-  });
 }
 
 function getMatchedTargetGroupId(match: SelectedSegmentForBuilder["hypothesis"]["matched_target_group"]): string | null {
@@ -195,40 +203,42 @@ function formatSelectedSegmentTargetGroups(
   const { hypothesis } = selectedSegment;
   const match = hypothesis.matched_target_group;
   const matchId = getMatchedTargetGroupId(match);
-  const criteria = stringifyCriteria(hypothesis.selection_criteria);
   const hasExistingTargetGroup = Boolean(match && hypothesis.is_existing_target_group);
   const isRecommendationOnly = Boolean(selectedSegment.recommendationOnly) || !hasExistingTargetGroup;
 
   const targetGroupLine = isRecommendationOnly
     ? (lang === "en"
-      ? "Recommendation-only segment: no existing Target Group is attached or created yet."
-      : "Сегмент-рекомендация: существующая Target Group не привязана и не создавалась.")
+      ? "Recommendation-only segment; Target Group is not attached yet"
+      : "Сегмент-рекомендация; Target Group пока не привязана")
     : `Target Group: ${matchId ? `#${matchId} · ` : ""}${match?.name ?? hypothesis.name}`;
 
-  const labels = lang === "en"
-    ? {
-      segment: "Segment",
-      description: "Audience description",
-      relevance: "Relevance",
-      criteria: "Selection criteria",
-      risk: "Risk / limitation",
-    }
-    : {
-      segment: "Сегмент",
-      description: "Описание аудитории",
-      relevance: "Релевантность",
-      criteria: "Критерии отбора",
-      risk: "Риск / ограничение",
-    };
+  const segmentLabel = lang === "en" ? "Segment" : "Сегмент";
+  return [targetGroupLine, `${segmentLabel}: ${hypothesis.name}`].filter(Boolean).join(" · ");
+}
 
-  return [
-    targetGroupLine,
-    `${labels.segment}: ${hypothesis.name}`,
-    hypothesis.audience_description ? `${labels.description}: ${hypothesis.audience_description}` : "",
-    hypothesis.relevance_reason ? `${labels.relevance}: ${hypothesis.relevance_reason}` : "",
-    criteria.length ? `${labels.criteria}: ${criteria.join("; ")}` : "",
-    hypothesis.risk_or_limitation ? `${labels.risk}: ${hypothesis.risk_or_limitation}` : "",
-  ].filter(Boolean).join("\n");
+function audienceFromSelectedSegment(
+  selectedSegment: SelectedSegmentForBuilder,
+  lang: "ru" | "en",
+): CampaignBrief["audience"] {
+  const { hypothesis } = selectedSegment;
+  const match = hypothesis.matched_target_group ?? null;
+  const matchId = getMatchedTargetGroupId(match);
+  const hasExistingTargetGroup = Boolean(match && hypothesis.is_existing_target_group);
+  const recommendationOnly = Boolean(selectedSegment.recommendationOnly) || !hasExistingTargetGroup;
+  const summary = formatSelectedSegmentTargetGroups(selectedSegment, lang);
+
+  return {
+    target_groups: matchId && !recommendationOnly ? [matchId] : [],
+    description: summary,
+    selected_segment: {
+      hypothesis: { name: hypothesis.name },
+      selection_criteria: hypothesis.selection_criteria,
+      matched_target_group: match,
+      is_existing_target_group: hasExistingTargetGroup,
+      risk_or_limitation: hypothesis.risk_or_limitation,
+      recommendationOnly,
+    },
+  };
 }
 
 function preferencesFromSelectedSegment(
@@ -486,9 +496,12 @@ export function CampaignBuilderChat({
 
   useEffect(() => {
     if (!selectedSegment) return;
-    setCampaignBrief((current) => preferencesToBrief({
-      ...briefToPreferences(current),
-      ...preferencesFromSelectedSegment(selectedSegment, lang),
+    setCampaignBrief((current) => ({
+      ...preferencesToBrief({
+        ...briefToPreferences(current),
+        ...preferencesFromSelectedSegment(selectedSegment, lang),
+      }),
+      audience: audienceFromSelectedSegment(selectedSegment, lang),
     }));
     setTargetGroupsSource("audience-builder");
   }, [selectedSegment, lang]);
@@ -497,7 +510,13 @@ export function CampaignBuilderChat({
     if (key === "targetGroups") {
       setTargetGroupsSource(value.trim() ? "manual" : null);
     }
-    setCampaignBrief((current) => preferencesToBrief({ ...briefToPreferences(current), [key]: value }));
+    setCampaignBrief((current) => {
+      const nextBrief = preferencesToBrief({ ...briefToPreferences(current), [key]: value });
+      if (key !== "targetGroups") {
+        nextBrief.audience = current.audience;
+      }
+      return nextBrief;
+    });
   };
 
   const handleSend = async () => {
@@ -572,9 +591,13 @@ export function CampaignBuilderChat({
       ...briefToPreferences(campaignBrief),
       ...preferencesFromSelectedSegment(selectedSegment, lang),
     };
-    setCampaignBrief(preferencesToBrief(nextPreferences));
+    const nextBrief = {
+      ...preferencesToBrief(nextPreferences),
+      audience: audienceFromSelectedSegment(selectedSegment, lang),
+    };
+    setCampaignBrief(nextBrief);
     setTargetGroupsSource("audience-builder");
-    setInput(buildBuilderPrompt(preferencesToBrief(nextPreferences), lang));
+    setInput(buildBuilderPrompt(nextBrief, lang));
   };
 
   const handleApplyDemoPlaybook = (item: BuilderDemoPlaybookItem) => {

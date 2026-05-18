@@ -44,9 +44,21 @@ export interface BuilderPreferences {
   offerRecommendations?: string;
 }
 
+export interface CampaignAudienceSelectedSegment {
+  hypothesis: {
+    name: string;
+  };
+  selection_criteria: Record<string, unknown>;
+  matched_target_group?: MatchedTargetGroup | null;
+  is_existing_target_group: boolean;
+  risk_or_limitation?: string | null;
+  recommendationOnly: boolean;
+}
+
 export interface CampaignAudienceRef {
   target_groups: string[];
   description?: string | null;
+  selected_segment?: CampaignAudienceSelectedSegment | null;
 }
 
 export interface CampaignChannel {

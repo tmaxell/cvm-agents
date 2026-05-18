@@ -179,6 +179,14 @@ class FlowPatch(BaseModel):
 ReviewChecklistCategory = Literal["audience", "consent", "contact_policy", "offer", "content", "validation"]
 ReviewChecklistItemStatus = Literal["green", "warning", "blocker"]
 ReviewStatus = Literal["green", "warnings", "blocked"]
+BuilderStatus = Literal[
+    "collect_brief",
+    "draft_ready",
+    "needs_review",
+    "created_in_adtarget",
+    "running",
+    "error",
+]
 
 
 class ReviewChecklistItem(BaseModel):
@@ -236,7 +244,7 @@ class BuilderResponse(BaseModel):
     review_checklist: ReviewChecklist | None = None
     review_status: ReviewStatus = "blocked"
     review_checklist_acknowledged: bool = False
-    status: str = "in_progress"         # "in_progress" | "created" | "started" | "error"
+    status: BuilderStatus = "collect_brief"
 
 
 # ── Segment Suggest ──────────────────────────────────────────────────────────
@@ -308,7 +316,7 @@ class Session(BaseModel):
     title: str
     created_at: datetime
     updated_at: datetime
-    status: str = "in_progress"
+    status: str = "collect_brief"
     draft_flow_version: int | None = None
 
 
@@ -320,7 +328,7 @@ class SessionCreate(BaseModel):
     session_id: str | None = None
     campaign_id: int | None = None
     title: str | None = None
-    status: str = "in_progress"
+    status: str = "collect_brief"
 
 
 class MessageCreate(BaseModel):

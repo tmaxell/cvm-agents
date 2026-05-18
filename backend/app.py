@@ -161,7 +161,7 @@ async def builder(request: BuilderRequest) -> BuilderResponse:
             "campaign_id": request.session_campaign_id,
             "draft_flow_json": request_flow_json,
             "draft_flow_version": effective_version,
-            "status": "in_progress",
+            "status": "collect_brief",
         },
     )
 

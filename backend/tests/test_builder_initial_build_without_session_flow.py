@@ -94,7 +94,7 @@ def test_draft_build_with_last_flow_does_not_auto_create_campaign(monkeypatch):
     create_campaign_mock.assert_not_awaited()
     assert response.campaign_id is None
     assert response.draft_flow == flow
-    assert response.status == "in_progress"
+    assert response.status == "draft_ready"
     assert "Draft" in response.message
     assert "готов к review" in response.message
     assert "отдельного подтверждения" in response.message

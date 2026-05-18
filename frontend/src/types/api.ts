@@ -110,6 +110,14 @@ export interface BuilderRequest {
 }
 
 
+export type BuilderStatus =
+  | "collect_brief"
+  | "draft_ready"
+  | "needs_review"
+  | "created_in_adtarget"
+  | "running"
+  | "error";
+
 export interface BuilderSessionMessage {
   id: string;
   session_id: string;
@@ -125,7 +133,7 @@ export interface BuilderSession {
   title: string;
   created_at: string;
   updated_at: string;
-  status: "in_progress" | "created" | "started" | "error" | string;
+  status: BuilderStatus | string;
   draft_flow_version?: number | null;
 }
 
@@ -202,7 +210,7 @@ export interface BuilderResponse {
   review_checklist?: ReviewChecklist | null;
   review_status: ReviewStatus;
   review_checklist_acknowledged?: boolean;
-  status: "in_progress" | "created" | "started" | "error";
+  status: BuilderStatus;
 }
 
 export interface CampaignActionRequest {

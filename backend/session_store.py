@@ -52,7 +52,7 @@ class SessionStore:
         *,
         title: str,
         campaign_id: int | None = None,
-        status: str = "in_progress",
+        status: str = "collect_brief",
         session_id: str | None = None,
     ) -> Session:
         with self._lock:
@@ -80,7 +80,7 @@ class SessionStore:
         session_id: str | None,
         title: str,
         campaign_id: int | None = None,
-        status: str = "in_progress",
+        status: str = "collect_brief",
     ) -> Session:
         if session_id:
             existing = self.get_session(session_id)
@@ -148,7 +148,7 @@ class SessionStore:
         session_id: str,
         campaign_id: int | None = None,
         draft_flow_json: dict[str, Any] | None = None,
-        runtime_status: str = "in_progress",
+        runtime_status: str = "collect_brief",
         draft_flow_version: int | None = None,
     ) -> None:
         with self._lock:

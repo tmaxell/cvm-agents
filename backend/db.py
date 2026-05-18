@@ -199,7 +199,7 @@ class DatabaseSessionStore:
         session_id: str,
         campaign_id: int | None = None,
         draft_flow_json: dict[str, Any] | None = None,
-        runtime_status: str = "collect_brief",
+        runtime_status: str = "editing",
         draft_flow_version: int | None = None,
         campaign_brief_json: dict[str, Any] | None = None,
         brief_completeness_json: dict[str, Any] | None = None,
@@ -242,7 +242,6 @@ class DatabaseSessionStore:
                 state.updated_at = now
             if campaign_id is not None:
                 session.campaign_id = campaign_id
-            session.status = runtime_status
             session.updated_at = now
 
     @staticmethod

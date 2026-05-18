@@ -35,7 +35,7 @@ def _flow_without_consent() -> dict:
     ])
 
 
-def test_builder_blocks_create_without_green_or_acknowledged_checklist():
+def test_builder_returns_readiness_warning_without_blocking_create_intent():
     flow = _flow_without_consent()
 
     response = asyncio.run(campaign_builder.run(BuilderRequest(
@@ -44,18 +44,19 @@ def test_builder_blocks_create_without_green_or_acknowledged_checklist():
         campaign_brief=_brief(),
     )))
 
-    assert response.status == "needs_review"
+    assert response.status == "draft_ready"
     assert response.campaign_id is None
     assert response.review_status == "blocked"
     assert any(item.category == "consent" and item.status == "blocker" for item in response.review_checklist.items)
-    assert "Действие заблокировано" in response.message
+    assert "Создание кампании доступно" in response.message
+    assert "заблок" not in response.message.lower()
     assert any(
         item.category == "consent" and item.message == "Добавьте проверку согласия перед исходящим сообщением."
         for item in response.review_checklist.items
     )
 
 
-def test_builder_allows_acknowledged_warnings_but_not_blockers():
+def test_builder_acknowledgement_does_not_turn_readiness_blockers_into_runtime_blocks():
     flow = _flow_without_consent()
 
     response = asyncio.run(campaign_builder.run(BuilderRequest(
@@ -65,13 +66,13 @@ def test_builder_allows_acknowledged_warnings_but_not_blockers():
         review_checklist_acknowledged=True,
     )))
 
-    assert response.status == "needs_review"
+    assert response.status == "draft_ready"
     assert response.review_status == "blocked"
     assert response.campaign_id is None
+    assert "Создание кампании доступно" in response.message
 
 
-
-def test_launch_policy_requires_green_or_acknowledged_review_status():
+def test_legacy_launch_policy_requires_green_or_acknowledged_review_status():
     assert not is_review_allowed_for_runtime("warnings", acknowledged_warnings=False)
     assert is_review_allowed_for_runtime("warnings", acknowledged_warnings=True)
     assert is_review_allowed_for_runtime("green", acknowledged_warnings=False)

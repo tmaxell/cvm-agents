@@ -470,7 +470,7 @@ function getFlowSummary(response: BuilderResponse, lang: "ru" | "en"): string {
 function getReviewStatusLabel(status: ReviewStatus | undefined, lang: "ru" | "en"): string {
   if (status === "green") return lang === "en" ? "Green" : "Готово";
   if (status === "warnings") return lang === "en" ? "Warnings" : "Есть замечания";
-  return lang === "en" ? "Blocked" : "Нужно доработать";
+  return lang === "en" ? "Needs work" : "Нужно доработать";
 }
 
 function getChecklistItemLabel(item: ReviewChecklistItem, lang: "ru" | "en"): string {
@@ -534,25 +534,9 @@ function getResultPanelState(response: BuilderResponse): "success" | "warning" |
 }
 
 
-function hasDraftValidationIssues(response: BuilderResponse): boolean {
-  const hasValidationErrors = (response.validation_errors?.length ?? 0) > 0;
-  const hasActivityIssues = response.draft_flow?.activities?.some((activity) => {
-    const errors = Array.isArray(activity.errors) ? activity.errors : [];
-    const warnings = Array.isArray(activity.warnings) ? activity.warnings : [];
-    return errors.length > 0 || warnings.length > 0;
-  }) ?? false;
-  return hasValidationErrors || hasActivityIssues;
-}
-
-function isDraftCreateReady(response: BuilderResponse | null, warningsAcknowledged: boolean): boolean {
+function isDraftCreateReady(response: BuilderResponse | null): boolean {
   if (!response?.draft_flow || response.campaign_id || !response.draft_flow_version) return false;
-  const hasActivities = (response.draft_flow.activities?.length ?? 0) > 0;
-  if (!hasActivities || hasDraftValidationIssues(response)) return false;
-  if (response.review_status === "green") return true;
-  if (response.review_status === "warnings") {
-    return Boolean(response.review_checklist_acknowledged || warningsAcknowledged);
-  }
-  return false;
+  return (response.draft_flow.activities?.length ?? 0) > 0;
 }
 
 
@@ -967,7 +951,7 @@ export function CampaignBuilderChat({
   const constraintsSummary = getConstraintSummary(campaignBrief);
   const checklistItems = lastResponse?.review_checklist?.items ?? [];
   const canAcknowledgeWarnings = lastResponse?.review_status === "warnings";
-  const canCreateCampaign = isDraftCreateReady(lastResponse, reviewWarningsAcknowledged);
+  const canCreateCampaign = isDraftCreateReady(lastResponse);
   const canOpenMonitoring = isMonitoringReady(lastResponse);
   const preLaunchRecommendations = getPreLaunchRecommendations(lastResponse, lang);
   const resultStatusLabel = lastResponse
@@ -1113,8 +1097,8 @@ export function CampaignBuilderChat({
                         onChange={(event) => handleReviewAckChange(event.target.checked)}
                       />
                       {lang === "en"
-                        ? "I acknowledge acceptable warnings for create/launch"
-                        : "Подтверждаю допустимые предупреждения перед запуском"}
+                        ? "Mark recommendations as reviewed"
+                        : "Отметить рекомендации как просмотренные"}
                     </label>
                   )}
                 </div>

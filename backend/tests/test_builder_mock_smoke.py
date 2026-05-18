@@ -284,7 +284,8 @@ def test_builder_mock_mode_full_happy_path_smoke(monkeypatch):
             "draft_flow": builder_body["draft_flow"],
             "draft_flow_version": builder_body["draft_flow_version"],
             "campaign_brief": campaign_brief,
-            "review_checklist_acknowledged": True,
+            "validation_errors": [{"message": "Mock readiness warning should not block create"}],
+            "review_checklist_acknowledged": False,
         },
     )
     _assert_not_500(create_response)
@@ -292,6 +293,8 @@ def test_builder_mock_mode_full_happy_path_smoke(monkeypatch):
     create_body = create_response.json()
     assert create_body["campaign_id"] == 777001
     assert create_body["status"] == "created_in_adtarget"
+    assert create_body["review_status"] == "blocked"
+    assert any(item["category"] == "validation" and item["status"] == "blocker" for item in create_body["review_checklist"]["items"])
 
     stale_create_response = client.post(
         "/api/builder/create",

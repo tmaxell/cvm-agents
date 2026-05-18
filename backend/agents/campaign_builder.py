@@ -29,7 +29,7 @@ from typing_extensions import TypedDict
 
 from llm import get_llm
 from schemas import BuilderRequest, BuilderResponse, CampaignBriefCompleteness, FlowPatch
-from agents.safety_review import build_review_checklist, is_review_allowed_for_runtime
+from agents.safety_review import build_review_checklist
 from agents.flow_composer import compose_campaign_flow_result
 from tools import adtarget
 from tools.flow_builder import (
@@ -242,15 +242,17 @@ def _looks_like_create_or_launch_request(goal: str) -> bool:
     return bool(re.search(r"\b(create|launch|start)\b|созда|запус|старт", text))
 
 
-def _blocked_runtime_review_message(checklist_status: str) -> str:
+def _runtime_review_recommendation_message(checklist_status: str) -> str:
+    if checklist_status == "green":
+        return "Чеклист готовности пройден. Можно продолжать с созданием или запуском кампании."
     if checklist_status == "warnings":
         return (
-            "Действие заблокировано: чеклист готовности содержит предупреждения. "
-            "Попросите пользователя явно подтвердить допустимые предупреждения и повторите действие."
+            "⚠️ Чеклист готовности содержит рекомендации. "
+            "Создание кампании доступно; перед запуском желательно нажать оптимизатор и проверить рекомендации."
         )
     return (
-        "Действие заблокировано: чеклист готовности содержит критичные замечания. "
-        "Исправьте чеклист до статуса «Готово» перед созданием или запуском кампании."
+        "⚠️ Чеклист готовности показывает, что сценарий нужно доработать. "
+        "Создание кампании доступно; перед запуском рекомендуется нажать оптимизатор и проверить рекомендации."
     )
 
 
@@ -1911,15 +1913,15 @@ async def run(request: BuilderRequest) -> BuilderResponse:
 
     if existing_flow and _looks_like_create_or_launch_request(request.goal):
         checklist = build_review_checklist(request.campaign_brief, existing_flow, [])
-        if not is_review_allowed_for_runtime(checklist.status, request.review_checklist_acknowledged):
+        if checklist.status != "green":
             return _builder_response(
                 request,
-                message=_blocked_runtime_review_message(checklist.status),
+                message=_runtime_review_recommendation_message(checklist.status),
                 campaign_id=request.session_campaign_id,
                 draft_flow=existing_flow,
                 review_checklist=checklist,
                 review_status=checklist.status,
-                status="needs_review",
+                status=_status_for_flow_context(request.session_campaign_id, existing_flow),
             )
 
     # Context-only turns go through an LLM planner, but never create a campaign.

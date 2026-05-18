@@ -71,13 +71,13 @@ const draftFlow = {
 };
 
 const reviewChecklist = {
-  status: "green",
+  status: "blocked",
   items: [
     {
       category: "consent",
       label: "Consent",
-      status: "green",
-      message: "Opt-out exclusions are applied in mock mode.",
+      status: "blocker",
+      message: "Mock readiness recommendation: verify opt-out exclusions before launch.",
     },
   ],
 };
@@ -96,7 +96,7 @@ function builderResponse(overrides = {}) {
       safety_checks: ["Mock mode: backend side effects are disabled."],
     },
     review_checklist: reviewChecklist,
-    review_status: "green",
+    review_status: reviewChecklist.status,
     review_checklist_acknowledged: false,
     status: "draft_ready",
     builder_preferences: {
@@ -130,7 +130,7 @@ test("segments-to-builder smoke flow works without HTTP 500", async ({ page }) =
       draft_flow_version: 1,
       brief_completeness: latestBuilderResponse.brief_completeness,
       review_checklist: reviewChecklist,
-      review_status: "green",
+      review_status: reviewChecklist.status,
       review_checklist_acknowledged: false,
     },
   ];
@@ -201,9 +201,11 @@ test("segments-to-builder smoke flow works without HTTP 500", async ({ page }) =
     campaignId = 9001;
     sessionStatus = "created_in_adtarget";
     latestBuilderResponse = builderResponse({
-      message: "Mock mode: кампания создана в AdTarget без внешних side effects.",
+      message: "Mock mode: кампания создана в AdTarget, readiness-рекомендации остались предупреждением.",
       campaign_id: campaignId,
       status: "created_in_adtarget",
+      review_status: "blocked",
+      review_checklist: reviewChecklist,
     });
     await route.fulfill({
       status: 200,
@@ -253,6 +255,7 @@ test("segments-to-builder smoke flow works without HTTP 500", async ({ page }) =
   await page.getByRole("button", { name: "Собрать draft flow с этим сегментом" }).click();
   await page.locator(".composer button").click();
   await expect(page.getByText("Draft готов")).toBeVisible();
+  await expect(page.getByText("Нужно доработать")).toBeVisible();
   await expect(page.locator("body")).not.toContainText("HTTP 500");
 
   await page.getByText("Actions").click();

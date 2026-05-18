@@ -273,11 +273,6 @@ async def builder_create(request: BuilderCreateRequest) -> BuilderResponse:
         canonical_create_flow,
         request.validation_errors,
     )
-    if not is_review_allowed_for_runtime(checklist.status, request.review_checklist_acknowledged):
-        raise HTTPException(
-            status_code=400,
-            detail="Campaign create blocked until review checklist is green or warnings are explicitly acknowledged",
-        )
 
     try:
         result = await adtarget.create_campaign(canonical_create_flow)

@@ -26,7 +26,11 @@ def build_review_checklist(
     draft_flow: dict[str, Any] | None,
     validation_errors: list[Any] | None = None,
 ) -> ReviewChecklist:
-    """Build a typed checklist from campaign brief, draft flow, and validation errors."""
+    """Build a typed readiness checklist from campaign brief, draft flow, and validation errors.
+
+    ReviewChecklist.status is diagnostic readiness metadata for UI guidance,
+    not a runtime gate for creating a campaign.
+    """
     items = [
         _check_audience(brief, draft_flow),
         _check_consent(draft_flow),
@@ -39,7 +43,11 @@ def build_review_checklist(
 
 
 def is_review_allowed_for_runtime(status: ReviewStatus, acknowledged_warnings: bool) -> bool:
-    """Return whether runtime actions may proceed for a review status."""
+    """Legacy helper for endpoints that still opt into readiness enforcement.
+
+    New Builder create flows treat ReviewChecklist.status as diagnostic readiness
+    metadata and do not use this helper as a runtime gate.
+    """
     if status == "green":
         return True
     if status == "warnings" and acknowledged_warnings:

@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from typing import Any, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # ── Контекст экрана ───────────────────────────────────────────────────────────
@@ -45,6 +45,90 @@ class CopilotResponse(BaseModel):
 
 # ── F2: Campaign Builder ──────────────────────────────────────────────────────
 
+class CampaignAudienceRef(BaseModel):
+    """Нормализованное описание аудитории для Campaign Builder."""
+    target_groups: list[str] = Field(default_factory=list)
+    description: str | None = None
+
+
+class CampaignChannel(BaseModel):
+    """Канал коммуникации в нормализованном brief."""
+    name: str
+    channel_id: int | None = None
+    content_type: str | None = None
+
+
+class CampaignConstraints(BaseModel):
+    """Ограничения и рекомендации для сборки кампании."""
+    content: str | None = None
+    offer_recommendations: str | None = None
+
+
+class CampaignBrief(BaseModel):
+    """Typed campaign brief used by new Builder clients."""
+    product: str | None = None
+    goal: str | None = None
+    audience: CampaignAudienceRef = Field(default_factory=CampaignAudienceRef)
+    channels: list[CampaignChannel] = Field(default_factory=list)
+    constraints: CampaignConstraints = Field(default_factory=CampaignConstraints)
+
+    @staticmethod
+    def _clean_text(value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    @classmethod
+    def from_builder_preferences(cls, preferences: dict[str, Any] | None) -> "CampaignBrief":
+        """Normalize legacy BuilderPreferences payload into typed brief."""
+        preferences = preferences or {}
+        channels_text = cls._clean_text(preferences.get("channels"))
+        target_groups_text = cls._clean_text(preferences.get("targetGroups"))
+        channels = [
+            CampaignChannel(name=part.strip())
+            for part in (channels_text or "").replace(";", ",").split(",")
+            if part.strip()
+        ]
+        target_groups = [
+            part.strip()
+            for part in (target_groups_text or "").replace(";", ",").split(",")
+            if part.strip()
+        ]
+        return cls(
+            product=cls._clean_text(preferences.get("product")),
+            goal=cls._clean_text(preferences.get("goal")),
+            audience=CampaignAudienceRef(
+                target_groups=target_groups,
+                description=target_groups_text,
+            ),
+            channels=channels,
+            constraints=CampaignConstraints(
+                content=cls._clean_text(preferences.get("content")),
+                offer_recommendations=cls._clean_text(preferences.get("offerRecommendations")),
+            ),
+        )
+
+    def to_builder_preferences(self) -> dict[str, Any]:
+        """Expose normalized brief as legacy preferences while migration is in progress."""
+        preferences: dict[str, Any] = {}
+        if self.product:
+            preferences["product"] = self.product
+        if self.goal:
+            preferences["goal"] = self.goal
+        audience_text = self.audience.description or ", ".join(self.audience.target_groups)
+        if audience_text:
+            preferences["targetGroups"] = audience_text
+        channels_text = ", ".join(channel.name for channel in self.channels if channel.name)
+        if channels_text:
+            preferences["channels"] = channels_text
+        if self.constraints.content:
+            preferences["content"] = self.constraints.content
+        if self.constraints.offer_recommendations:
+            preferences["offerRecommendations"] = self.constraints.offer_recommendations
+        return preferences
+
+
 class BuilderRequest(BaseModel):
     goal: str                           # «хочу кампанию по утилизации пакета данных»
     context: AgentContext = AgentContext()
@@ -53,7 +137,17 @@ class BuilderRequest(BaseModel):
     # Контекст текущей сессии — передаётся при follow-up запросах
     session_campaign_id: int | None = None    # campaignId из предыдущего ответа
     session_flow_json: str | None = None      # JSON flow из предыдущего ответа
-    builder_preferences: dict[str, Any] = Field(default_factory=dict)  # каналы/ЦГ/офферы/цель из UI
+    campaign_brief: CampaignBrief | None = None
+    builder_preferences: dict[str, Any] = Field(default_factory=dict)  # legacy UI payload during brief migration
+
+    @model_validator(mode="after")
+    def normalize_campaign_brief(self) -> "BuilderRequest":
+        """Keep new campaign_brief and legacy builder_preferences in sync."""
+        if self.campaign_brief is None:
+            self.campaign_brief = CampaignBrief.from_builder_preferences(self.builder_preferences)
+        if not self.builder_preferences and self.campaign_brief is not None:
+            self.builder_preferences = self.campaign_brief.to_builder_preferences()
+        return self
 
 
 class BuilderResponse(BaseModel):

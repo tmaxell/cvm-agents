@@ -44,6 +44,30 @@ export interface BuilderPreferences {
   offerRecommendations?: string;
 }
 
+export interface CampaignAudienceRef {
+  target_groups: string[];
+  description?: string | null;
+}
+
+export interface CampaignChannel {
+  name: string;
+  channel_id?: number | null;
+  content_type?: string | null;
+}
+
+export interface CampaignConstraints {
+  content?: string | null;
+  offer_recommendations?: string | null;
+}
+
+export interface CampaignBrief {
+  product?: string | null;
+  goal?: string | null;
+  audience: CampaignAudienceRef;
+  channels: CampaignChannel[];
+  constraints: CampaignConstraints;
+}
+
 export interface BuilderRequest {
   goal: string;
   session_id?: string | null;
@@ -51,6 +75,7 @@ export interface BuilderRequest {
   history?: { role: "user" | "assistant"; content: string }[];
   session_campaign_id?: number | null;
   session_flow_json?: string | null;
+  campaign_brief?: CampaignBrief;
   builder_preferences?: BuilderPreferences;
 }
 

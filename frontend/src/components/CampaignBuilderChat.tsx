@@ -10,6 +10,7 @@ import type {
   AgentContext,
   BuilderPreferences,
   BuilderResponse,
+  CampaignBrief,
   BuilderSession,
   BuilderSessionDetail,
   ChatMessage,
@@ -27,6 +28,7 @@ const DEFAULT_CONTEXT: AgentContext = {
 
 const BUILDER_MESSAGES_KEY = "cvm.builder.messages.v1";
 const BUILDER_RESPONSE_KEY = "cvm.builder.lastResponse.v1";
+const BUILDER_BRIEF_KEY = "cvm.builder.brief.v1";
 const BUILDER_PREFS_KEY = "cvm.builder.preferences.v1";
 const BUILDER_SESSION_KEY = "cvm.builder.sessionId.v1";
 
@@ -102,19 +104,72 @@ function readStoredString(key: string): string | null {
   return window.localStorage.getItem(key);
 }
 
+const EMPTY_CAMPAIGN_BRIEF: CampaignBrief = {
+  product: null,
+  goal: null,
+  audience: { target_groups: [], description: null },
+  channels: [],
+  constraints: { content: null, offer_recommendations: null },
+};
+
+function splitListValue(value?: string | null): string[] {
+  return (value ?? "")
+    .replace(/;/g, ",")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function cleanBriefValue(value?: string | null): string | null {
+  const trimmed = value?.trim();
+  return trimmed || null;
+}
+
+function preferencesToBrief(preferences: BuilderPreferences): CampaignBrief {
+  const targetGroupsText = cleanBriefValue(preferences.targetGroups);
+  return {
+    product: cleanBriefValue(preferences.product),
+    goal: cleanBriefValue(preferences.goal),
+    audience: {
+      target_groups: splitListValue(targetGroupsText),
+      description: targetGroupsText,
+    },
+    channels: splitListValue(preferences.channels).map((name) => ({ name })),
+    constraints: {
+      content: cleanBriefValue(preferences.content),
+      offer_recommendations: cleanBriefValue(preferences.offerRecommendations),
+    },
+  };
+}
+
+function briefToPreferences(brief: CampaignBrief): BuilderPreferences {
+  return {
+    product: brief.product ?? undefined,
+    goal: brief.goal ?? undefined,
+    targetGroups: (brief.audience.description ?? brief.audience.target_groups.join(", ")) || undefined,
+    channels: brief.channels.map((channel) => channel.name).filter(Boolean).join(", ") || undefined,
+    content: brief.constraints.content ?? undefined,
+    offerRecommendations: brief.constraints.offer_recommendations ?? undefined,
+  };
+}
+
+function hasBrief(brief: CampaignBrief): boolean {
+  return hasPreferences(briefToPreferences(brief));
+}
+
 function hasPreferences(preferences: BuilderPreferences): boolean {
   return Object.values(preferences).some((value) => Boolean(value?.trim()));
 }
 
-function mergeResponsePreferences(
-  current: BuilderPreferences,
+function mergeResponseBrief(
+  current: CampaignBrief,
   response: BuilderResponse,
-): BuilderPreferences | null {
+): CampaignBrief | null {
   if (response.builder_preferences) {
-    return response.builder_preferences;
+    return preferencesToBrief(response.builder_preferences);
   }
   if (response.preference_patch) {
-    return { ...current, ...response.preference_patch };
+    return preferencesToBrief({ ...briefToPreferences(current), ...response.preference_patch });
   }
   return null;
 }
@@ -199,7 +254,8 @@ function getPlanValue(value?: string | null): string {
   return trimmed || "—";
 }
 
-function buildBuilderPrompt(preferences: BuilderPreferences, lang: "ru" | "en"): string {
+function buildBuilderPrompt(brief: CampaignBrief, lang: "ru" | "en"): string {
+  const preferences = briefToPreferences(brief);
   const fields = lang === "en"
     ? [
       ["Campaign goal", getPlanValue(preferences.goal)],
@@ -356,8 +412,9 @@ export function CampaignBuilderChat({
   const [sessions, setSessions] = useState<BuilderSession[]>([]);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [preferences, setPreferences] = useState<BuilderPreferences>(() =>
-    readStoredJson<BuilderPreferences>(BUILDER_PREFS_KEY, {}),
+  const [campaignBrief, setCampaignBrief] = useState<CampaignBrief>(() =>
+    readStoredJson<CampaignBrief | null>(BUILDER_BRIEF_KEY, null)
+      ?? preferencesToBrief(readStoredJson<BuilderPreferences>(BUILDER_PREFS_KEY, {})),
   );
   const [targetGroupsSource, setTargetGroupsSource] = useState<"audience-builder" | "manual" | null>(null);
 
@@ -372,7 +429,8 @@ export function CampaignBuilderChat({
       session_flow_json: lastResponse?.draft_flow
         ? JSON.stringify(lastResponse.draft_flow)
         : null,
-      builder_preferences: preferences,
+      campaign_brief: campaignBrief,
+      builder_preferences: briefToPreferences(campaignBrief),
     }),
   });
 
@@ -422,13 +480,14 @@ export function CampaignBuilderChat({
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem(BUILDER_PREFS_KEY, JSON.stringify(preferences));
-  }, [preferences]);
+    window.localStorage.setItem(BUILDER_BRIEF_KEY, JSON.stringify(campaignBrief));
+    window.localStorage.setItem(BUILDER_PREFS_KEY, JSON.stringify(briefToPreferences(campaignBrief)));
+  }, [campaignBrief]);
 
   useEffect(() => {
     if (!selectedSegment) return;
-    setPreferences((current) => ({
-      ...current,
+    setCampaignBrief((current) => preferencesToBrief({
+      ...briefToPreferences(current),
       ...preferencesFromSelectedSegment(selectedSegment, lang),
     }));
     setTargetGroupsSource("audience-builder");
@@ -438,7 +497,7 @@ export function CampaignBuilderChat({
     if (key === "targetGroups") {
       setTargetGroupsSource(value.trim() ? "manual" : null);
     }
-    setPreferences((current) => ({ ...current, [key]: value }));
+    setCampaignBrief((current) => preferencesToBrief({ ...briefToPreferences(current), [key]: value }));
   };
 
   const handleSend = async () => {
@@ -449,7 +508,7 @@ export function CampaignBuilderChat({
     if (data) {
       const builderResponse = data as BuilderResponse;
       setLastResponse(builderResponse);
-      setPreferences((current) => mergeResponsePreferences(current, builderResponse) ?? current);
+      setCampaignBrief((current) => mergeResponseBrief(current, builderResponse) ?? current);
       setCurrentSessionId(builderResponse.session_id ?? currentSessionId);
       refreshSessions();
     }
@@ -469,7 +528,7 @@ export function CampaignBuilderChat({
       const loadedResponse = responseFromSession(session);
       setLastResponse(loadedResponse);
       if (loadedResponse) {
-        setPreferences((current) => mergeResponsePreferences(current, loadedResponse) ?? current);
+        setCampaignBrief((current) => mergeResponseBrief(current, loadedResponse) ?? current);
       }
     } catch (err) {
       setHistoryError(err instanceof Error ? err.message : "Failed to load session");
@@ -495,26 +554,27 @@ export function CampaignBuilderChat({
 
   const handleClearAll = () => {
     handleClear();
-    setPreferences({});
+    setCampaignBrief(EMPTY_CAMPAIGN_BRIEF);
     setTargetGroupsSource(null);
     if (typeof window !== "undefined") {
+      window.localStorage.removeItem(BUILDER_BRIEF_KEY);
       window.localStorage.removeItem(BUILDER_PREFS_KEY);
     }
   };
 
   const handlePrepareBuilderCommand = () => {
-    setInput(buildBuilderPrompt(preferences, lang));
+    setInput(buildBuilderPrompt(campaignBrief, lang));
   };
 
   const handleUseSelectedSegment = () => {
     if (!selectedSegment) return;
     const nextPreferences = {
-      ...preferences,
+      ...briefToPreferences(campaignBrief),
       ...preferencesFromSelectedSegment(selectedSegment, lang),
     };
-    setPreferences(nextPreferences);
+    setCampaignBrief(preferencesToBrief(nextPreferences));
     setTargetGroupsSource("audience-builder");
-    setInput(buildBuilderPrompt(nextPreferences, lang));
+    setInput(buildBuilderPrompt(preferencesToBrief(nextPreferences), lang));
   };
 
   const handleApplyDemoPlaybook = (item: BuilderDemoPlaybookItem) => {
@@ -545,13 +605,13 @@ export function CampaignBuilderChat({
       <details className="builder-params-panel">
         <summary>
           {lang === "en" ? "Campaign parameters" : "Параметры для сборки"}
-          {hasPreferences(preferences) && <span>{lang === "en" ? "filled" : "заполнено"}</span>}
+          {hasBrief(campaignBrief) && <span>{lang === "en" ? "filled" : "заполнено"}</span>}
         </summary>
         <div className="builder-params-grid">
           <label>
             {lang === "en" ? "Product / tariff" : "Продукт / тариф"}
             <input
-              value={preferences.product ?? ""}
+              value={campaignBrief.product ?? ""}
               onChange={(e) => handlePreferenceChange("product", e.target.value)}
               placeholder={lang === "en" ? "e.g. Family Max tariff" : "Напр. тариф Family Max"}
             />
@@ -559,7 +619,7 @@ export function CampaignBuilderChat({
           <label>
             {lang === "en" ? "Campaign goal" : "Цель кампании"}
             <input
-              value={preferences.goal ?? ""}
+              value={campaignBrief.goal ?? ""}
               onChange={(e) => handlePreferenceChange("goal", e.target.value)}
               placeholder={lang === "en" ? "upsell, retention, activation…" : "апсейл, удержание, активация…"}
             />
@@ -567,7 +627,7 @@ export function CampaignBuilderChat({
           <label>
             {lang === "en" ? "Channels" : "Каналы"}
             <input
-              value={preferences.channels ?? ""}
+              value={briefToPreferences(campaignBrief).channels ?? ""}
               onChange={(e) => handlePreferenceChange("channels", e.target.value)}
               placeholder={lang === "en" ? "SMS, Push, Email…" : "SMS, Push, Email…"}
             />
@@ -586,7 +646,7 @@ export function CampaignBuilderChat({
               lang === "en" ? "Target groups" : "Целевые группы"
             )}
             <input
-              value={preferences.targetGroups ?? ""}
+              value={campaignBrief.audience.description ?? campaignBrief.audience.target_groups.join(", ")}
               onChange={(e) => handlePreferenceChange("targetGroups", e.target.value)}
               placeholder={lang === "en" ? "low ARPU, data users…" : "низкий ARPU, пользователи data…"}
             />
@@ -594,7 +654,7 @@ export function CampaignBuilderChat({
           <label className="builder-params-wide">
             {lang === "en" ? "Content notes" : "Контент / тональность"}
             <textarea
-              value={preferences.content ?? ""}
+              value={campaignBrief.constraints.content ?? ""}
               onChange={(e) => handlePreferenceChange("content", e.target.value)}
               rows={2}
               placeholder={lang === "en" ? "message, tone, mandatory wording" : "текст, тональность, обязательные формулировки"}
@@ -603,7 +663,7 @@ export function CampaignBuilderChat({
           <label className="builder-params-wide">
             {lang === "en" ? "Offer recommendations" : "Рекомендации по офферам"}
             <textarea
-              value={preferences.offerRecommendations ?? ""}
+              value={campaignBrief.constraints.offer_recommendations ?? ""}
               onChange={(e) => handlePreferenceChange("offerRecommendations", e.target.value)}
               rows={2}
               placeholder={lang === "en" ? "discount, bundle, activation transaction…" : "скидка, пакет, транзакция активации…"}
@@ -788,7 +848,7 @@ export function CampaignBuilderChat({
       </div>
 
       {/* Status bar */}
-      {(lastResponse?.campaign_id || messages.length > 0 || hasPreferences(preferences)) && (
+      {(lastResponse?.campaign_id || messages.length > 0 || hasBrief(campaignBrief)) && (
         <div className="fw-statusbar">
           {lastResponse?.campaign_id ? (
             <>

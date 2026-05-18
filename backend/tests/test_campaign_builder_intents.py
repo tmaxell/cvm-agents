@@ -300,3 +300,97 @@ def test_follow_up_realtime_check_after_sms_applies_current_version_and_incremen
     sms_activity = response.draft_flow["activities"][2]
     realtime_activity = response.draft_flow["activities"][3]
     assert sms_activity["nextActivityId"] == realtime_activity["id"]
+
+
+def test_flow_patch_add_activity_uses_helper_and_increments_topology():
+    from agents.campaign_builder import _apply_flow_patch
+    from schemas import FlowPatch
+    from tools.flow_builder import (
+        assemble_flow,
+        make_common_activity,
+        make_push_communication_activity,
+    )
+
+    flow = assemble_flow([
+        make_common_activity("Patch add"),
+        make_push_communication_activity(201, "SmsContent", "Текст SMS"),
+    ])
+
+    result = _apply_flow_patch(
+        flow,
+        FlowPatch(
+            base_version=2,
+            operations=["add_activity"],
+            anchor_activity_type="PushCommunicationActivity",
+            insert_position="after",
+            activity={"type": "RealTimeCheckActivity", "params": {}},
+        ),
+        current_version=2,
+    )
+
+    assert [activity["type"] for activity in result["activities"]] == [
+        "CommonActivity",
+        "PushCommunicationActivity",
+        "RealTimeCheckActivity",
+    ]
+    assert result["activities"][1]["nextActivityId"] == result["activities"][2]["id"]
+
+
+def test_flow_patch_remove_activity_uses_helper_and_relinks():
+    from agents.campaign_builder import _apply_flow_patch
+    from schemas import FlowPatch
+    from tools.flow_builder import (
+        assemble_flow,
+        make_business_transaction_activity,
+        make_push_communication_activity,
+        make_real_time_check_activity,
+    )
+
+    flow = assemble_flow([
+        make_push_communication_activity(201, "SmsContent", "Текст SMS"),
+        make_business_transaction_activity(301, "ActivateOffer", []),
+        make_real_time_check_activity(),
+    ])
+
+    result = _apply_flow_patch(
+        flow,
+        FlowPatch(
+            base_version=4,
+            operations=["remove_activity"],
+            activity={"type": "BusinessTransactionActivity", "occurrence": "last"},
+        ),
+        current_version=4,
+    )
+
+    assert [activity["type"] for activity in result["activities"]] == [
+        "PushCommunicationActivity",
+        "RealTimeCheckActivity",
+    ]
+    assert result["activities"][0]["nextActivityId"] == result["activities"][1]["id"]
+
+
+def test_flow_patch_version_conflict_does_not_mutate_draft():
+    import pytest
+
+    from agents.campaign_builder import FlowPatchConflictError, _apply_flow_patch
+    from schemas import FlowPatch
+    from tools.flow_builder import assemble_flow, make_common_activity, make_push_communication_activity
+
+    flow = assemble_flow([
+        make_common_activity("Patch conflict"),
+        make_push_communication_activity(201, "SmsContent", "Текст SMS"),
+    ])
+    original_activities = [dict(activity) for activity in flow["activities"]]
+
+    with pytest.raises(FlowPatchConflictError):
+        _apply_flow_patch(
+            flow,
+            FlowPatch(
+                base_version=1,
+                operations=["add_activity"],
+                activity={"type": "RealTimeCheckActivity", "params": {}},
+            ),
+            current_version=2,
+        )
+
+    assert flow["activities"] == original_activities

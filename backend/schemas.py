@@ -150,6 +150,32 @@ class CampaignBrief(BaseModel):
         return preferences
 
 
+# ── Typed draft flow patch contract ───────────────────────────────────────────
+
+class FlowPatchActivity(BaseModel):
+    """Activity payload inside a typed draft-flow patch."""
+    type: str | None = None
+    params: dict[str, Any] = Field(default_factory=dict)
+    id: str | None = None
+    occurrence: Literal["first", "last"] = "last"
+
+
+class FlowPatch(BaseModel):
+    """Typed patch contract for safe draft-flow edits.
+
+    base_version must match the current draft_flow_version before the patch is
+    applied. The first supported operation is used with the shared activity and
+    anchor fields; the list shape keeps the contract forward-compatible with
+    multi-step patches.
+    """
+    base_version: int = Field(ge=0)
+    operations: list[Literal["add_activity", "remove_activity"]] = Field(min_length=1)
+    anchor_activity_id: str | None = None
+    anchor_activity_type: str | None = None
+    insert_position: Literal["before", "after", "end"] | None = None
+    activity: FlowPatchActivity
+
+
 class BuilderRequest(BaseModel):
     goal: str                           # «хочу кампанию по утилизации пакета данных»
     context: AgentContext = AgentContext()

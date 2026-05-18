@@ -48,7 +48,11 @@ def test_builder_blocks_create_without_green_or_acknowledged_checklist():
     assert response.campaign_id is None
     assert response.review_status == "blocked"
     assert any(item.category == "consent" and item.status == "blocker" for item in response.review_checklist.items)
-    assert "Create/launch заблокирован" in response.message
+    assert "Действие заблокировано" in response.message
+    assert any(
+        item.category == "consent" and item.message == "Добавьте проверку согласия перед исходящим сообщением."
+        for item in response.review_checklist.items
+    )
 
 
 def test_builder_allows_acknowledged_warnings_but_not_blockers():

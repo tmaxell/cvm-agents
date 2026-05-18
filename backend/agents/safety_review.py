@@ -7,12 +7,12 @@ from typing import Any
 from schemas import CampaignBrief, ReviewChecklist, ReviewChecklistItem, ReviewStatus
 
 _CHECKLIST_LABELS: dict[str, str] = {
-    "audience": "Audience is selected and usable",
-    "consent": "Consent/opt-in is checked before outbound messages",
-    "contact_policy": "Contact policy and frequency caps are safe for launch",
-    "offer": "Offer/product fit is explicit",
-    "content": "Message content is present and reviewable",
-    "validation": "Flow validation has no blocking errors",
+    "audience": "Аудитория выбрана и доступна",
+    "consent": "Согласия проверены до отправки сообщений",
+    "contact_policy": "Контактная политика и лимиты частоты проверены",
+    "offer": "Оффер и продукт указаны явно",
+    "content": "Текст сообщения заполнен и готов к проверке",
+    "validation": "Валидация флоу не нашла критичных ошибок",
 }
 
 _OUTBOUND_ACTIVITY_TYPES = {
@@ -39,7 +39,7 @@ def build_review_checklist(
 
 
 def is_review_allowed_for_runtime(status: ReviewStatus, acknowledged_warnings: bool) -> bool:
-    """Return whether create/launch may proceed for a review status."""
+    """Return whether runtime actions may proceed for a review status."""
     if status == "green":
         return True
     if status == "warnings" and acknowledged_warnings:
@@ -57,66 +57,66 @@ def _overall_status(items: list[ReviewChecklistItem]) -> ReviewStatus:
 
 def _check_audience(brief: CampaignBrief | None, draft_flow: dict[str, Any] | None) -> ReviewChecklistItem:
     if _has_brief_audience(brief) and _has_target_group_activity(draft_flow):
-        return _item("audience", "green", "Audience context and TargetGroupActivity are present.")
+        return _item("audience", "green", "Аудитория указана, шаг выбора аудитории есть во флоу.")
     if _has_brief_audience(brief):
-        return _item("audience", "warning", "Audience is described in the brief, but the flow has no TargetGroupActivity.")
-    return _item("audience", "blocker", "Audience is missing; select or confirm a Target Group before create/launch.")
+        return _item("audience", "warning", "Аудитория описана в брифе, но во флоу нет шага выбора аудитории.")
+    return _item("audience", "blocker", "Аудитория не указана; выберите или подтвердите целевую группу.")
 
 
 def _check_consent(draft_flow: dict[str, Any] | None) -> ReviewChecklistItem:
     activities = _activities(draft_flow)
     outbound_indexes = [idx for idx, activity in enumerate(activities) if activity.get("type") in _OUTBOUND_ACTIVITY_TYPES]
     if not outbound_indexes:
-        return _item("consent", "warning", "No outbound communication activity found; consent cannot be verified yet.")
+        return _item("consent", "warning", "Во флоу нет исходящего сообщения, поэтому согласия пока нельзя проверить.")
     consent_indexes = [
         idx for idx, activity in enumerate(activities)
         if _looks_like_consent_activity(activity)
     ]
     if consent_indexes and min(consent_indexes) < min(outbound_indexes):
-        return _item("consent", "green", "Consent/opt-in check appears before outbound communication.")
-    return _item("consent", "blocker", "Add a ConsentCheck/opt-in gate before outbound communication.")
+        return _item("consent", "green", "Проверка согласия стоит перед исходящим сообщением.")
+    return _item("consent", "blocker", "Добавьте проверку согласия перед исходящим сообщением.")
 
 
 def _check_contact_policy(draft_flow: dict[str, Any] | None) -> ReviewChecklistItem:
     activities = _activities(draft_flow)
     if not activities:
-        return _item("contact_policy", "blocker", "Draft flow is missing; contact policy cannot be reviewed.")
+        return _item("contact_policy", "blocker", "Черновик флоу отсутствует, контактную политику нельзя проверить.")
     if any(_activity_issues(activity, "errors") for activity in activities):
-        return _item("contact_policy", "blocker", "One or more flow activities contain blocking errors.")
+        return _item("contact_policy", "blocker", "Один или несколько шагов флоу содержат критичные ошибки.")
     if _flow_validation_warnings(draft_flow) or any(_activity_issues(activity, "warnings") for activity in activities):
-        return _item("contact_policy", "warning", "Flow has warnings; confirm contactability/frequency caps before create/launch.")
-    return _item("contact_policy", "warning", "Contactability, opt-out, and frequency caps require final operator acknowledgement.")
+        return _item("contact_policy", "warning", "Во флоу есть предупреждения; подтвердите доступность контакта и лимиты частоты.")
+    return _item("contact_policy", "warning", "Доступность контакта, отписка и лимиты частоты требуют финального подтверждения оператора.")
 
 
 def _check_offer(brief: CampaignBrief | None, draft_flow: dict[str, Any] | None) -> ReviewChecklistItem:
     if _brief_text(getattr(brief, "product", None)) or _brief_text(getattr(getattr(brief, "constraints", None), "offer_recommendations", None)):
-        return _item("offer", "green", "Product or offer recommendation is specified.")
+        return _item("offer", "green", "Продукт или рекомендация по офферу указаны.")
     if any(activity.get("type") == "BusinessTransactionActivity" for activity in _activities(draft_flow)):
-        return _item("offer", "warning", "Flow activates an offer, but brief product/offer context is incomplete.")
-    return _item("offer", "blocker", "Product or offer must be specified before create/launch.")
+        return _item("offer", "warning", "Во флоу есть активация оффера, но в брифе не хватает контекста по продукту или офферу.")
+    return _item("offer", "blocker", "Укажите продукт или оффер.")
 
 
 def _check_content(brief: CampaignBrief | None, draft_flow: dict[str, Any] | None) -> ReviewChecklistItem:
     if _brief_text(getattr(getattr(brief, "constraints", None), "content", None)):
-        return _item("content", "green", "Message content is specified in the brief.")
+        return _item("content", "green", "Текст сообщения указан в брифе.")
     for activity in _activities(draft_flow):
         if activity.get("type") in _OUTBOUND_ACTIVITY_TYPES and _activity_has_content(activity):
-            return _item("content", "green", "Outbound message content is present in the flow.")
-    return _item("content", "blocker", "Message content is missing; add copy before create/launch.")
+            return _item("content", "green", "Текст исходящего сообщения есть во флоу.")
+    return _item("content", "blocker", "Текст сообщения отсутствует; добавьте копирайтинг.")
 
 
 def _check_validation(draft_flow: dict[str, Any] | None, validation_errors: list[Any]) -> ReviewChecklistItem:
     if not draft_flow:
-        return _item("validation", "blocker", "No draft flow is available for validation.")
+        return _item("validation", "blocker", "Черновик флоу недоступен для валидации.")
     if validation_errors:
-        return _item("validation", "blocker", f"Validation returned {len(validation_errors)} blocking error(s).")
+        return _item("validation", "blocker", f"Валидация вернула критичные ошибки: {len(validation_errors)}.")
     activity_error_count = sum(len(_activity_issues(activity, "errors")) for activity in _activities(draft_flow))
     if activity_error_count:
-        return _item("validation", "blocker", f"Flow activities contain {activity_error_count} error(s).")
+        return _item("validation", "blocker", f"Шаги флоу содержат ошибки: {activity_error_count}.")
     warning_count = len(_flow_validation_warnings(draft_flow)) + sum(len(_activity_issues(activity, "warnings")) for activity in _activities(draft_flow))
     if warning_count:
-        return _item("validation", "warning", f"Validation has {warning_count} warning(s).")
-    return _item("validation", "green", "No validation errors are present.")
+        return _item("validation", "warning", f"Валидация вернула предупреждения: {warning_count}.")
+    return _item("validation", "green", "Ошибок валидации нет.")
 
 
 def _item(category: str, status: str, message: str) -> ReviewChecklistItem:

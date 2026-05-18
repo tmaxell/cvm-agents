@@ -378,6 +378,22 @@ function getResultPanelItems(response: BuilderResponse, lang: "ru" | "en"): Resu
     });
   }
 
+  const missingFields = response.brief_completeness?.missing_fields ?? [];
+  items.push({
+    label: lang === "en" ? "Brief completeness" : "Полнота brief",
+    value: missingFields.length === 0
+      ? (lang === "en" ? "Complete" : "Заполнен")
+      : (lang === "en" ? `Missing: ${missingFields.join(", ")}` : `Не хватает: ${missingFields.join(", ")}`),
+  });
+
+  const assumptions = response.brief_completeness?.assumptions ?? [];
+  if (assumptions.length > 0) {
+    items.push({
+      label: lang === "en" ? "Assumptions" : "Допущения",
+      value: assumptions.join("; "),
+    });
+  }
+
   return items;
 }
 
@@ -403,6 +419,7 @@ function responseFromSession(session: BuilderSessionDetail): BuilderResponse | n
     preference_patch: metadata.preference_patch as BuilderResponse["preference_patch"] ?? null,
     draft_flow: metadata.draft_flow as BuilderResponse["draft_flow"] ?? null,
     validation_errors: Array.isArray(metadata.validation_errors) ? metadata.validation_errors : [],
+    brief_completeness: metadata.brief_completeness as BuilderResponse["brief_completeness"] ?? null,
     status: session.status as BuilderResponse["status"],
   };
 }

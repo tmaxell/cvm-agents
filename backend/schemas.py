@@ -171,6 +171,13 @@ class BuilderRequest(BaseModel):
         return self
 
 
+class CampaignBriefCompleteness(BaseModel):
+    """Completeness metadata for the Campaign Builder brief."""
+    missing_fields: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    safety_checks: list[str] = Field(default_factory=list)
+
+
 class BuilderResponse(BaseModel):
     message: str                        # ответ агента для чата
     builder_preferences: dict[str, Any] | None = None  # обновлённые preferences после запоминания
@@ -179,6 +186,7 @@ class BuilderResponse(BaseModel):
     campaign_id: int | None = None      # если кампания уже создана
     draft_flow: dict[str, Any] | None = None  # черновик flow, если ещё не создан
     validation_errors: list[dict] = []
+    brief_completeness: CampaignBriefCompleteness | None = None
     status: str = "in_progress"         # "in_progress" | "created" | "started" | "error"
 
 

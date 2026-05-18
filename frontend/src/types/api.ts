@@ -164,6 +164,12 @@ export interface CampaignFlow {
 
 export type CampaignRuntimeStatus = "editing" | "active" | "paused";
 
+export interface CampaignBriefCompleteness {
+  missing_fields: string[];
+  assumptions: string[];
+  safety_checks: string[];
+}
+
 export interface BuilderResponse {
   message: string;
   builder_preferences?: BuilderPreferences | null;
@@ -172,6 +178,7 @@ export interface BuilderResponse {
   campaign_id?: number | null;
   draft_flow?: CampaignFlow | null;
   validation_errors?: unknown[];
+  brief_completeness?: CampaignBriefCompleteness | null;
   status: "in_progress" | "created" | "started" | "error";
 }
 

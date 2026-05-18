@@ -1351,7 +1351,7 @@ Offer templates (offer_template_id / operation_id):
 Rules:
 - Work step-by-step: if the user only describes product, content, audience, goal, or offer preferences, acknowledge and keep these details in conversation; ask for missing inputs instead of forcing campaign creation.
 - Build/create only when the user asks to build/create/assemble, or when enough concrete inputs are available and the intent is clearly campaign creation.
-- For a new campaign: use last_flow_json supplied by the deterministic Flow Composer as the canonical base route; do not build the base route with LLM/tool calls. Use validate_flow_tool/create_campaign_tool only after explicit user confirmation to create, and start_campaign_tool only if user says to launch.
+- For a new campaign: use last_flow_json supplied by the deterministic Flow Composer as the canonical base route; do not build the base route with LLM/tool calls. Use validate_flow_tool for draft checks only. Creating a campaign is handled outside this chat path by POST /api/builder/create; start_campaign_tool only if a campaign already exists and the user says to launch.
 - For follow-up edits to an existing flow, use session_flow_json and update_existing_flow_with_activity instead of starting from scratch for all supported activity types: PushCommunicationActivity, PullCommunicationActivity, EventActivity, WaitActivity, BusinessTransactionActivity, RealTimeCheckActivity, ResponseActivity, InteractiveResponseActivity, OrJoinActivity.
 - For removal follow-up edits, use remove_existing_flow_activity with activity_type or activity_id/anchor_id; for "last transaction" remove the last BusinessTransactionActivity.
 - You may still use update_existing_flow_with_business_transaction for the legacy business-transaction-only edit path when only offer_template_id and operation_id are needed.
@@ -1580,15 +1580,6 @@ async def validate_flow_tool(flow_json: str) -> str:
         return _api_error("validate_flow", e)
 
 
-@tool
-async def create_campaign_tool(flow_json: str) -> str:
-    """Создать кампанию в AdTarget (POST /Campaigns). Возвращает campaignId."""
-    try:
-        result = await adtarget.create_campaign(json.loads(flow_json))
-        return json.dumps(result, ensure_ascii=False)
-    except Exception as e:
-        return _api_error("create_campaign", e)
-
 
 @tool
 async def start_campaign_tool(campaign_id: int) -> str:
@@ -1778,7 +1769,7 @@ async def _flow_from_tool_args(tool_name: str, args: dict) -> dict | None:
                     activity_id=args.get("activity_id") or args.get("anchor_id"),
                     occurrence=args.get("occurrence") or "last",
                 )
-        if tool_name in {"validate_flow_tool", "create_campaign_tool"} and args.get("flow_json"):
+        if tool_name == "validate_flow_tool" and args.get("flow_json"):
             flow_data = json.loads(args["flow_json"]) if isinstance(args["flow_json"], str) else args["flow_json"]
             if isinstance(flow_data, dict):
                 if isinstance(flow_data.get("activities"), list):
@@ -1824,7 +1815,6 @@ TOOLS = [
     remove_existing_flow_activity,
     # API
     validate_flow_tool,
-    create_campaign_tool,
     start_campaign_tool,
 ]
 
@@ -1844,10 +1834,6 @@ def _extract_state_from_messages(messages: list) -> tuple[int | None, str | None
             data = json.loads(content)
         except (json.JSONDecodeError, TypeError):
             continue
-
-        # campaignId из create_campaign_tool
-        if isinstance(data, dict) and "campaignId" in data:
-            campaign_id = data["campaignId"]
 
         # flow JSON из build_*_flow tools (has "activities" key)
         if isinstance(data, dict) and "activities" in data:

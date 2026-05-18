@@ -4,6 +4,7 @@ cvm-agents — FastAPI backend
 Endpoints:
   POST /api/copilot    — F1 CVM Copilot (RAG + LLM)
   POST /api/builder    — F2 Campaign Builder (LangGraph agentic loop)
+  POST /api/builder/create — explicit Builder create action
   POST /api/segments/suggest — segment hypotheses for Builder
   POST /api/monitor    — F3 Monitoring UI entry point with optimization recommendations
   GET  /api/health     — health check
@@ -26,6 +27,7 @@ from schemas import (
     CopilotResponse,
     BuilderRequest,
     BuilderResponse,
+    BuilderCreateRequest,
     SegmentSuggestRequest,
     SegmentSuggestResponse,
     MonitorRequest,
@@ -44,7 +46,7 @@ from agents.segment_agent import suggest_segments as segment_suggest_run
 from agents.campaign_monitor import run as monitor_run
 from db import DatabaseSessionStore, init_db
 from tools import adtarget
-from agents.safety_review import is_review_allowed_for_runtime
+from agents.safety_review import build_review_checklist, is_review_allowed_for_runtime
 
 app = FastAPI(title="CVM Agents API", version="0.1.0")
 session_store = DatabaseSessionStore()
@@ -225,6 +227,96 @@ async def builder(request: BuilderRequest) -> BuilderResponse:
     return response
 
 
+@app.post("/api/builder/create", response_model=BuilderResponse)
+async def builder_create(request: BuilderCreateRequest) -> BuilderResponse:
+    """Explicit Builder create action — the only path that persists a draft in AdTarget."""
+    session = await session_store.get_session(request.session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    stored_version = _stored_draft_flow_version(session)
+    if stored_version is not None and request.draft_flow_version != stored_version:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Draft flow version is stale",
+                "expected_draft_flow_version": stored_version,
+                "received_draft_flow_version": request.draft_flow_version,
+            },
+        )
+
+    checklist = build_review_checklist(
+        request.campaign_brief,
+        request.draft_flow,
+        request.validation_errors,
+    )
+    if not is_review_allowed_for_runtime(checklist.status, request.review_checklist_acknowledged):
+        raise HTTPException(
+            status_code=400,
+            detail="Campaign create blocked until review checklist is green or warnings are explicitly acknowledged",
+        )
+
+    try:
+        result = await adtarget.create_campaign(request.draft_flow)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"AdTarget create failed: {str(e)[:300]}")
+
+    campaign_id = _extract_created_campaign_id(result)
+    if campaign_id is None:
+        raise HTTPException(
+            status_code=502,
+            detail={"message": "AdTarget create response did not include campaignId", "result": result},
+        )
+
+    await session_store.add_message(
+        session_id=session.id,
+        role="user",
+        content="Создать кампанию в AdTarget",
+        metadata={
+            "draft_flow_json": request.draft_flow,
+            "draft_flow_version": request.draft_flow_version,
+            "review_status": checklist.status,
+            "review_checklist_acknowledged": request.review_checklist_acknowledged,
+            "status": "draft_ready",
+        },
+    )
+    response = BuilderResponse(
+        message=f"Кампания создана в AdTarget. ID: **{campaign_id}**",
+        session_id=session.id,
+        campaign_id=campaign_id,
+        draft_flow=request.draft_flow,
+        draft_flow_version=request.draft_flow_version,
+        validation_errors=request.validation_errors,
+        review_checklist=checklist,
+        review_status=checklist.status,
+        review_checklist_acknowledged=request.review_checklist_acknowledged,
+        status="created_in_adtarget",
+    )
+    await session_store.add_message(
+        session_id=session.id,
+        role="assistant",
+        content=response.message,
+        metadata={
+            "campaign_id": campaign_id,
+            "status": response.status,
+            "draft_flow_json": request.draft_flow,
+            "draft_flow_version": request.draft_flow_version,
+            "validation_errors": request.validation_errors,
+            "review_checklist": checklist.model_dump(),
+            "review_status": checklist.status,
+            "review_checklist_acknowledged": request.review_checklist_acknowledged,
+        },
+    )
+    await session_store.upsert_campaign_state(
+        session_id=session.id,
+        campaign_id=campaign_id,
+        draft_flow_json=request.draft_flow,
+        runtime_status=response.status,
+        draft_flow_version=request.draft_flow_version,
+    )
+    return response
+
+
 @app.post("/api/segments/suggest", response_model=SegmentSuggestResponse)
 async def suggest_segments(request: SegmentSuggestRequest) -> SegmentSuggestResponse:
     """Suggests 2-3 structured audience segment hypotheses for a campaign."""
@@ -262,6 +354,16 @@ async def pause_campaign(
         raise HTTPException(status_code=502, detail=f"AdTarget pause failed: {str(e)[:300]}")
     _raise_for_failed_campaign_action(result, "pause")
     return CampaignActionResponse(campaign_id=campaign_id, status="paused", result=result)
+
+
+def _extract_created_campaign_id(result: Any) -> int | None:
+    if isinstance(result, dict):
+        value = result.get("campaignId") or result.get("campaign_id") or result.get("id")
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+    return None
 
 
 def _raise_for_failed_campaign_action(result: Any, action: str) -> None:

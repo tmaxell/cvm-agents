@@ -29,6 +29,7 @@ from schemas import (
     CopilotResponse,
     BuilderRequest,
     BuilderResponse,
+    BuilderOptimizeRequest,
     BuilderCreateRequest,
     SegmentSuggestRequest,
     SegmentSuggestResponse,
@@ -44,6 +45,7 @@ from schemas import (
 )
 from agents.qa_copilot import answer as copilot_answer
 from agents.campaign_builder import run as builder_run
+from agents.flow_optimizer import optimize_draft_flow
 from agents.segment_agent import suggest_segments as segment_suggest_run
 from agents.campaign_monitor import run as monitor_run
 from db import DatabaseSessionStore, init_db
@@ -244,6 +246,119 @@ async def builder(request: BuilderRequest) -> BuilderResponse:
         review_checklist_json=_model_dump(response.review_checklist),
         review_status=response.review_status,
         review_checklist_acknowledged=response.review_checklist_acknowledged,
+    )
+    return response
+
+
+@app.post("/api/builder/optimize", response_model=BuilderResponse)
+async def builder_optimize(request: BuilderOptimizeRequest) -> BuilderResponse:
+    """Deterministically improves a canonical Builder draft flow before launch."""
+    session = await session_store.get_session(request.session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    stored_version = _stored_draft_flow_version(session)
+    if stored_version is not None and request.draft_flow_version != stored_version:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Draft flow version is stale",
+                "expected_draft_flow_version": stored_version,
+                "received_draft_flow_version": request.draft_flow_version,
+            },
+        )
+
+    canonical_flow = session.draft_flow or request.draft_flow
+    if not canonical_flow:
+        raise HTTPException(status_code=400, detail="Draft flow is required for optimization")
+    canonical_brief = session.campaign_brief or request.campaign_brief
+    current_version = stored_version or request.draft_flow_version
+
+    try:
+        optimized_flow, optimized_version, checklist, additions, remaining = await optimize_draft_flow(
+            draft_flow=canonical_flow,
+            campaign_brief=canonical_brief,
+            draft_flow_version=current_version,
+            validation_errors=request.validation_errors,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Unexpected /api/builder/optimize failure")
+        raise HTTPException(status_code=502, detail=f"Builder optimize failed: {str(e)[:300]}")
+
+    if optimized_flow == canonical_flow:
+        optimized_version = current_version
+    added_text = "; ".join(additions) if additions else "ничего — не хватило безопасных данных для автодоработки"
+    remaining_text = "; ".join(remaining[:5]) if remaining else "критичных рекомендаций не осталось"
+    message = (
+        "Доработал draft flow агентом. "
+        f"Добавлено: {added_text}. "
+        f"Осталось проверить: {remaining_text}."
+    )
+    response = BuilderResponse(
+        message=message,
+        builder_preferences=canonical_brief.to_builder_preferences() if canonical_brief is not None else None,
+        session_id=session.id,
+        campaign_id=session.campaign_id,
+        draft_flow=optimized_flow,
+        draft_flow_version=optimized_version,
+        validation_errors=request.validation_errors,
+        brief_completeness=check_campaign_brief_completeness(BuilderRequest(
+            goal=canonical_brief.goal if canonical_brief and canonical_brief.goal else "Оптимизация draft flow",
+            session_id=session.id,
+            campaign_brief=canonical_brief,
+            draft_flow_version=optimized_version,
+            review_checklist_acknowledged=request.review_checklist_acknowledged,
+        )),
+        review_checklist=checklist,
+        review_status=checklist.status,
+        review_checklist_acknowledged=request.review_checklist_acknowledged,
+        status=_status_for_flow_context(session.campaign_id, optimized_flow),
+    )
+
+    await session_store.add_message(
+        session_id=session.id,
+        role="user",
+        content="Доработать флоу агентом",
+        metadata={
+            "campaign_brief": _model_dump(canonical_brief),
+            "draft_flow_json": canonical_flow,
+            "draft_flow_version": current_version,
+            "status": "draft_ready",
+        },
+    )
+    await session_store.add_message(
+        session_id=session.id,
+        role="assistant",
+        content=response.message,
+        metadata={
+            "campaign_id": response.campaign_id,
+            "status": response.status,
+            "builder_preferences": response.builder_preferences,
+            "campaign_brief": _model_dump(canonical_brief),
+            "draft_flow_json": optimized_flow,
+            "draft_flow_version": optimized_version,
+            "validation_errors": response.validation_errors,
+            "brief_completeness": _model_dump(response.brief_completeness),
+            "review_checklist": checklist.model_dump(),
+            "review_status": checklist.status,
+            "review_checklist_acknowledged": request.review_checklist_acknowledged,
+            "optimizer_added": additions,
+            "optimizer_remaining": remaining,
+        },
+    )
+    await session_store.upsert_campaign_state(
+        session_id=session.id,
+        campaign_id=response.campaign_id,
+        draft_flow_json=optimized_flow,
+        runtime_status="editing",
+        draft_flow_version=optimized_version,
+        campaign_brief_json=_model_dump(canonical_brief),
+        brief_completeness_json=_model_dump(response.brief_completeness),
+        review_checklist_json=checklist.model_dump(),
+        review_status=checklist.status,
+        review_checklist_acknowledged=request.review_checklist_acknowledged,
     )
     return response
 

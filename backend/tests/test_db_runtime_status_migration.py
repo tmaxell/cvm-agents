@@ -1,5 +1,8 @@
+import ast
 import asyncio
+import inspect as py_inspect
 import sys
+import textwrap
 from pathlib import Path
 
 from sqlalchemy import inspect, text
@@ -121,6 +124,28 @@ async def _run_migration_smoke_test(database_url: str, monkeypatch):
         )
     finally:
         await engine.dispose()
+
+
+def _migration_statement_for(column_name: str) -> str:
+    init_db_source = textwrap.dedent(py_inspect.getsource(db.init_db))
+    init_db_tree = ast.parse(init_db_source)
+
+    for node in ast.walk(init_db_tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(isinstance(target, ast.Name) and target.id == "column_migrations" for target in node.targets):
+            continue
+        migrations = ast.literal_eval(node.value)
+        return migrations[column_name]
+
+    raise AssertionError("column_migrations assignment was not found in db.init_db()")
+
+
+def test_review_checklist_acknowledged_migration_uses_postgres_boolean_default():
+    statement = _migration_statement_for("review_checklist_acknowledged")
+
+    assert "DEFAULT FALSE" in statement
+    assert "DEFAULT 0" not in statement
 
 
 def test_runtime_status_migration_updates_existing_sqlite_schema(tmp_path, monkeypatch):

@@ -15,12 +15,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from pydantic import ValidationError
 
 from schemas import (
     CopilotRequest,
@@ -47,6 +49,8 @@ from agents.campaign_monitor import run as monitor_run
 from db import DatabaseSessionStore, init_db
 from tools import adtarget
 from agents.safety_review import build_review_checklist, is_review_allowed_for_runtime
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="CVM Agents API", version="0.1.0")
 session_store = DatabaseSessionStore()
@@ -347,8 +351,22 @@ async def suggest_segments(request: SegmentSuggestRequest) -> SegmentSuggestResp
     """Suggests 2-3 structured audience segment hypotheses for a campaign."""
     try:
         return await segment_suggest_run(request)
+    except HTTPException:
+        raise
+    except ValidationError as e:
+        raise _segment_suggestion_validation_error(e)
+    except (json.JSONDecodeError, TypeError, ValueError) as e:
+        if _is_likely_llm_error(e):
+            _handle_llm_error(e)
+        raise _segment_suggestion_validation_error(e)
     except Exception as e:
-        _handle_llm_error(e)
+        if _is_likely_llm_error(e):
+            _handle_llm_error(e)
+        logger.exception("Unexpected /api/segments/suggest failure")
+        raise HTTPException(
+            status_code=500,
+            detail="Segment suggestion failed due to an unexpected backend error. Please try again later.",
+        )
 
 
 @app.post("/api/campaigns/{campaign_id}/start", response_model=CampaignActionResponse)
@@ -500,6 +518,40 @@ def _make_session_title(goal: str) -> str:
     if not title:
         return "Новый диалог Builder"
     return title[:77] + "..." if len(title) > 80 else title
+
+
+
+def _segment_suggestion_validation_error(e: Exception) -> HTTPException:
+    return HTTPException(
+        status_code=502,
+        detail={
+            "message": "Segment suggestion validation failed",
+            "error": str(e)[:500],
+        },
+    )
+
+
+def _is_likely_llm_error(e: Exception) -> bool:
+    err_str = str(e)
+    err_lower = err_str.lower()
+    llm_markers = (
+        "llm",
+        "gigachat",
+        "groq",
+        "anthropic",
+        "gemini",
+        "ollama",
+        "openai",
+        "api key",
+        "unauthorized",
+        "too many requests",
+        "payment required",
+        "request too large",
+    )
+    return (
+        any(marker in err_lower for marker in llm_markers)
+        or any(status in err_str for status in ("401", "402", "413", "429"))
+    )
 
 
 def _handle_llm_error(e: Exception) -> None:

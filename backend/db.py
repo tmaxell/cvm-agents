@@ -67,6 +67,9 @@ async def init_db() -> None:
             "review_checklist_acknowledged": (
                 "ALTER TABLE campaign_states ADD COLUMN review_checklist_acknowledged BOOLEAN NOT NULL DEFAULT 0"
             ),
+            "runtime_status": (
+                "ALTER TABLE campaign_states ADD COLUMN runtime_status VARCHAR(32) NOT NULL DEFAULT 'editing'"
+            ),
         }
         for column_name, statement in column_migrations.items():
             if columns and column_name not in columns:

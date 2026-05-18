@@ -40,8 +40,27 @@ const PANEL_SIZES: Record<Size, { width: number; height: number }> = {
 };
 
 const COPILOT_PLACEHOLDER: Record<Lang, string> = {
-  ru: "Спросите о кампании, ошибках, настройках…",
-  en: "Ask about campaigns, errors, settings…",
+  ru: "Спросите о документации и возможностях платформы…",
+  en: "Ask about docs and platform capabilities…",
+};
+
+const COPILOT_SUGGESTIONS: Record<Lang, string[]> = {
+  ru: [
+    "Как создать кампанию?",
+    "Какие шаги нужны для запуска кампании?",
+    "Как выбрать и настроить сегмент аудитории?",
+    "Какие каналы коммуникации поддерживаются?",
+    "Где посмотреть статусы и результаты кампании?",
+    "Как работает Campaign Builder?",
+  ],
+  en: [
+    "How do I create a campaign?",
+    "What steps are required to launch a campaign?",
+    "How do I select and configure an audience segment?",
+    "Which communication channels are supported?",
+    "Where can I view campaign statuses and results?",
+    "How does Campaign Builder work?",
+  ],
 };
 
 const TAB_LABELS: Record<
@@ -222,7 +241,7 @@ export function FloatingWidget({
               endpoint="/api/copilot"
               messageKey="question"
               placeholder={COPILOT_PLACEHOLDER[lang]}
-              suggestions={[]}
+              suggestions={COPILOT_SUGGESTIONS[lang]}
             />
           </div>
           <div className="fw-panel-slot" style={activePanelStyle("segments")}>

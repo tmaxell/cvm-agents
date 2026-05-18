@@ -511,6 +511,33 @@ function isDraftCreateReady(response: BuilderResponse | null, warningsAcknowledg
   return false;
 }
 
+
+function isMonitoringReady(response: BuilderResponse | null): boolean {
+  return Boolean(
+    response?.campaign_id &&
+    (response.status === "created_in_adtarget" || response.status === "running")
+  );
+}
+
+function getPreLaunchRecommendations(response: BuilderResponse | null, lang: "ru" | "en"): string[] {
+  if (!response || response.status === "running") return [];
+
+  const recommendations = [
+    ...(response.brief_completeness?.safety_checks ?? []),
+    ...(response.brief_completeness?.assumptions ?? []).map((assumption) =>
+      lang === "en" ? `Confirm assumption before launch: ${assumption}` : `Подтвердите допущение перед запуском: ${assumption}`
+    ),
+    ...(response.brief_completeness?.missing_fields ?? []).map((field) =>
+      lang === "en" ? `Complete missing brief field: ${field}` : `Заполните недостающее поле brief: ${field}`
+    ),
+    ...(response.review_checklist?.items ?? [])
+      .filter((item) => item.status !== "green")
+      .map((item) => item.message),
+  ];
+
+  return Array.from(new Set(recommendations.map((item) => item.trim()).filter(Boolean)));
+}
+
 function getResultPanelItems(response: BuilderResponse, lang: "ru" | "en"): ResultPanelItem[] {
   const items: ResultPanelItem[] = [
     {
@@ -866,6 +893,8 @@ export function CampaignBuilderChat({
   const checklistItems = lastResponse?.review_checklist?.items ?? [];
   const canAcknowledgeWarnings = lastResponse?.review_status === "warnings";
   const canCreateCampaign = isDraftCreateReady(lastResponse, reviewWarningsAcknowledged);
+  const canOpenMonitoring = isMonitoringReady(lastResponse);
+  const preLaunchRecommendations = getPreLaunchRecommendations(lastResponse, lang);
 
   return (
     <div className="fw-builder-chat">
@@ -1114,6 +1143,26 @@ export function CampaignBuilderChat({
               </div>
             ))}
           </dl>
+          {preLaunchRecommendations.length > 0 && (
+            <div className="builder-review-checklist" aria-label={lang === "en" ? "Pre-launch recommendations" : "Pre-launch рекомендации"}>
+              <div className="builder-review-checklist-item green">
+                <span aria-hidden="true">💡</span>
+                <div>
+                  <strong>{lang === "en" ? "Pre-launch recommendations" : "Pre-launch рекомендации"}</strong>
+                  <p>{lang === "en" ? "Review these before create or launch." : "Проверьте это перед созданием или запуском."}</p>
+                </div>
+              </div>
+              {preLaunchRecommendations.map((recommendation) => (
+                <div key={recommendation} className="builder-review-checklist-item warning">
+                  <span aria-hidden="true">!</span>
+                  <div>
+                    <strong>{lang === "en" ? "Recommendation" : "Рекомендация"}</strong>
+                    <p>{recommendation}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           {checklistItems.length > 0 && (
             <div className="builder-review-checklist" aria-label={lang === "en" ? "Safety checklist" : "Safety checklist"}>
               {checklistItems.map((item) => (
@@ -1160,13 +1209,14 @@ export function CampaignBuilderChat({
                     : (lang === "en" ? "Create in AdTarget" : "Создать кампанию")}
                 </button>
               )}
-              <button
-                type="button"
-                onClick={onOpenMonitoring}
-                disabled={!lastResponse.draft_flow && !lastResponse.campaign_id}
-              >
-                {lang === "en" ? "Go to Monitoring" : "Перейти к Monitoring"}
-              </button>
+              {canOpenMonitoring && (
+                <button
+                  type="button"
+                  onClick={onOpenMonitoring}
+                >
+                  {lang === "en" ? "Go to Monitoring" : "Перейти к Monitoring"}
+                </button>
+              )}
             </div>
           )}
         </section>
@@ -1313,7 +1363,7 @@ export function CampaignBuilderChat({
           ) : (
             <span>{lang === "en" ? "Draft context is saved locally" : "Черновой контекст сохранён локально"}</span>
           )}
-          {lastResponse && onOpenMonitoring && (
+          {canOpenMonitoring && onOpenMonitoring && (
             <button className="fw-clear-btn" onClick={onOpenMonitoring}>
               {lang === "en" ? "Monitoring" : "Monitoring"}
             </button>

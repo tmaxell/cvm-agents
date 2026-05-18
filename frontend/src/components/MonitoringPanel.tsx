@@ -79,11 +79,26 @@ export function MonitoringPanel({
     fetchMonitor(nextSeed);
   };
 
-  if (!campaignId || !draftFlowJson) {
+  if (!campaignId) {
     return (
       <div className="fw-monitor-empty">
         <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>
-          {lang === "en" ? "Build the flow in Builder first" : "Сначала соберите flow в Builder"}
+          {lang === "en" ? "Create the campaign in AdTarget first" : "Сначала создайте кампанию в AdTarget"}
+        </p>
+        <p style={{ margin: "6px 0 0", fontSize: 12, color: "var(--text-secondary)" }}>
+          {lang === "en"
+            ? "Pre-launch recommendations and the safety checklist are available in Builder."
+            : "Pre-launch рекомендации и safety checklist доступны в Builder."}
+        </p>
+      </div>
+    );
+  }
+
+  if (!draftFlowJson) {
+    return (
+      <div className="fw-monitor-empty">
+        <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>
+          {lang === "en" ? "Campaign flow is unavailable" : "Flow кампании недоступен"}
         </p>
       </div>
     );
@@ -97,7 +112,7 @@ export function MonitoringPanel({
   const similarActions = data?.similar_campaign_actions ?? [];
   const visibleOptimizationRecommendations = (data?.optimization_recommendations ?? []).slice(0, 5);
   const hasLaunched = campaignStatus === "active" || campaignStatus === "paused";
-  const mainRecommendations = data ? getMainRecommendations(data, hasLaunched).slice(0, 5) : [];
+  const mainRecommendations = data && hasLaunched ? getMainRecommendations(data, hasLaunched).slice(0, 5) : [];
 
   return (
     <div className="fw-monitor">
@@ -150,11 +165,20 @@ export function MonitoringPanel({
             </p>
           </div>
 
-          <RecommendationSection
-            icon="🎯"
-            title={lang === "en" ? "Top recommendations" : "Главные рекомендации"}
-            recommendations={mainRecommendations}
-          />
+          {hasLaunched ? (
+            <RecommendationSection
+              icon="🎯"
+              title={lang === "en" ? "Top recommendations" : "Главные рекомендации"}
+              recommendations={mainRecommendations}
+            />
+          ) : (
+            <div className="fw-monitor-prelaunch-note">
+              <strong>{lang === "en" ? "Waiting for launch" : "Ожидаем запуск"}</strong>
+              <span>{lang === "en"
+                ? "Metrics and monitoring recommendations will appear after Start is pressed. Use Builder for pre-launch recommendations and the safety checklist."
+                : "Метрики и рекомендации Monitoring появятся после нажатия «Запуск». Pre-launch рекомендации и safety checklist находятся в Builder."}</span>
+            </div>
+          )}
 
           <button
             type="button"
@@ -167,18 +191,11 @@ export function MonitoringPanel({
 
           {isDemo ? null : (
             <>
-              <OptimizationRecommendationsSection
-                recommendations={visibleOptimizationRecommendations}
-                lang={lang}
-              />
-
-              {!hasLaunched && (
-                <div className="fw-monitor-prelaunch-note">
-                  <strong>{lang === "en" ? "Pre-launch mode" : "До запуска"}</strong>
-                  <span>{lang === "en"
-                    ? "Metrics will appear after Start is pressed. For now, use these recommendations to improve the flow."
-                    : "Статистика появится после нажатия «Запуск». Пока здесь — советы по доработке flow."}</span>
-                </div>
+              {hasLaunched && (
+                <OptimizationRecommendationsSection
+                  recommendations={visibleOptimizationRecommendations}
+                  lang={lang}
+                />
               )}
 
               {hasLaunched && (
@@ -216,22 +233,24 @@ export function MonitoringPanel({
                 </>
               )}
 
-              <RecommendationSection
-                icon="🧩"
-                title={lang === "en" ? "Flow improvements" : "Доработка flow"}
-                recommendations={structureRecommendations}
-              />
-              <RecommendationSection
-                icon="🕘"
-                title={lang === "en" ? "Similar past campaigns" : "Похожие прошлые кампании"}
-                recommendations={similarActions}
-              />
               {hasLaunched && (
-                <RecommendationSection
-                  icon="🚀"
-                  title={lang === "en" ? "After launch" : "После запуска"}
-                  recommendations={launchRecommendations}
-                />
+                <>
+                  <RecommendationSection
+                    icon="🧩"
+                    title={lang === "en" ? "Flow improvements" : "Доработка flow"}
+                    recommendations={structureRecommendations}
+                  />
+                  <RecommendationSection
+                    icon="🕘"
+                    title={lang === "en" ? "Similar past campaigns" : "Похожие прошлые кампании"}
+                    recommendations={similarActions}
+                  />
+                  <RecommendationSection
+                    icon="🚀"
+                    title={lang === "en" ? "After launch" : "После запуска"}
+                    recommendations={launchRecommendations}
+                  />
+                </>
               )}
             </>
           )}

@@ -2693,11 +2693,15 @@ button {
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding-bottom: 96px;
 }
 
 .fw-builder-chat .message-feed {
-  flex: 1;
-  overflow-y: auto;
+  flex: 0 0 auto;
+  min-height: clamp(150px, 32vh, 280px);
+  overflow: visible;
   padding: 12px;
   display: flex;
   flex-direction: column;
@@ -2776,7 +2780,11 @@ button {
 
 /* ── Composer inside widget ──────────────────────────────────── */
 .fw-builder-chat .composer {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
   flex-shrink: 0;
+  box-shadow: 0 -10px 24px rgb(15 23 42 / 8%);
 }
 
 /* Ensure ChatPanel fills the fw-body correctly */

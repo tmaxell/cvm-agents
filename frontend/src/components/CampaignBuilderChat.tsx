@@ -501,7 +501,10 @@ function responseFromSession(session: BuilderSessionDetail): BuilderResponse | n
     campaign_id: typeof metadata.campaign_id === "number" ? metadata.campaign_id : session.campaign_id ?? null,
     builder_preferences: metadata.builder_preferences as BuilderResponse["builder_preferences"] ?? null,
     preference_patch: metadata.preference_patch as BuilderResponse["preference_patch"] ?? null,
-    draft_flow: metadata.draft_flow as BuilderResponse["draft_flow"] ?? null,
+    draft_flow: (metadata.draft_flow ?? metadata.draft_flow_json) as BuilderResponse["draft_flow"] ?? null,
+    draft_flow_version: typeof metadata.draft_flow_version === "number"
+      ? metadata.draft_flow_version
+      : session.draft_flow_version ?? null,
     validation_errors: Array.isArray(metadata.validation_errors) ? metadata.validation_errors : [],
     brief_completeness: metadata.brief_completeness as BuilderResponse["brief_completeness"] ?? null,
     status: session.status as BuilderResponse["status"],
@@ -540,6 +543,7 @@ export function CampaignBuilderChat({
       session_flow_json: lastResponse?.draft_flow
         ? JSON.stringify(lastResponse.draft_flow)
         : null,
+      draft_flow_version: lastResponse?.draft_flow_version ?? null,
       campaign_brief: campaignBrief,
       builder_preferences: briefToPreferences(campaignBrief),
     }),

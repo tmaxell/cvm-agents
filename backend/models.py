@@ -58,6 +58,7 @@ class CampaignStateModel(Base):
     session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), primary_key=True)
     campaign_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     draft_flow_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    draft_flow_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     runtime_status: Mapped[str] = mapped_column(String(32), nullable=False, default="in_progress")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

@@ -87,6 +87,7 @@ export interface BuilderRequest {
   history?: { role: "user" | "assistant"; content: string }[];
   session_campaign_id?: number | null;
   session_flow_json?: string | null;
+  draft_flow_version?: number | null;
   campaign_brief?: CampaignBrief;
   builder_preferences?: BuilderPreferences;
 }
@@ -108,6 +109,7 @@ export interface BuilderSession {
   created_at: string;
   updated_at: string;
   status: "in_progress" | "created" | "started" | "error" | string;
+  draft_flow_version?: number | null;
 }
 
 export interface BuilderSessionDetail extends BuilderSession {
@@ -177,6 +179,7 @@ export interface BuilderResponse {
   session_id?: string | null;
   campaign_id?: number | null;
   draft_flow?: CampaignFlow | null;
+  draft_flow_version?: number | null;
   validation_errors?: unknown[];
   brief_completeness?: CampaignBriefCompleteness | null;
   status: "in_progress" | "created" | "started" | "error";

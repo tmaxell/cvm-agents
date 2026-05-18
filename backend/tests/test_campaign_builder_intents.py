@@ -255,3 +255,48 @@ def test_offer_selector_does_not_fallback_to_first_offer_without_match():
     assert offer is None
     assert warning is not None
     assert "первый шаблон" in warning
+
+
+def test_follow_up_realtime_check_after_sms_applies_current_version_and_increments(monkeypatch):
+    import asyncio
+    import json
+
+    from agents import campaign_builder
+    from schemas import BuilderRequest
+    from tools.flow_builder import (
+        assemble_flow,
+        make_common_activity,
+        make_push_communication_activity,
+        make_target_group_activity,
+    )
+
+    async def fake_fetch_reference_data():
+        return {"target_groups": [], "channels": [], "events": [], "offers": []}
+
+    monkeypatch.setattr(campaign_builder, "_fetch_reference_data", fake_fetch_reference_data)
+
+    flow = assemble_flow([
+        make_common_activity("Retention draft"),
+        make_target_group_activity(42),
+        make_push_communication_activity(201, "SmsContent", "Текст SMS"),
+    ])
+    current_version = 3
+
+    response = asyncio.run(campaign_builder.run(BuilderRequest(
+        goal="добавь RealTimeCheck после SMS",
+        session_flow_json=json.dumps(flow, ensure_ascii=False),
+        draft_flow_version=current_version,
+    )))
+
+    assert response.draft_flow_version == current_version + 1
+    assert response.draft_flow is not None
+    activity_types = [activity["type"] for activity in response.draft_flow["activities"]]
+    assert activity_types == [
+        "CommonActivity",
+        "TargetGroupActivity",
+        "PushCommunicationActivity",
+        "RealTimeCheckActivity",
+    ]
+    sms_activity = response.draft_flow["activities"][2]
+    realtime_activity = response.draft_flow["activities"][3]
+    assert sms_activity["nextActivityId"] == realtime_activity["id"]

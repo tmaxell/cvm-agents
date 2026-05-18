@@ -38,7 +38,7 @@ async def _create_legacy_schema(engine):
                 brief_completeness_json JSON,
                 review_checklist_json JSON,
                 review_status VARCHAR(32),
-                review_checklist_acknowledged BOOLEAN NOT NULL DEFAULT 0,
+                review_checklist_acknowledged BOOLEAN NOT NULL DEFAULT FALSE,
                 created_at DATETIME NOT NULL,
                 updated_at DATETIME NOT NULL,
                 FOREIGN KEY(session_id) REFERENCES sessions (id) ON DELETE CASCADE
@@ -71,11 +71,11 @@ async def _create_legacy_schema(engine):
                 '{}',
                 '{}',
                 'blocked',
-                0,
+                :review_checklist_acknowledged,
                 CURRENT_TIMESTAMP,
                 CURRENT_TIMESTAMP
             )
-        """))
+        """), {"review_checklist_acknowledged": False})
 
 
 async def _column_names(engine) -> set[str]:

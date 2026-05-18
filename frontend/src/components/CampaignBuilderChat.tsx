@@ -989,6 +989,168 @@ export function CampaignBuilderChat({
         </span>
       </section>
 
+      {variant === "demo" && lastResponse && (
+        <section
+          className={`builder-result-panel ${resultPanelState}`}
+          aria-label={lang === "en" ? "Builder result" : "Результат Builder"}
+        >
+          <div className="builder-result-panel-header">
+            <div>
+              <span>{lang === "en" ? "Last response" : "Последний ответ"}</span>
+              <h3>{lang === "en" ? "Builder status" : "Статус Builder"}</h3>
+            </div>
+            <div className="builder-result-status-group">
+              <strong style={{ color: STATUS_COLORS[lastResponse.status] ?? undefined }}>
+                {STATUS_LABELS[lang][lastResponse.status] ?? resultStatusLabel}
+              </strong>
+              {lastResponse.campaign_id && (
+                <span className="builder-result-created-chip">
+                  {STATUS_LABELS[lang].created_in_adtarget} · #{lastResponse.campaign_id}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="builder-result-details-stack">
+            <details className="builder-result-details">
+              <summary>
+                {lang === "en" ? "Flow summary / Review" : "Сводка flow / Review"}
+                <span>{getFlowSummary(lastResponse, lang)}</span>
+              </summary>
+              {lastResponse.draft_flow && (
+                <div className="builder-canvas-hint" role="status">
+                  <span aria-hidden="true">✓</span>
+                  {lang === "en" ? "Canvas updated" : "Canvas обновлён"}
+                </div>
+              )}
+              <dl className="builder-result-panel-grid">
+                {resultPanelItems
+                  .filter((item) => [lang === "en" ? "Flow summary" : "Сводка flow", "Review"].includes(item.label))
+                  .map((item) => (
+                    <div key={item.label}>
+                      <dt>{item.label}</dt>
+                      <dd>{item.value}</dd>
+                    </div>
+                  ))}
+              </dl>
+            </details>
+
+            <details className="builder-result-details">
+              <summary>
+                {lang === "en" ? "Brief completeness and assumptions" : "Полнота brief и допущения"}
+                <span>{lastResponse.brief_completeness?.missing_fields?.length ? (lang === "en" ? "missing fields" : "есть пробелы") : (lang === "en" ? "complete" : "заполнен")}</span>
+              </summary>
+              <dl className="builder-result-panel-grid">
+                {resultPanelItems
+                  .filter((item) => [lang === "en" ? "Brief completeness" : "Полнота brief", lang === "en" ? "Assumptions" : "Допущения"].includes(item.label))
+                  .map((item) => (
+                    <div key={item.label}>
+                      <dt>{item.label}</dt>
+                      <dd>{item.value}</dd>
+                    </div>
+                  ))}
+                {(lastResponse.brief_completeness?.safety_checks ?? []).map((check) => (
+                  <div key={check}>
+                    <dt>{lang === "en" ? "Safety check" : "Safety check"}</dt>
+                    <dd>{check}</dd>
+                  </div>
+                ))}
+              </dl>
+            </details>
+
+            {preLaunchRecommendations.length > 0 && (
+              <details className="builder-result-details">
+                <summary>
+                  {lang === "en" ? "Pre-launch recommendations" : "Pre-launch recommendations"}
+                  <span>{preLaunchRecommendations.length}</span>
+                </summary>
+                <div className="builder-review-checklist" aria-label={lang === "en" ? "Pre-launch recommendations" : "Pre-launch рекомендации"}>
+                  {preLaunchRecommendations.map((recommendation) => (
+                    <div key={recommendation} className="builder-review-checklist-item warning">
+                      <span aria-hidden="true">!</span>
+                      <div>
+                        <strong>{lang === "en" ? "Recommendation" : "Рекомендация"}</strong>
+                        <p>{recommendation}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+
+            {checklistItems.length > 0 && (
+              <details className="builder-result-details">
+                <summary>
+                  {lang === "en" ? "Safety checklist" : "Safety checklist"}
+                  <span>{getReviewStatusLabel(lastResponse.review_status, lang)}</span>
+                </summary>
+                <div className="builder-review-checklist" aria-label={lang === "en" ? "Safety checklist" : "Safety checklist"}>
+                  {checklistItems.map((item) => (
+                    <div key={item.category} className={`builder-review-checklist-item ${item.status}`}>
+                      <span aria-hidden="true">{item.status === "green" ? "✓" : item.status === "warning" ? "!" : "×"}</span>
+                      <div>
+                        <strong>{getChecklistItemLabel(item, lang)}</strong>
+                        <p>{item.message}</p>
+                      </div>
+                    </div>
+                  ))}
+                  {canAcknowledgeWarnings && (
+                    <label className="builder-review-ack">
+                      <input
+                        type="checkbox"
+                        checked={reviewWarningsAcknowledged}
+                        onChange={(event) => handleReviewAckChange(event.target.checked)}
+                      />
+                      {lang === "en"
+                        ? "I acknowledge acceptable warnings for create/launch"
+                        : "Подтверждаю допустимые warnings для create/launch"}
+                    </label>
+                  )}
+                </div>
+              </details>
+            )}
+
+            {onOpenMonitoring && (
+              <details className="builder-result-details">
+                <summary>
+                  {lang === "en" ? "Actions" : "Actions"}
+                  <span>{canCreateCampaign || canOpenMonitoring ? (lang === "en" ? "available" : "доступны") : (lang === "en" ? "refresh" : "обновить")}</span>
+                </summary>
+                <div className="builder-result-panel-actions">
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => onResponse(lastResponse)}
+                  >
+                    {lang === "en" ? "Refresh canvas" : "Обновить canvas"}
+                    <span>{lang === "en" ? "Uses the current flow" : "Использует текущий flow"}</span>
+                  </button>
+                  {canCreateCampaign && (
+                    <button
+                      type="button"
+                      onClick={handleCreateCampaign}
+                      disabled={creatingCampaign}
+                    >
+                      {creatingCampaign
+                        ? (lang === "en" ? "Creating…" : "Создаём…")
+                        : (lang === "en" ? "Create in AdTarget" : "Создать кампанию")}
+                    </button>
+                  )}
+                  {canOpenMonitoring && (
+                    <button
+                      type="button"
+                      onClick={onOpenMonitoring}
+                    >
+                      {lang === "en" ? "Go to Monitoring" : "Перейти к Monitoring"}
+                    </button>
+                  )}
+                </div>
+              </details>
+            )}
+          </div>
+        </section>
+      )}
+
       <details className="builder-brief-card builder-params-panel builder-brief-details">
         <summary>
           {lang === "en" ? "Brief details" : "Детали brief"}
@@ -1094,117 +1256,6 @@ export function CampaignBuilderChat({
           </label>
         </div>
       </details>
-
-      {variant === "demo" && lastResponse && (
-        <section
-          className={`builder-result-panel ${resultPanelState}`}
-          aria-label={lang === "en" ? "Builder result" : "Результат Builder"}
-        >
-          <div className="builder-result-panel-header">
-            <div>
-              <span>{lang === "en" ? "Last response" : "Последний ответ"}</span>
-              <h3>{lang === "en" ? "Campaign assembly result" : "Результат сборки кампании"}</h3>
-            </div>
-            <strong style={{ color: STATUS_COLORS[lastResponse.status] ?? undefined }}>
-              {STATUS_LABELS[lang][lastResponse.status] ?? (resultPanelState === "success"
-                ? (lang === "en" ? "Ready" : "Готово")
-                : resultPanelState === "warning"
-                  ? (lang === "en" ? "Review" : "Проверка")
-                  : (lang === "en" ? "Context" : "Контекст"))}
-            </strong>
-          </div>
-          {lastResponse.draft_flow && (
-            <div className="builder-canvas-hint" role="status">
-              <span aria-hidden="true">✓</span>
-              {lang === "en" ? "Canvas updated" : "Canvas обновлён"}
-            </div>
-          )}
-          <dl className="builder-result-panel-grid">
-            {resultPanelItems.map((item) => (
-              <div key={item.label}>
-                <dt>{item.label}</dt>
-                <dd>{item.value}</dd>
-              </div>
-            ))}
-          </dl>
-          {preLaunchRecommendations.length > 0 && (
-            <div className="builder-review-checklist" aria-label={lang === "en" ? "Pre-launch recommendations" : "Pre-launch рекомендации"}>
-              <div className="builder-review-checklist-item green">
-                <span aria-hidden="true">💡</span>
-                <div>
-                  <strong>{lang === "en" ? "Pre-launch recommendations" : "Pre-launch рекомендации"}</strong>
-                  <p>{lang === "en" ? "Review these before create or launch." : "Проверьте это перед созданием или запуском."}</p>
-                </div>
-              </div>
-              {preLaunchRecommendations.map((recommendation) => (
-                <div key={recommendation} className="builder-review-checklist-item warning">
-                  <span aria-hidden="true">!</span>
-                  <div>
-                    <strong>{lang === "en" ? "Recommendation" : "Рекомендация"}</strong>
-                    <p>{recommendation}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          {checklistItems.length > 0 && (
-            <div className="builder-review-checklist" aria-label={lang === "en" ? "Safety checklist" : "Safety checklist"}>
-              {checklistItems.map((item) => (
-                <div key={item.category} className={`builder-review-checklist-item ${item.status}`}>
-                  <span aria-hidden="true">{item.status === "green" ? "✓" : item.status === "warning" ? "!" : "×"}</span>
-                  <div>
-                    <strong>{getChecklistItemLabel(item, lang)}</strong>
-                    <p>{item.message}</p>
-                  </div>
-                </div>
-              ))}
-              {canAcknowledgeWarnings && (
-                <label className="builder-review-ack">
-                  <input
-                    type="checkbox"
-                    checked={reviewWarningsAcknowledged}
-                    onChange={(event) => handleReviewAckChange(event.target.checked)}
-                  />
-                  {lang === "en"
-                    ? "I acknowledge acceptable warnings for create/launch"
-                    : "Подтверждаю допустимые warnings для create/launch"}
-                </label>
-              )}
-            </div>
-          )}
-          {onOpenMonitoring && (
-            <div className="builder-result-panel-actions">
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => onResponse(lastResponse)}
-              >
-                {lang === "en" ? "Refresh canvas" : "Обновить canvas"}
-                <span>{lang === "en" ? "Uses the current flow" : "Использует текущий flow"}</span>
-              </button>
-              {canCreateCampaign && (
-                <button
-                  type="button"
-                  onClick={handleCreateCampaign}
-                  disabled={creatingCampaign}
-                >
-                  {creatingCampaign
-                    ? (lang === "en" ? "Creating…" : "Создаём…")
-                    : (lang === "en" ? "Create in AdTarget" : "Создать кампанию")}
-                </button>
-              )}
-              {canOpenMonitoring && (
-                <button
-                  type="button"
-                  onClick={onOpenMonitoring}
-                >
-                  {lang === "en" ? "Go to Monitoring" : "Перейти к Monitoring"}
-                </button>
-              )}
-            </div>
-          )}
-        </section>
-      )}
 
 
       <details className="builder-history-panel">

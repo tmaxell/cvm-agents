@@ -48,6 +48,7 @@ from tools.flow_builder import (
 )
 
 SUPPORTED_ACTIVITY_TYPES = {
+    "TargetGroupActivity",
     "PushCommunicationActivity",
     "PullCommunicationActivity",
     "EventActivity",
@@ -1191,6 +1192,8 @@ def _make_activity_from_params(activity_type: str, activity_params: dict[str, An
     if activity_type not in SUPPORTED_ACTIVITY_TYPES:
         raise ValueError(f"Неподдерживаемый тип активности: {activity_type}")
     params = activity_params or {}
+    if activity_type == "TargetGroupActivity":
+        return make_target_group_activity(int(params["target_group_id"]))
     if activity_type == "RealTimeCheckActivity":
         return make_real_time_check_activity(filters=params.get("filters"))
     if activity_type == "ResponseActivity":

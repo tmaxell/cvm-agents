@@ -109,6 +109,17 @@ export interface BuilderRequest {
   review_checklist_acknowledged?: boolean;
 }
 
+export interface BuilderOptimizeRequest {
+  session_id: string;
+  draft_flow: CampaignFlow;
+  campaign_brief?: CampaignBrief;
+  draft_flow_version: number;
+  validation_errors?: unknown[];
+  review_checklist_acknowledged?: boolean;
+}
+
+export type BuilderOptimizeResponse = BuilderResponse;
+
 
 export type BuilderStatus =
   | "collect_brief"

@@ -93,6 +93,8 @@ def _check_contact_policy(draft_flow: dict[str, Any] | None) -> ReviewChecklistI
         return _item("contact_policy", "blocker", "Один или несколько шагов флоу содержат критичные ошибки.")
     if _flow_validation_warnings(draft_flow) or any(_activity_issues(activity, "warnings") for activity in activities):
         return _item("contact_policy", "warning", "Во флоу есть предупреждения; подтвердите доступность контакта и лимиты частоты.")
+    if _has_contact_policy_marker(activities):
+        return _item("contact_policy", "green", "Во флоу включён marker контактной политики и лимита частоты.")
     return _item("contact_policy", "warning", "Доступность контакта, отписка и лимиты частоты требуют финального подтверждения оператора.")
 
 
@@ -180,3 +182,13 @@ def _flow_validation_warnings(draft_flow: dict[str, Any] | None) -> list[Any]:
     validation = draft_flow.get("validation") if isinstance(draft_flow, dict) else None
     warnings = validation.get("warnings") if isinstance(validation, dict) else None
     return warnings if isinstance(warnings, list) else []
+
+
+def _has_contact_policy_marker(activities: list[dict[str, Any]]) -> bool:
+    common = activities[0] if activities else {}
+    settings = common.get("settings") if isinstance(common, dict) else None
+    return bool(
+        isinstance(settings, dict)
+        and settings.get("useContactPolicies") is True
+        and settings.get("communicationLimit") is not None
+    )

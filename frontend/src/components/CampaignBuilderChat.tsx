@@ -10,6 +10,7 @@ import type {
   AgentContext,
   BuilderPreferences,
   BuilderResponse,
+  BuilderOptimizeRequest,
   CampaignBrief,
   BuilderSession,
   BuilderSessionDetail,
@@ -672,6 +673,7 @@ export function CampaignBuilderChat({
   const [targetGroupsSource, setTargetGroupsSource] = useState<"audience-builder" | "manual" | null>(null);
   const [reviewWarningsAcknowledged, setReviewWarningsAcknowledged] = useState(false);
   const [creatingCampaign, setCreatingCampaign] = useState(false);
+  const [optimizingFlow, setOptimizingFlow] = useState(false);
 
   const { messages, loading, error, send, clear, replaceMessages } = useChat({
     endpoint: "/api/builder",
@@ -880,6 +882,58 @@ export function CampaignBuilderChat({
     }
   };
 
+
+  const handleOptimizeFlow = async () => {
+    if (!lastResponse?.draft_flow || !lastResponse.draft_flow_version || !currentSessionId || optimizingFlow) return;
+    setOptimizingFlow(true);
+    const userText = lang === "en" ? "Refine flow with agent" : "Доработать флоу агентом";
+    try {
+      replaceMessages([...messages, { role: "user", content: userText }]);
+      const payload: BuilderOptimizeRequest = {
+        session_id: currentSessionId,
+        draft_flow: lastResponse.draft_flow,
+        campaign_brief: campaignBrief,
+        draft_flow_version: lastResponse.draft_flow_version,
+        validation_errors: lastResponse.validation_errors ?? [],
+        review_checklist_acknowledged: reviewWarningsAcknowledged || Boolean(lastResponse.review_checklist_acknowledged),
+      };
+      const response = await fetch(`${API_BASE}/api/builder/optimize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
+      }
+      const builderResponse = await response.json() as BuilderResponse;
+      setLastResponse(builderResponse);
+      setCurrentSessionId(builderResponse.session_id ?? currentSessionId);
+      setCampaignBrief((current) => mergeResponseBrief(current, builderResponse) ?? current);
+      replaceMessages([
+        ...messages,
+        { role: "user", content: userText },
+        { role: "assistant", content: builderResponse.message },
+      ]);
+      if (builderResponse.session_id) {
+        try {
+          await loadCanonicalSession(builderResponse.session_id);
+        } catch {
+          // Keep optimistic optimized response if session reload is temporarily unavailable.
+        }
+      }
+      refreshSessions();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to optimize flow";
+      replaceMessages([
+        ...messages,
+        { role: "assistant", content: lang === "en" ? `Optimization failed: ${message}` : `Оптимизация не удалась: ${message}` },
+      ]);
+    } finally {
+      setOptimizingFlow(false);
+    }
+  };
+
   const handleCreateCampaign = async () => {
     if (!lastResponse?.draft_flow || !currentSessionId || creatingCampaign) return;
     setCreatingCampaign(true);
@@ -952,6 +1006,7 @@ export function CampaignBuilderChat({
   const checklistItems = lastResponse?.review_checklist?.items ?? [];
   const canAcknowledgeWarnings = lastResponse?.review_status === "warnings";
   const canCreateCampaign = isDraftCreateReady(lastResponse);
+  const canOptimizeFlow = Boolean(lastResponse?.draft_flow && lastResponse.draft_flow_version && currentSessionId && !lastResponse.campaign_id);
   const canOpenMonitoring = isMonitoringReady(lastResponse);
   const preLaunchRecommendations = getPreLaunchRecommendations(lastResponse, lang);
   const resultStatusLabel = lastResponse
@@ -1105,8 +1160,7 @@ export function CampaignBuilderChat({
               </details>
             )}
 
-            {onOpenMonitoring && (
-              <details className="builder-result-details">
+            <details className="builder-result-details">
                 <summary>
                   {lang === "en" ? "Actions" : "Actions"}
                   <span>{canCreateCampaign || canOpenMonitoring ? (lang === "en" ? "available" : "доступны") : (lang === "en" ? "refresh" : "обновить")}</span>
@@ -1120,11 +1174,24 @@ export function CampaignBuilderChat({
                     {lang === "en" ? "Refresh canvas" : "Обновить canvas"}
                     <span>{lang === "en" ? "Uses the current flow" : "Использует текущий флоу"}</span>
                   </button>
+                  {canOptimizeFlow && (
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={handleOptimizeFlow}
+                      disabled={optimizingFlow || loading}
+                    >
+                      {optimizingFlow
+                        ? (lang === "en" ? "Refining…" : "Дорабатываем…")
+                        : (lang === "en" ? "Refine flow with agent" : "Доработать флоу агентом")}
+                      <span>{lang === "en" ? "Adds safe missing blocks" : "Добавит безопасные недостающие блоки"}</span>
+                    </button>
+                  )}
                   {canCreateCampaign && (
                     <button
                       type="button"
                       onClick={handleCreateCampaign}
-                      disabled={creatingCampaign}
+                      disabled={creatingCampaign || optimizingFlow}
                     >
                       {creatingCampaign
                         ? (lang === "en" ? "Creating…" : "Создаём…")
@@ -1141,7 +1208,6 @@ export function CampaignBuilderChat({
                   )}
                 </div>
               </details>
-            )}
           </div>
         </section>
       )}

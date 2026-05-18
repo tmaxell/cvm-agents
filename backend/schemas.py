@@ -346,6 +346,15 @@ class MessageCreate(BaseModel):
 
 # ── Runtime campaign actions ──────────────────────────────────────────────────
 
+class BuilderOptimizeRequest(BaseModel):
+    session_id: str
+    draft_flow: dict[str, Any]
+    campaign_brief: CampaignBrief | None = None
+    draft_flow_version: int = Field(ge=1)
+    validation_errors: list[dict] = []
+    review_checklist_acknowledged: bool = False
+
+
 class BuilderCreateRequest(BaseModel):
     session_id: str
     draft_flow: dict[str, Any]

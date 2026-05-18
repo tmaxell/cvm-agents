@@ -317,7 +317,13 @@ class Session(BaseModel):
     created_at: datetime
     updated_at: datetime
     status: str = "collect_brief"
+    campaign_brief: CampaignBrief | None = None
+    draft_flow: dict[str, Any] | None = None
     draft_flow_version: int | None = None
+    brief_completeness: CampaignBriefCompleteness | None = None
+    review_checklist: ReviewChecklist | None = None
+    review_status: ReviewStatus = "blocked"
+    review_checklist_acknowledged: bool = False
 
 
 class SessionDetail(Session):

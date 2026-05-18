@@ -30,7 +30,6 @@ const DEFAULT_CONTEXT: AgentContext = {
 
 const BUILDER_MESSAGES_KEY = "cvm.builder.messages.v1";
 const BUILDER_RESPONSE_KEY = "cvm.builder.lastResponse.v1";
-const BUILDER_BRIEF_KEY = "cvm.builder.brief.v1";
 const BUILDER_PREFS_KEY = "cvm.builder.preferences.v1";
 const BUILDER_SESSION_KEY = "cvm.builder.sessionId.v1";
 
@@ -133,6 +132,52 @@ const EMPTY_CAMPAIGN_BRIEF: CampaignBrief = {
   channels: [],
   constraints: { content: null, offer_recommendations: null },
 };
+
+interface BuilderPreferencesCache {
+  session_id: string | null;
+  campaign_brief?: CampaignBrief | null;
+  preferences?: BuilderPreferences;
+}
+
+function cacheBelongsToSession(cachedSessionId?: string | null, currentSessionId?: string | null): boolean {
+  return !cachedSessionId || !currentSessionId || cachedSessionId === currentSessionId;
+}
+
+function readCachedBuilderResponse(): BuilderResponse | null {
+  const currentSessionId = readStoredString(BUILDER_SESSION_KEY);
+  const cached = readStoredJson<BuilderResponse | null>(BUILDER_RESPONSE_KEY, null);
+  if (!cached || !cacheBelongsToSession(cached.session_id, currentSessionId)) return null;
+  return cached;
+}
+
+function readCachedCampaignBrief(): CampaignBrief {
+  const currentSessionId = readStoredString(BUILDER_SESSION_KEY);
+  const cached = readStoredJson<BuilderPreferences | BuilderPreferencesCache>(BUILDER_PREFS_KEY, {});
+  if ("campaign_brief" in cached || "preferences" in cached || "session_id" in cached) {
+    const envelope = cached as BuilderPreferencesCache;
+    if (!cacheBelongsToSession(envelope.session_id, currentSessionId)) return EMPTY_CAMPAIGN_BRIEF;
+    return envelope.campaign_brief ?? preferencesToBrief(envelope.preferences ?? {});
+  }
+  return preferencesToBrief(cached as BuilderPreferences);
+}
+
+function writeBuilderCaches(
+  response: BuilderResponse | null,
+  sessionId: string | null,
+  campaignBrief: CampaignBrief,
+): void {
+  if (typeof window === "undefined") return;
+  if (response) {
+    window.localStorage.setItem(BUILDER_RESPONSE_KEY, JSON.stringify({ ...response, session_id: response.session_id ?? sessionId }));
+  } else {
+    window.localStorage.removeItem(BUILDER_RESPONSE_KEY);
+  }
+  window.localStorage.setItem(BUILDER_PREFS_KEY, JSON.stringify({
+    session_id: sessionId,
+    campaign_brief: campaignBrief,
+    preferences: briefToPreferences(campaignBrief),
+  } satisfies BuilderPreferencesCache));
+}
 
 function splitListValue(value?: string | null): string[] {
   return (value ?? "")
@@ -601,15 +646,15 @@ function responseFromSession(session: BuilderSessionDetail): BuilderResponse | n
     campaign_id: typeof metadata.campaign_id === "number" ? metadata.campaign_id : session.campaign_id ?? null,
     builder_preferences: metadata.builder_preferences as BuilderResponse["builder_preferences"] ?? null,
     preference_patch: metadata.preference_patch as BuilderResponse["preference_patch"] ?? null,
-    draft_flow: (metadata.draft_flow ?? metadata.draft_flow_json) as BuilderResponse["draft_flow"] ?? null,
-    draft_flow_version: typeof metadata.draft_flow_version === "number"
+    draft_flow: session.draft_flow ?? (metadata.draft_flow ?? metadata.draft_flow_json) as BuilderResponse["draft_flow"] ?? null,
+    draft_flow_version: session.draft_flow_version ?? (typeof metadata.draft_flow_version === "number"
       ? metadata.draft_flow_version
-      : session.draft_flow_version ?? null,
+      : null),
     validation_errors: Array.isArray(metadata.validation_errors) ? metadata.validation_errors : [],
-    brief_completeness: metadata.brief_completeness as BuilderResponse["brief_completeness"] ?? null,
-    review_checklist: metadata.review_checklist as BuilderResponse["review_checklist"] ?? null,
-    review_status: (metadata.review_status as BuilderResponse["review_status"]) ?? "blocked",
-    review_checklist_acknowledged: Boolean(metadata.review_checklist_acknowledged),
+    brief_completeness: session.brief_completeness ?? metadata.brief_completeness as BuilderResponse["brief_completeness"] ?? null,
+    review_checklist: session.review_checklist ?? metadata.review_checklist as BuilderResponse["review_checklist"] ?? null,
+    review_status: session.review_status ?? (metadata.review_status as BuilderResponse["review_status"]) ?? "blocked",
+    review_checklist_acknowledged: Boolean(session.review_checklist_acknowledged ?? metadata.review_checklist_acknowledged),
     status: session.status as BuilderResponse["status"],
   };
 }
@@ -623,16 +668,13 @@ export function CampaignBuilderChat({
   demoPlaybook = [],
 }: Props) {
   const [lastResponse, setLastResponse] = useState<BuilderResponse | null>(() =>
-    readStoredJson<BuilderResponse | null>(BUILDER_RESPONSE_KEY, null),
+    readCachedBuilderResponse(),
   );
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(() => readStoredString(BUILDER_SESSION_KEY));
   const [sessions, setSessions] = useState<BuilderSession[]>([]);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [campaignBrief, setCampaignBrief] = useState<CampaignBrief>(() =>
-    readStoredJson<CampaignBrief | null>(BUILDER_BRIEF_KEY, null)
-      ?? preferencesToBrief(readStoredJson<BuilderPreferences>(BUILDER_PREFS_KEY, {})),
-  );
+  const [campaignBrief, setCampaignBrief] = useState<CampaignBrief>(() => readCachedCampaignBrief());
   const [targetGroupsSource, setTargetGroupsSource] = useState<"audience-builder" | "manual" | null>(null);
   const [reviewWarningsAcknowledged, setReviewWarningsAcknowledged] = useState(false);
   const [creatingCampaign, setCreatingCampaign] = useState(false);
@@ -645,9 +687,7 @@ export function CampaignBuilderChat({
     extraPayload: () => ({
       session_id: currentSessionId,
       session_campaign_id: lastResponse?.campaign_id ?? null,
-      session_flow_json: lastResponse?.draft_flow
-        ? JSON.stringify(lastResponse.draft_flow)
-        : null,
+      session_flow_json: null,
       draft_flow_version: lastResponse?.draft_flow_version ?? null,
       campaign_brief: campaignBrief,
       builder_preferences: briefToPreferences(campaignBrief),
@@ -658,6 +698,30 @@ export function CampaignBuilderChat({
   const [input, setInput] = useState("");
   const [editingBriefField, setEditingBriefField] = useState<BriefInlineField | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  const applySessionState = useCallback((session: BuilderSessionDetail) => {
+    const loadedMessages: ChatMessage[] = session.messages
+      .filter((message) => message.role === "user" || message.role === "assistant")
+      .map((message) => ({ role: message.role as "user" | "assistant", content: message.content }));
+    replaceMessages(loadedMessages);
+    setCurrentSessionId(session.id);
+    const loadedResponse = responseFromSession(session);
+    setLastResponse(loadedResponse);
+    if (session.campaign_brief) {
+      setCampaignBrief(session.campaign_brief);
+    } else if (loadedResponse) {
+      setCampaignBrief((current) => mergeResponseBrief(current, loadedResponse) ?? current);
+    }
+    setReviewWarningsAcknowledged(Boolean(session.review_checklist_acknowledged));
+  }, [replaceMessages]);
+
+  const loadCanonicalSession = useCallback(async (sessionId: string): Promise<boolean> => {
+    const response = await fetch(`${API_BASE}/api/sessions/${sessionId}`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const session = await response.json() as BuilderSessionDetail;
+    applySessionState(session);
+    return true;
+  }, [applySessionState]);
 
   const refreshSessions = useCallback(async () => {
     setHistoryLoading(true);
@@ -678,18 +742,20 @@ export function CampaignBuilderChat({
   }, [refreshSessions]);
 
   useEffect(() => {
+    if (!currentSessionId) return;
+    loadCanonicalSession(currentSessionId).catch(() => {
+      // Keep localStorage as an optimistic/offline cache when backend session cannot be reached.
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (lastResponse) {
-      window.localStorage.setItem(BUILDER_RESPONSE_KEY, JSON.stringify(lastResponse));
-    } else {
-      window.localStorage.removeItem(BUILDER_RESPONSE_KEY);
-    }
+    writeBuilderCaches(lastResponse, currentSessionId, campaignBrief);
     onResponse(lastResponse);
-  }, [lastResponse, onResponse]);
+  }, [lastResponse, currentSessionId, campaignBrief, onResponse]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -700,11 +766,6 @@ export function CampaignBuilderChat({
     }
   }, [currentSessionId]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(BUILDER_BRIEF_KEY, JSON.stringify(campaignBrief));
-    window.localStorage.setItem(BUILDER_PREFS_KEY, JSON.stringify(briefToPreferences(campaignBrief)));
-  }, [campaignBrief]);
 
   useEffect(() => {
     if (!selectedSegment) return;
@@ -747,9 +808,17 @@ export function CampaignBuilderChat({
     const data = await send(text);
     if (data) {
       const builderResponse = data as BuilderResponse;
+      const nextSessionId = builderResponse.session_id ?? currentSessionId;
       setLastResponse(builderResponse);
       setCampaignBrief((current) => mergeResponseBrief(current, builderResponse) ?? current);
-      setCurrentSessionId(builderResponse.session_id ?? currentSessionId);
+      setCurrentSessionId(nextSessionId);
+      if (nextSessionId) {
+        try {
+          await loadCanonicalSession(nextSessionId);
+        } catch {
+          // Successful Builder response is cached optimistically; backend will be re-synced when reachable.
+        }
+      }
       refreshSessions();
     }
   };
@@ -760,16 +829,7 @@ export function CampaignBuilderChat({
       const response = await fetch(`${API_BASE}/api/sessions/${sessionId}`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const session = await response.json() as BuilderSessionDetail;
-      const loadedMessages: ChatMessage[] = session.messages
-        .filter((message) => message.role === "user" || message.role === "assistant")
-        .map((message) => ({ role: message.role as "user" | "assistant", content: message.content }));
-      replaceMessages(loadedMessages);
-      setCurrentSessionId(session.id);
-      const loadedResponse = responseFromSession(session);
-      setLastResponse(loadedResponse);
-      if (loadedResponse) {
-        setCampaignBrief((current) => mergeResponseBrief(current, loadedResponse) ?? current);
-      }
+      applySessionState(session);
     } catch (err) {
       setHistoryError(err instanceof Error ? err.message : "Failed to load session");
     }
@@ -797,7 +857,6 @@ export function CampaignBuilderChat({
     setCampaignBrief(EMPTY_CAMPAIGN_BRIEF);
     setTargetGroupsSource(null);
     if (typeof window !== "undefined") {
-      window.localStorage.removeItem(BUILDER_BRIEF_KEY);
       window.localStorage.removeItem(BUILDER_PREFS_KEY);
     }
   };
@@ -852,6 +911,13 @@ export function CampaignBuilderChat({
       }
       const builderResponse = await response.json() as BuilderResponse;
       setLastResponse(builderResponse);
+      if (builderResponse.session_id) {
+        try {
+          await loadCanonicalSession(builderResponse.session_id);
+        } catch {
+          // Keep optimistic create response if session reload is temporarily unavailable.
+        }
+      }
       replaceMessages([
         ...messages,
         { role: "user", content: userText },

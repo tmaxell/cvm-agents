@@ -146,12 +146,21 @@ async def builder(request: BuilderRequest) -> BuilderResponse:
         if message.role in {"user", "assistant"}
     ]
     stored_version = _stored_draft_flow_version(stored_session)
-    effective_version = request.draft_flow_version or stored_version
     request_flow_json = _parse_flow_json(request.session_flow_json)
+    canonical_flow_json = stored_session.draft_flow if stored_session and stored_session.draft_flow else request_flow_json
+    effective_version = stored_version or request.draft_flow_version
+    effective_brief = request.campaign_brief or (stored_session.campaign_brief if stored_session else None)
     effective_request = request.model_copy(update={
         "session_id": session.id,
         "history": stored_history,
+        "session_flow_json": json.dumps(canonical_flow_json, ensure_ascii=False) if canonical_flow_json else None,
         "draft_flow_version": effective_version,
+        "campaign_brief": effective_brief,
+        "builder_preferences": (
+            effective_brief.to_builder_preferences()
+            if effective_brief is not None
+            else request.builder_preferences
+        ),
     })
 
     await session_store.add_message(
@@ -159,9 +168,10 @@ async def builder(request: BuilderRequest) -> BuilderResponse:
         role="user",
         content=request.goal,
         metadata={
-            "builder_preferences": request.builder_preferences,
+            "builder_preferences": effective_request.builder_preferences,
+            "campaign_brief": _model_dump(effective_request.campaign_brief),
             "campaign_id": request.session_campaign_id,
-            "draft_flow_json": request_flow_json,
+            "draft_flow_json": canonical_flow_json,
             "draft_flow_version": effective_version,
             "status": "collect_brief",
         },
@@ -174,18 +184,19 @@ async def builder(request: BuilderRequest) -> BuilderResponse:
         await session_store.upsert_campaign_state(
             session_id=session.id,
             campaign_id=request.session_campaign_id,
-            draft_flow_json=request_flow_json,
+            draft_flow_json=canonical_flow_json,
             runtime_status="error",
             draft_flow_version=effective_version,
+            campaign_brief_json=_model_dump(effective_request.campaign_brief),
         )
         _handle_llm_error(e)
 
     response.session_id = session.id
     persisted_campaign_id = response.campaign_id or request.session_campaign_id or session.campaign_id
-    persisted_flow_json = response.draft_flow or request_flow_json
+    persisted_flow_json = response.draft_flow or canonical_flow_json
     persisted_draft_flow_version = _resolve_response_draft_flow_version(
         response=response,
-        request_flow_json=request_flow_json,
+        request_flow_json=canonical_flow_json,
         current_version=effective_version,
     )
     response.campaign_id = persisted_campaign_id
@@ -200,6 +211,7 @@ async def builder(request: BuilderRequest) -> BuilderResponse:
             "status": response.status,
             "builder_preferences": response.builder_preferences,
             "preference_patch": response.preference_patch,
+            "campaign_brief": _model_dump(effective_request.campaign_brief),
             "draft_flow_json": persisted_flow_json,
             "draft_flow_version": persisted_draft_flow_version,
             "validation_errors": response.validation_errors,
@@ -223,6 +235,11 @@ async def builder(request: BuilderRequest) -> BuilderResponse:
         draft_flow_json=persisted_flow_json,
         runtime_status=response.status,
         draft_flow_version=persisted_draft_flow_version,
+        campaign_brief_json=_model_dump(effective_request.campaign_brief),
+        brief_completeness_json=_model_dump(response.brief_completeness),
+        review_checklist_json=_model_dump(response.review_checklist),
+        review_status=response.review_status,
+        review_checklist_acknowledged=response.review_checklist_acknowledged,
     )
     return response
 
@@ -245,9 +262,11 @@ async def builder_create(request: BuilderCreateRequest) -> BuilderResponse:
             },
         )
 
+    canonical_create_flow = session.draft_flow or request.draft_flow
+    canonical_create_brief = session.campaign_brief or request.campaign_brief
     checklist = build_review_checklist(
-        request.campaign_brief,
-        request.draft_flow,
+        canonical_create_brief,
+        canonical_create_flow,
         request.validation_errors,
     )
     if not is_review_allowed_for_runtime(checklist.status, request.review_checklist_acknowledged):
@@ -257,7 +276,7 @@ async def builder_create(request: BuilderCreateRequest) -> BuilderResponse:
         )
 
     try:
-        result = await adtarget.create_campaign(request.draft_flow)
+        result = await adtarget.create_campaign(canonical_create_flow)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"AdTarget create failed: {str(e)[:300]}")
 
@@ -273,7 +292,8 @@ async def builder_create(request: BuilderCreateRequest) -> BuilderResponse:
         role="user",
         content="Создать кампанию в AdTarget",
         metadata={
-            "draft_flow_json": request.draft_flow,
+            "campaign_brief": _model_dump(canonical_create_brief),
+            "draft_flow_json": canonical_create_flow,
             "draft_flow_version": request.draft_flow_version,
             "review_status": checklist.status,
             "review_checklist_acknowledged": request.review_checklist_acknowledged,
@@ -284,7 +304,7 @@ async def builder_create(request: BuilderCreateRequest) -> BuilderResponse:
         message=f"Кампания создана в AdTarget. ID: **{campaign_id}**",
         session_id=session.id,
         campaign_id=campaign_id,
-        draft_flow=request.draft_flow,
+        draft_flow=canonical_create_flow,
         draft_flow_version=request.draft_flow_version,
         validation_errors=request.validation_errors,
         review_checklist=checklist,
@@ -299,7 +319,8 @@ async def builder_create(request: BuilderCreateRequest) -> BuilderResponse:
         metadata={
             "campaign_id": campaign_id,
             "status": response.status,
-            "draft_flow_json": request.draft_flow,
+            "campaign_brief": _model_dump(canonical_create_brief),
+            "draft_flow_json": canonical_create_flow,
             "draft_flow_version": request.draft_flow_version,
             "validation_errors": request.validation_errors,
             "review_checklist": checklist.model_dump(),
@@ -310,9 +331,13 @@ async def builder_create(request: BuilderCreateRequest) -> BuilderResponse:
     await session_store.upsert_campaign_state(
         session_id=session.id,
         campaign_id=campaign_id,
-        draft_flow_json=request.draft_flow,
+        draft_flow_json=canonical_create_flow,
         runtime_status=response.status,
         draft_flow_version=request.draft_flow_version,
+        campaign_brief_json=_model_dump(canonical_create_brief),
+        review_checklist_json=checklist.model_dump(),
+        review_status=checklist.status,
+        review_checklist_acknowledged=request.review_checklist_acknowledged,
     )
     return response
 
@@ -416,6 +441,15 @@ async def monitor(request: MonitorRequest) -> MonitorResponse:
     except Exception as e:
         _handle_llm_error(e)
 
+
+def _model_dump(value: Any) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return value
+    if hasattr(value, "model_dump"):
+        return value.model_dump()
+    return None
 
 def _parse_flow_json(flow_json: str | None) -> dict[str, Any] | None:
     """Parse a stored frontend flow JSON string for campaign state persistence."""

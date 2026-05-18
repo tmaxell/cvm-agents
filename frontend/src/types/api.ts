@@ -134,7 +134,13 @@ export interface BuilderSession {
   created_at: string;
   updated_at: string;
   status: BuilderStatus | string;
+  campaign_brief?: CampaignBrief | null;
+  draft_flow?: CampaignFlow | null;
   draft_flow_version?: number | null;
+  brief_completeness?: CampaignBriefCompleteness | null;
+  review_checklist?: ReviewChecklist | null;
+  review_status?: ReviewStatus;
+  review_checklist_acknowledged?: boolean;
 }
 
 export interface BuilderSessionDetail extends BuilderSession {

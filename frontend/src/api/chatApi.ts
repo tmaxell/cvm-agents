@@ -40,6 +40,12 @@ export interface ChatActionResponse {
   actions_available: ChatActionRequestPayload[];
 }
 
+export interface ChatSessionContext {
+  campaign_id?: number | null;
+  segment_id?: number | null;
+  mode?: "general_analysis" | "builder" | "monitoring";
+}
+
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 const MAX_RETRIES = 2;
 
@@ -134,22 +140,23 @@ export async function listArtifacts(sessionId: string): Promise<ChatArtifact[]> 
   return detail.artifacts;
 }
 
-export async function sendMessage(sessionId: string, content: string): Promise<void> {
+export async function sendMessage(sessionId: string, content: string, context?: ChatSessionContext): Promise<void> {
   if (!content.trim()) return;
   await fetchWithRetry("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ session_id: sessionId, message: content }),
+    body: JSON.stringify({ session_id: sessionId, message: content, context: context ?? {} }),
   }, ERRORS.send);
 }
 
-export async function sendAction(sessionId: string, message: string, action: ChatActionRequestPayload, artifactId?: string): Promise<ChatActionResponse> {
+export async function sendAction(sessionId: string, message: string, action: ChatActionRequestPayload, artifactId?: string, context?: ChatSessionContext): Promise<ChatActionResponse> {
   const res = await fetchWithRetry("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       session_id: sessionId,
       message,
+      context: context ?? {},
       action,
       artifact_id: artifactId,
     }),

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ChatWorkspaceProvider, useChatWorkspaceStore, type SessionItem } from "../../chat-workspace/store/chatWorkspaceStore";
 import type { ChatMessage } from "../../api/chatApi";
 import { MarkdownText } from "../../components/MarkdownText";
+import type { ChatSessionContext } from "../../api/chatApi";
 
 function isSameDay(left: Date, right: Date): boolean {
   return left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth() && left.getDate() === right.getDate();
@@ -221,7 +222,19 @@ function ChatListSidebar() {
 function WorkspaceBody() {
   const [collapsed, setCollapsed] = useState(false);
   const [input, setInput] = useState("");
-  const { activeSessionId, messages, artifacts, sendMessage, sendAction, sending, error, loadingMessages, refreshSessions, selectSession, chatState } = useChatWorkspaceStore();
+  const { activeSessionId, messages, artifacts, sendMessage, sendAction, sending, error, loadingMessages, refreshSessions, selectSession, chatState, contextBySession, setSessionContext } = useChatWorkspaceStore();
+  const defaultContext: ChatSessionContext = { mode: "general_analysis", campaign_id: null, segment_id: null };
+  const activeContext: ChatSessionContext = activeSessionId ? (contextBySession[activeSessionId] ?? defaultContext) : defaultContext;
+  const [contextWarning, setContextWarning] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!activeSessionId) return;
+    const invalidCampaignId = activeContext.campaign_id !== null && activeContext.campaign_id !== undefined && activeContext.campaign_id <= 0;
+    if (invalidCampaignId) {
+      setContextWarning("Контекст кампании сброшен: выбранная кампания недоступна.");
+      setSessionContext(activeSessionId, { ...activeContext, campaign_id: null });
+    }
+  }, [activeContext, activeSessionId, setSessionContext]);
 
   const executeAction = async (actionId: "save_campaign" | "save_segment", messageId: string) => {
     const response = await sendAction({
@@ -241,6 +254,30 @@ function WorkspaceBody() {
     <div className="chat-workspace-layout">
       <ChatListSidebar />
       <main className="chat-center-panel">
+        <div className="chat-context-header">
+          <strong>Контекст:</strong> кампания {activeContext.campaign_id ?? "—"} / сегмент {activeContext.segment_id ?? "—"} / режим {activeContext.mode ?? "general_analysis"}
+        </div>
+        <div className="chat-context-switcher" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <select
+            value={activeContext.mode ?? "general_analysis"}
+            onChange={(e) => activeSessionId && setSessionContext(activeSessionId, { ...activeContext, mode: e.target.value as "general_analysis" | "builder" | "monitoring" })}
+          >
+            <option value="general_analysis">общий анализ</option>
+            <option value="builder">builder</option>
+            <option value="monitoring">monitoring</option>
+          </select>
+          <input
+            placeholder="campaign_id"
+            value={activeContext.campaign_id ?? ""}
+            onChange={(e) => activeSessionId && setSessionContext(activeSessionId, { ...activeContext, campaign_id: e.target.value === "" ? null : Number(e.target.value) })}
+          />
+          <input
+            placeholder="segment_id"
+            value={activeContext.segment_id ?? ""}
+            onChange={(e) => activeSessionId && setSessionContext(activeSessionId, { ...activeContext, segment_id: e.target.value === "" ? null : Number(e.target.value) })}
+          />
+        </div>
+        {contextWarning && <div className="chat-error">{contextWarning}</div>}
         {loadingMessages ? <div className="chat-messages">{chatState === "refreshing" ? "Фоновое обновление…" : "Загрузка…"}</div> : <MessageThread messages={messages} onExecuteAction={executeAction} />}
         {error && <div className="chat-error">{error} <button onClick={() => void retry()}>Retry</button></div>}
         <div className="chat-composer">

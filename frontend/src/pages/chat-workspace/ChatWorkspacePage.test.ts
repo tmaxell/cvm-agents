@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { groupByUpdatedAt } from './ChatWorkspacePage';
 
 describe('ChatWorkspacePage component helpers', () => {
@@ -31,5 +31,12 @@ describe('ChatWorkspacePage component helpers', () => {
     const source = readFileSync(new URL('./ChatWorkspacePage.tsx', import.meta.url), 'utf-8');
     expect(source.includes('chat-context-switcher')).toBe(true);
     expect(source.includes('<select')).toBe(false);
+  });
+
+  it('legacy stylesheet and selector registry are detached', () => {
+    const indexCss = readFileSync(new URL('../../index.css', import.meta.url), 'utf-8');
+    expect(indexCss.includes('@import "./styles/legacy.css";')).toBe(false);
+    expect(existsSync(new URL('../../styles/legacy.css', import.meta.url))).toBe(false);
+    expect(existsSync(new URL('../../styles/legacySelectorRegistry.ts', import.meta.url))).toBe(false);
   });
 });

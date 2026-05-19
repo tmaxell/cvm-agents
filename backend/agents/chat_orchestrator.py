@@ -13,6 +13,7 @@ from typing import Any, Awaitable, Callable, Literal, Protocol
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from llm import get_llm
+from agents.campaign_attention import build_campaign_attention_report
 
 IntentName = Literal[
     "campaign_attention_report",
@@ -341,7 +342,8 @@ async def _segment_agent_handler(payload: dict[str, Any], context: RoutingContex
 
 
 async def _campaign_monitor_handler(payload: dict[str, Any], context: RoutingContext) -> dict[str, Any]:
-    return {"agent": "campaign_monitor", "status": "not_executed", "payload": payload, "context": context.metadata}
+    report = await build_campaign_attention_report()
+    return {"agent": "campaign_monitor", "payload": payload, "context": context.metadata, "report": report}
 
 
 async def _qa_copilot_handler(payload: dict[str, Any], context: RoutingContext) -> dict[str, Any]:

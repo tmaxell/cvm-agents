@@ -1,8 +1,10 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChatApiError, createChat, getChat, listChats, listMessagesPage, sendAction as postAction, sendMessage as postMessage, type ChatActionRequestPayload, type ChatActionResponse, type ChatArtifact, type ChatMessage, type ChatSession, type ChatSessionContext } from "../../api/chatApi";
 
 const PAGE_SIZE = 50;
+const SESSIONS_REFETCH_INTERVAL_MS = 180_000;
+const BACKGROUND_REFRESH_THROTTLE_MS = 5_000;
 const USE_LEGACY_MESSAGES_DATA_LAYER = import.meta.env.VITE_FF_LEGACY_MESSAGES_DATA_LAYER === "1";
 
 export interface SessionItem extends ChatSession { optimistic?: boolean }
@@ -63,6 +65,8 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
   const [chatState, setChatState] = useState<NetworkState>("idle");
   const [contextBySession, setContextBySession] = useState<Record<string, ChatSessionContext>>({});
   const [isOffline, setIsOffline] = useState<boolean>(typeof navigator !== "undefined" ? !navigator.onLine : false);
+  const lastBackgroundRefreshAtRef = useRef<number>(0);
+  const inFlightBackgroundRefreshRef = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     const raw = window.localStorage.getItem("chat-context-by-session");
@@ -71,7 +75,14 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
   useEffect(() => { window.localStorage.setItem("chat-context-by-session", JSON.stringify(contextBySession)); }, [contextBySession]);
   const setSessionContext = useCallback((sessionId: string, context: ChatSessionContext) => setContextBySession((prev) => ({ ...prev, [sessionId]: context })), []);
 
-  const sessionsQuery = useQuery({ queryKey: ["chatSessions"], queryFn: listChats, refetchInterval: 30_000, refetchIntervalInBackground: true, staleTime: 10_000 });
+  const sessionsQuery = useQuery({
+    queryKey: ["chatSessions"],
+    queryFn: listChats,
+    refetchInterval: SESSIONS_REFETCH_INTERVAL_MS,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+    staleTime: 60_000,
+  });
 
   const messagesQuery = useInfiniteQuery({
     queryKey: activeSessionId ? chatMessagesKey(activeSessionId) : ["chatMessages", "empty"],
@@ -101,13 +112,37 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
   const messages = useMemo(() => dedupeMessages((messagesQuery.data?.pages ?? []).flatMap((p) => p.page)), [messagesQuery.data]);
   const artifacts = useMemo(() => messagesQuery.data?.pages[0]?.artifacts ?? [], [messagesQuery.data]);
 
+  const upsertSessionInCache = useCallback((session: SessionItem) => {
+    queryClient.setQueryData<SessionItem[]>(["chatSessions"], (prev = []) => {
+      const next = [...prev];
+      const existingIndex = next.findIndex((item) => item.id === session.id);
+      if (existingIndex >= 0) {
+        next[existingIndex] = { ...next[existingIndex], ...session };
+      } else {
+        next.unshift(session);
+      }
+      next.sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
+      return next;
+    });
+  }, [queryClient]);
+
   const refreshSessions = useCallback(async (background = false) => {
+    if (background) {
+      if (inFlightBackgroundRefreshRef.current) return inFlightBackgroundRefreshRef.current;
+      const now = Date.now();
+      if (now - lastBackgroundRefreshAtRef.current < BACKGROUND_REFRESH_THROTTLE_MS) return;
+      lastBackgroundRefreshAtRef.current = now;
+    }
     setSessionsState(background ? "refreshing" : "initial_loading");
-    try { await sessionsQuery.refetch(); setSessionsState("idle"); } catch (e) {
+    const refetchPromise = sessionsQuery.refetch().then(() => { setSessionsState("idle"); }).catch((e) => {
       setError(toWorkspaceError("load_sessions", e));
       telemetryWorkspaceEvent("session_open_failed", { sessionId: activeSessionId, mode: activeSessionId ? contextBySession[activeSessionId]?.mode ?? null : null });
       setSessionsState("hard_error");
-    }
+    }).finally(() => {
+      if (background) inFlightBackgroundRefreshRef.current = null;
+    });
+    if (background) inFlightBackgroundRefreshRef.current = refetchPromise;
+    return refetchPromise;
   }, [sessionsQuery, activeSessionId, contextBySession]);
 
   const selectSession = useCallback(async (sessionId: string) => {
@@ -159,10 +194,11 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
       telemetryWorkspaceEvent("action_execute_failed", { sessionId: activeSessionId, mode: contextBySession[activeSessionId]?.mode ?? null, actionId: action.id });
       throw e;
     }
+    const detail = await getChat(activeSessionId);
+    upsertSessionInCache(detail.session);
     await queryClient.invalidateQueries({ queryKey: chatMessagesKey(activeSessionId) });
-    await sessionsQuery.refetch();
     return response;
-  }, [activeSessionId, contextBySession, queryClient, sessionsQuery]);
+  }, [activeSessionId, contextBySession, queryClient, upsertSessionInCache]);
 
   useEffect(() => { void refreshSessions(true); }, [refreshSessions]);
   useEffect(() => {
@@ -180,8 +216,14 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
     sessions: sessionsQuery.data ?? [], activeSessionId, messages, artifacts, error: error?.message ?? null, errorState: error,
     loadingSessions: sessionsQuery.isLoading || sessionsQuery.isFetching, loadingMessages: messagesQuery.isLoading,
     sending: sendMessageMutation.isPending, sessionsState, chatState, contextBySession, setActiveSessionId, setSessionContext,
-    selectSession, refreshSessions, createNewChat: async () => { const session = await createChat(); setActiveSessionId(session.id); await sessionsQuery.refetch(); return session.id; },
-    sendMessage: async (content: string) => { if (!content.trim() || !activeSessionId) return; setError(null); await sendMessageMutation.mutateAsync(content); await sessionsQuery.refetch(); },
+    selectSession, refreshSessions, createNewChat: async () => { const session = await createChat(); setActiveSessionId(session.id); upsertSessionInCache(session); return session.id; },
+    sendMessage: async (content: string) => {
+      if (!content.trim() || !activeSessionId) return;
+      setError(null);
+      await sendMessageMutation.mutateAsync(content);
+      const detail = await getChat(activeSessionId);
+      upsertSessionInCache(detail.session);
+    },
     sendAction,
     loadOlderMessages: async () => { await messagesQuery.fetchNextPage(); },
     hasMoreMessages: Boolean(messagesQuery.hasNextPage), loadingOlderMessages: messagesQuery.isFetchingNextPage,
@@ -194,7 +236,7 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
         if (activeSessionId) await selectSession(activeSessionId);
       }
     },
-  }), [sessionsQuery.data, activeSessionId, messages, artifacts, error, sessionsQuery.isLoading, sessionsQuery.isFetching, messagesQuery.isLoading, sendMessageMutation.isPending, sessionsState, chatState, contextBySession, setSessionContext, selectSession, refreshSessions, sendAction, messagesQuery, isOffline]);
+  }), [sessionsQuery.data, activeSessionId, messages, artifacts, error, sessionsQuery.isLoading, sessionsQuery.isFetching, messagesQuery.isLoading, sendMessageMutation.isPending, sessionsState, chatState, contextBySession, setSessionContext, selectSession, refreshSessions, upsertSessionInCache, sendAction, messagesQuery, isOffline]);
 
   return <ChatWorkspaceContext.Provider value={value}>{children}</ChatWorkspaceContext.Provider>;
 }

@@ -95,13 +95,20 @@ async def init_db() -> None:
 
         chat_runs_columns = await connection.run_sync(_chat_runs_columns)
         if chat_runs_columns and "session_id" in chat_runs_columns:
-            await connection.execute(
-                text(
+            if connection.dialect.name == "sqlite":
+                migrate_chat_sessions_statement = (
                     "INSERT OR IGNORE INTO chat_sessions (id, builder_session_id, title, created_at, updated_at) "
                     "SELECT DISTINCT cr.session_id, cr.session_id, 'Builder chat', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP "
                     "FROM chat_runs cr"
                 )
-            )
+            else:
+                migrate_chat_sessions_statement = (
+                    "INSERT INTO chat_sessions (id, builder_session_id, title, created_at, updated_at) "
+                    "SELECT DISTINCT cr.session_id, cr.session_id, 'Builder chat', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP "
+                    "FROM chat_runs cr "
+                    "ON CONFLICT (id) DO NOTHING"
+                )
+            await connection.execute(text(migrate_chat_sessions_statement))
         def _saved_artifacts_columns(sync_connection) -> set[str]:
             inspector = inspect(sync_connection)
             if not inspector.has_table("saved_artifacts"):

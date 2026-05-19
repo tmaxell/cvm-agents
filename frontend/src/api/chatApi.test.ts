@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { getChat, listChats } from './chatApi';
+import { ChatApiError, getChat, listChats } from './chatApi';
 
 describe('chatApi integration-ish', () => {
   beforeEach(() => vi.restoreAllMocks());
@@ -23,6 +23,20 @@ describe('chatApi integration-ish', () => {
   it('returns user-friendly error on 500', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('oops', { status: 500 })));
     await expect(listChats()).rejects.toThrow('Сервис временно недоступен (5xx)');
+  });
+
+  it('classifies 422 as validation error without retries', async () => {
+    const fetchMock = vi.fn(async () => new Response('bad payload', { status: 422 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const err = await listChats().catch((e) => e);
+    expect(err).toBeInstanceOf(ChatApiError);
+    expect(err).toMatchObject({ kind: 'validation', retryable: false, status: 422 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('classifies network failures as retryable network errors', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('network down'); }));
+    await expect(getChat('s1')).rejects.toMatchObject({ kind: 'network', retryable: true });
   });
 
   it('normalizes partially broken records', async () => {

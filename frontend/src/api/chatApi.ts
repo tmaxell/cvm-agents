@@ -60,6 +60,22 @@ export class ApiError extends Error {
   }
 }
 
+export type ApiErrorKind = "network" | "timeout" | "http" | "validation" | "unknown";
+
+export class ChatApiError extends Error {
+  kind: ApiErrorKind;
+  status: number | null;
+  retryable: boolean;
+
+  constructor(message: string, kind: ApiErrorKind, status: number | null, retryable: boolean) {
+    super(message);
+    this.name = "ChatApiError";
+    this.kind = kind;
+    this.status = status;
+    this.retryable = retryable;
+  }
+}
+
 const ERRORS = {
   chats: "Не удалось загрузить историю чатов",
   chat: "Не удалось загрузить чат",
@@ -76,14 +92,23 @@ function telemetryApiError(sessionId: string | null, endpoint: string, statusCod
   });
 }
 
-function buildUserError(err: unknown, fallback: string): Error {
+function classifyApiError(err: unknown, fallback: string): ChatApiError {
+  if (err instanceof ChatApiError) return err;
   if (err instanceof ApiError) {
-    if (err.status >= 500) return new Error("Сервис временно недоступен (5xx). Попробуйте повторить запрос.");
-    if (err.status >= 400) return new Error("Запрос отклонён (4xx). Проверьте данные и попробуйте снова.");
+    const message = err.status >= 500
+      ? "Сервис временно недоступен (5xx). Попробуйте повторить запрос."
+      : err.status === 422
+        ? "Ошибка валидации данных запроса (422). Проверьте параметры и повторите."
+        : "Запрос отклонён (4xx). Проверьте данные и попробуйте снова.";
+    return new ChatApiError(message, err.status === 422 ? "validation" : "http", err.status, err.status >= 500);
   }
-  if (err instanceof DOMException && err.name === "AbortError") return new Error("Превышено время ожидания ответа. Проверьте соединение и повторите.");
-  if (err instanceof TypeError) return new Error("Проблемы с соединением. Проверьте сеть и повторите.");
-  return new Error(fallback);
+  if (err instanceof DOMException && err.name === "AbortError") {
+    return new ChatApiError("Превышено время ожидания ответа. Проверьте соединение и повторите.", "timeout", null, true);
+  }
+  if (err instanceof TypeError) {
+    return new ChatApiError("Проблемы с соединением. Проверьте сеть и повторите.", "network", null, true);
+  }
+  return new ChatApiError(fallback, "unknown", null, false);
 }
 
 function extractSessionIdFromBody(body: RequestInit["body"]): string | null {
@@ -123,7 +148,7 @@ function normalizeMessage(raw: unknown, index: number): ChatMessage {
 }
 
 async function fetchWithRetry(path: string, init: RequestInit, userError: string): Promise<Response> {
-  let lastError: Error | null = null;
+  let lastError: ChatApiError | null = null;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
     try {
       const controller = new AbortController();
@@ -137,14 +162,14 @@ async function fetchWithRetry(path: string, init: RequestInit, userError: string
       }
       return res;
     } catch (err) {
-      lastError = buildUserError(err, userError);
-      if (attempt < MAX_RETRIES) {
+      lastError = classifyApiError(err, userError);
+      if (attempt < MAX_RETRIES && lastError.retryable) {
         await new Promise((resolve) => setTimeout(resolve, (attempt + 1) * 250));
         continue;
       }
     }
   }
-  throw new Error(lastError?.message ?? userError);
+  throw (lastError ?? new ChatApiError(userError, "unknown", null, false));
 }
 
 export async function listChats(): Promise<ChatSession[]> {

@@ -1,7 +1,8 @@
 @import "./styles/base.css";
 
 /*
- * Legacy CSS toggle:
- * - default (QA): legacy styles are disabled.
- * - set VITE_ENABLE_LEGACY_CSS=true to temporarily load legacy.css from main.tsx.
+ * Legacy/widget shell CSS toggle:
+ * - default: widget shell styles are enabled when VITE_ENABLE_LEGACY_CSS=true.
+ * - set VITE_WIDGET_SHELL_ENABLED=false to hard-disable loading widget-shell.css.
+ * - widget-shell.css is loaded only in widget mode from main.tsx.
  */

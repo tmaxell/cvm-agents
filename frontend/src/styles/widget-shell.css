@@ -1,0 +1,21 @@
+.floating-widget-root .message,
+.floating-widget-root .loading,
+.floating-widget-root .composer {
+  box-sizing: border-box;
+}
+
+.floating-widget-root .message {
+  max-width: 100%;
+  word-break: break-word;
+}
+
+.floating-widget-root .loading {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.floating-widget-root .composer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}

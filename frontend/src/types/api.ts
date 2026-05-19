@@ -3,6 +3,8 @@
 export interface AgentContext {
   screen?: string;
   campaign_id?: number | null;
+  segment_id?: number | null;
+  mode?: "general_analysis" | "builder" | "monitoring";
   strategy_id?: number | null;
   user_role?: string;
   platform_url?: string;

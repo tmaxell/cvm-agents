@@ -162,3 +162,43 @@ class SavedArtifactModel(Base):
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     payload_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class DemoCampaignModel(Base):
+    """Demo campaigns used for monitoring and local development seed data."""
+
+    __tablename__ = "demo_campaigns"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    channel: Mapped[str] = mapped_column(String(64), nullable=False)
+    audience_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    budget: Mapped[int] = mapped_column(Integer, nullable=False)
+    spent: Mapped[int] = mapped_column(Integer, nullable=False)
+    open_rate: Mapped[int] = mapped_column(Integer, nullable=False)
+    click_rate: Mapped[int] = mapped_column(Integer, nullable=False)
+    conversion_rate: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    health: Mapped["CampaignHealthModel | None"] = relationship(
+        back_populates="campaign", cascade="all, delete-orphan", uselist=False
+    )
+
+
+class CampaignHealthModel(Base):
+    """Health diagnostics snapshot for demo campaigns."""
+
+    __tablename__ = "campaign_health"
+
+    campaign_id: Mapped[int] = mapped_column(ForeignKey("demo_campaigns.id", ondelete="CASCADE"), primary_key=True)
+    attention_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    issues_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
+    recommended_actions_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
+    last_checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    campaign: Mapped[DemoCampaignModel] = relationship(back_populates="health")

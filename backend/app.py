@@ -16,6 +16,7 @@ load_dotenv()
 
 import json
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -54,6 +55,7 @@ from agents.flow_optimizer import optimize_draft_flow
 from agents.segment_agent import suggest_segments as segment_suggest_run
 from agents.campaign_monitor import run as monitor_run
 from db import DatabaseSessionStore, init_db
+from scripts.seed_demo_campaigns import seed_demo_campaigns
 from tools import adtarget
 from agents.safety_review import build_review_checklist, is_review_allowed_for_runtime
 
@@ -86,6 +88,8 @@ for _docs_dir, _mount_name in [
 @app.on_event("startup")
 async def startup() -> None:
     await init_db()
+    if os.getenv("SEED_DEMO_CAMPAIGNS_ON_STARTUP", "false").lower() in {"1", "true", "yes", "on"}:
+        await seed_demo_campaigns()
 
 
 @app.get("/api/health")

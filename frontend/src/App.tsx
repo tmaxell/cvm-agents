@@ -8,9 +8,10 @@
  *      Круглая кнопка + панель (CVM Copilot / Campaign Builder / Monitoring)
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { AdTargetMock } from "./components/AdTargetMock";
 import { FloatingWidget } from "./components/FloatingWidget";
+import { ChatWorkspacePage } from "./pages/chat-workspace/ChatWorkspacePage";
 import type {
   BuilderResponse,
   CampaignActionResponse,
@@ -20,7 +21,33 @@ import type {
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
+const CHAT_WORKSPACE_ENABLED = (import.meta.env.VITE_CHAT_WORKSPACE_ENABLED ?? "true") !== "false";
+
+function isLegacyMode() {
+  if (typeof window === "undefined") return false;
+  const params = new URLSearchParams(window.location.search);
+  return params.get("legacy") === "1" || window.location.pathname.startsWith("/legacy");
+}
+
+function isChatWorkspaceRoute() {
+  if (typeof window === "undefined") return false;
+  return window.location.pathname === "/chat-workspace" || window.location.pathname === "/";
+}
+
 export function App() {
+  const [legacyMode] = useState(isLegacyMode());
+
+  useEffect(() => {
+    if (!CHAT_WORKSPACE_ENABLED || legacyMode || typeof window === "undefined") return;
+    if (window.location.pathname === "/") {
+      window.history.replaceState({}, "", "/chat-workspace");
+    }
+  }, [legacyMode]);
+
+  if (CHAT_WORKSPACE_ENABLED && !legacyMode && isChatWorkspaceRoute()) {
+    return <ChatWorkspacePage />;
+  }
+
   const [currentFlow, setCurrentFlow] = useState<CampaignFlow | null>(null);
   const [currentResponse, setCurrentResponse] = useState<BuilderResponse | null>(null);
   const [hasErrors, setHasErrors] = useState(false);

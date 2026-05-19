@@ -11,7 +11,7 @@ function isSameDay(left: Date, right: Date): boolean {
   return left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth() && left.getDate() === right.getDate();
 }
 
-function groupByUpdatedAt(sessions: SessionItem[]) {
+export function groupByUpdatedAt(sessions: SessionItem[]) {
   const now = new Date();
   const yesterday = new Date(now);
   yesterday.setDate(now.getDate() - 1);

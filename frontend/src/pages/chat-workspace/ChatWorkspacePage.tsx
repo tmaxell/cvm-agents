@@ -7,17 +7,19 @@ import { ApiError, type ChatMessage } from "../../api/chatApi";
 import { MarkdownText } from "../../components/MarkdownText";
 import type { ChatSessionContext } from "../../api/chatApi";
 import { AppErrorBoundary } from "../../components/AppErrorBoundary";
+import { detectChatRenderMode } from "../../config/chatMode";
 import { SKELETON_FLOW } from "../../components/flow/skeletonFlow";
 
 
 function isWidgetShellMode(): boolean {
   if (typeof window === "undefined") return false;
   const root = document.getElementById("root");
-  return document.body.classList.contains("floating-widget-root")
+  const hasWidgetRoot = document.body.classList.contains("floating-widget-root")
     || document.documentElement.classList.contains("floating-widget-root")
     || root?.classList.contains("floating-widget-root")
-    || root?.parentElement?.classList.contains("floating-widget-root")
-    || window.location.pathname.startsWith("/widget");
+    || root?.parentElement?.classList.contains("floating-widget-root");
+
+  return detectChatRenderMode(window.location.pathname, hasWidgetRoot) === "widget";
 }
 
 function WidgetBackgroundLayer() {

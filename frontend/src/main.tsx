@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
+import { detectChatRenderMode } from "./config/chatMode";
 import "./index.css";
 
 const legacyCssEnabled = import.meta.env.VITE_ENABLE_LEGACY_CSS === "true";
@@ -16,7 +17,7 @@ function isWidgetMode(): boolean {
     || root?.classList.contains("floating-widget-root")
     || root?.parentElement?.classList.contains("floating-widget-root");
 
-  return hasWidgetClass || window.location.pathname.startsWith("/widget");
+  return detectChatRenderMode(window.location.pathname, hasWidgetClass) === "widget";
 }
 
 if (legacyCssEnabled && widgetShellEnabled && isWidgetMode()) {

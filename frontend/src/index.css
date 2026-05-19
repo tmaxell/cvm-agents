@@ -1,2 +1,7 @@
 @import "./styles/base.css";
-@import "./styles/legacy.css";
+
+/*
+ * Legacy CSS toggle:
+ * - default (QA): legacy styles are disabled.
+ * - set VITE_ENABLE_LEGACY_CSS=true to temporarily load legacy.css from main.tsx.
+ */

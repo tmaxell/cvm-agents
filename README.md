@@ -253,6 +253,23 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
+
+## Frontend bootstrap in container
+
+Чтобы избежать «дрейфа» окружения (запуск не из того каталога, stale bind mount, пустой `node_modules`), всегда запускайте frontend **из `/app/frontend`** одной командой:
+
+```bash
+cd /app/frontend && rm -rf node_modules/.vite .vite && npm ci && npm run dev -- --host 0.0.0.0 --port 5173
+```
+
+Минимальные проверки в контейнере перед стартом:
+
+```bash
+cd /app/frontend
+test -f package.json && test -f package-lock.json && test -d node_modules/react-router-dom
+npm ls react-router-dom react-router
+```
+
 ## Docker Compose
 
 Production-like demo-стек поднимает PostgreSQL, backend и frontend:

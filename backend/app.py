@@ -122,7 +122,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         await session_store.add_chat_run_event(run_id=run_id, event="plan_created", detail="Compatibility responder plan created.")
         await session_store.add_chat_run_event(run_id=run_id, event="step_started", detail="Building navigation action.")
 
-        tool_input = {"session_id": request.session_id, "artifact_id": request.artifact_id}
+        tool_input = {"session_id": request.session_id, "artifact_id": request.artifact_id, "action": _model_dump(request.action)}
         started = time.perf_counter()
         await session_store.add_chat_run_event(
             run_id=run_id,
@@ -131,6 +131,25 @@ async def chat(request: ChatRequest) -> ChatResponse:
             metadata={"tool_name": "compose_builder_navigation_action", "tool_input": _redact_tool_payload(tool_input)},
         )
         action_payload = {"route": "/builder", "session_id": request.session_id}
+        artifacts = []
+        next_actions = [ChatAction(id="builder", label="Открыть Builder", kind="navigate", payload=action_payload)]
+        if request.action and request.action.id in {"save_campaign", "save_segment"}:
+            artifact_type = "campaign_draft" if request.action.id == "save_campaign" else "segment_draft"
+            artifact_content = request.action.payload.get("content_json") if request.action.payload else {}
+            artifact_metadata = request.action.payload.get("metadata_json") if request.action.payload else {}
+            artifact_id = await session_store.save_artifact(
+                session_id=request.session_id,
+                artifact_type=artifact_type,
+                schema_version=int(request.action.payload.get("schema_version", 1)) if request.action.payload else 1,
+                content_json=artifact_content if isinstance(artifact_content, dict) else {},
+                metadata_json=artifact_metadata if isinstance(artifact_metadata, dict) else {},
+                source_run_id=run_id,
+            )
+            artifacts.append({"id": artifact_id, "type": artifact_type, "content": artifact_content, "metadata": artifact_metadata})
+            next_actions = [
+                ChatAction(id="open_artifact", label="Открыть артефакт", kind="artifact", payload={"artifact_id": artifact_id}),
+                ChatAction(id="builder", label="Открыть Builder", kind="navigate", payload=action_payload),
+            ]
         latency_ms = int((time.perf_counter() - started) * 1000)
         await session_store.add_chat_run_event(
             run_id=run_id,
@@ -146,8 +165,8 @@ async def chat(request: ChatRequest) -> ChatResponse:
         response = ChatResponse(
             assistant_message=request.message,
             trace=trace,
-            artifacts=[],
-            actions_available=[ChatAction(id="builder", label="Открыть Builder", kind="navigate", payload=action_payload)],
+            artifacts=artifacts,
+            actions_available=next_actions,
             session_id=request.session_id,
         )
         await session_store.add_chat_message(

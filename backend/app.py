@@ -16,6 +16,7 @@ load_dotenv()
 
 import json
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -104,29 +105,49 @@ async def copilot(request: CopilotRequest) -> CopilotResponse:
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest) -> ChatResponse:
     """Unified chat endpoint for frontend chat widgets."""
-    return ChatResponse(
-        assistant_message=request.message,
-        trace=[
-            ChatTraceEvent(
-                event="chat_received",
-                detail="Request accepted by /api/chat compatibility endpoint.",
-                metadata={
-                    "has_action": request.action is not None,
-                    "artifact_id": request.artifact_id,
-                },
-            )
-        ],
-        artifacts=[],
-        actions_available=[
-            ChatAction(
-                id="builder",
-                label="Открыть Builder",
-                kind="navigate",
-                payload={"route": "/builder", "session_id": request.session_id},
-            )
-        ],
-        session_id=request.session_id,
-    )
+    run_id = await session_store.create_chat_run(session_id=request.session_id, user_message=request.message)
+    try:
+        await session_store.add_chat_run_event(
+            run_id=run_id,
+            event="route_selected",
+            detail="Request accepted by /api/chat compatibility endpoint.",
+            metadata={"route": "/api/chat"},
+        )
+        await session_store.add_chat_run_event(run_id=run_id, event="plan_created", detail="Compatibility responder plan created.")
+        await session_store.add_chat_run_event(run_id=run_id, event="step_started", detail="Building navigation action.")
+
+        tool_input = {"session_id": request.session_id, "artifact_id": request.artifact_id}
+        started = time.perf_counter()
+        await session_store.add_chat_run_event(
+            run_id=run_id,
+            event="tool_called",
+            detail="compose_builder_navigation_action",
+            metadata={"tool_name": "compose_builder_navigation_action", "tool_input": _redact_tool_payload(tool_input)},
+        )
+        action_payload = {"route": "/builder", "session_id": request.session_id}
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        await session_store.add_chat_run_event(
+            run_id=run_id,
+            event="tool_result",
+            detail="compose_builder_navigation_action",
+            metadata={"tool_name": "compose_builder_navigation_action", "status": "success", "latency_ms": latency_ms},
+        )
+        await session_store.add_chat_run_event(run_id=run_id, event="step_completed", detail="Navigation action is ready.")
+        await session_store.add_chat_run_event(run_id=run_id, event="run_completed", detail="Chat run completed.")
+        await session_store.complete_chat_run(run_id=run_id, status="completed")
+
+        trace = _safe_chat_trace(await session_store.list_chat_run_events(run_id=run_id))
+        return ChatResponse(
+            assistant_message=request.message,
+            trace=trace,
+            artifacts=[],
+            actions_available=[ChatAction(id="builder", label="Открыть Builder", kind="navigate", payload=action_payload)],
+            session_id=request.session_id,
+        )
+    except Exception as exc:
+        await session_store.add_chat_run_event(run_id=run_id, event="run_failed", status="error", detail=str(exc)[:300])
+        await session_store.complete_chat_run(run_id=run_id, status="failed")
+        raise
 
 
 @app.get("/api/sessions", response_model=list[Session])
@@ -610,6 +631,36 @@ def _model_dump(value: Any) -> dict[str, Any] | None:
     if hasattr(value, "model_dump"):
         return value.model_dump()
     return None
+
+
+_SAFE_TRACE_METADATA_KEYS = {"tool_name", "status", "latency_ms", "route"}
+_REDACT_KEYS = {"token", "authorization", "password", "secret", "api_key", "key"}
+
+
+def _safe_chat_trace(events: list[ChatTraceEvent]) -> list[ChatTraceEvent]:
+    safe_events: list[ChatTraceEvent] = []
+    for event in events:
+        safe_metadata = {key: value for key, value in event.metadata.items() if key in _SAFE_TRACE_METADATA_KEYS}
+        safe_events.append(
+            ChatTraceEvent(
+                event=event.event,
+                status=event.status,
+                detail=event.detail,
+                ts=event.ts,
+                metadata=safe_metadata,
+            )
+        )
+    return safe_events
+
+
+def _redact_tool_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    redacted: dict[str, Any] = {}
+    for key, value in payload.items():
+        if any(sensitive in key.lower() for sensitive in _REDACT_KEYS):
+            redacted[key] = "***REDACTED***"
+        else:
+            redacted[key] = value
+    return redacted
 
 def _parse_flow_json(flow_json: str | None) -> dict[str, Any] | None:
     """Parse a stored frontend flow JSON string for campaign state persistence."""

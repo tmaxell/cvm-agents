@@ -71,3 +71,38 @@ class CampaignStateModel(Base):
     )
 
     session: Mapped[BuilderSessionModel] = relationship(back_populates="campaign_state")
+
+
+class ChatRunModel(Base):
+    """One logical /api/chat run bound to a UI session id."""
+
+    __tablename__ = "chat_runs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="running")
+    user_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    events: Mapped[list["ChatRunEventModel"]] = relationship(
+        back_populates="run", cascade="all, delete-orphan", order_by="ChatRunEventModel.created_at"
+    )
+
+
+class ChatRunEventModel(Base):
+    """Trace event stored for one chat run step/tool operation."""
+
+    __tablename__ = "chat_run_events"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("chat_runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    event: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="info")
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    run: Mapped[ChatRunModel] = relationship(back_populates="events")

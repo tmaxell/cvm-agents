@@ -15,8 +15,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import NO_VALUE
 
-from models import Base, BuilderMessageModel, BuilderSessionModel, CampaignStateModel
-from schemas import Message, Session, SessionDetail
+from models import (
+    Base,
+    BuilderMessageModel,
+    BuilderSessionModel,
+    CampaignStateModel,
+    ChatRunEventModel,
+    ChatRunModel,
+)
+from schemas import ChatTraceEvent, Message, Session, SessionDetail
 
 _DEFAULT_SQLITE_PATH = Path(__file__).parent / "data" / "cvm_agents.sqlite3"
 
@@ -281,3 +288,68 @@ class DatabaseSessionStore:
     @staticmethod
     def _now() -> datetime:
         return datetime.now(UTC)
+
+    async def create_chat_run(self, *, session_id: str, user_message: str | None = None) -> str:
+        async with session_scope() as db:
+            now = self._now()
+            run = ChatRunModel(
+                id=str(uuid4()),
+                session_id=session_id,
+                user_message=user_message,
+                status="running",
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(run)
+            await db.flush()
+            return run.id
+
+    async def add_chat_run_event(
+        self,
+        *,
+        run_id: str,
+        event: str,
+        status: str = "info",
+        detail: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        async with session_scope() as db:
+            run = await db.get(ChatRunModel, run_id)
+            if run is None:
+                raise KeyError(run_id)
+            run.updated_at = self._now()
+            db.add(
+                ChatRunEventModel(
+                    id=str(uuid4()),
+                    run_id=run_id,
+                    event=event,
+                    status=status,
+                    detail=detail,
+                    metadata_json=metadata,
+                    created_at=self._now(),
+                )
+            )
+
+    async def complete_chat_run(self, *, run_id: str, status: str) -> None:
+        async with session_scope() as db:
+            run = await db.get(ChatRunModel, run_id)
+            if run is None:
+                raise KeyError(run_id)
+            run.status = status
+            run.updated_at = self._now()
+
+    async def list_chat_run_events(self, *, run_id: str) -> list[ChatTraceEvent]:
+        async with session_scope() as db:
+            result = await db.scalars(
+                select(ChatRunEventModel).where(ChatRunEventModel.run_id == run_id).order_by(ChatRunEventModel.created_at)
+            )
+            return [
+                ChatTraceEvent(
+                    event=item.event,
+                    status=item.status,  # type: ignore[arg-type]
+                    detail=item.detail,
+                    ts=item.created_at,
+                    metadata=item.metadata_json or {},
+                )
+                for item in result
+            ]

@@ -8,7 +8,7 @@ export interface ChatSession {
 
 export interface ChatMessage {
   id: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "system";
   content: string;
   createdAt: string | null;
 }
@@ -55,7 +55,7 @@ function normalizeSession(raw: unknown): ChatSession {
 
 function normalizeMessage(raw: unknown, index: number): ChatMessage {
   const o = isObject(raw) ? raw : {};
-  const role = o.role === "assistant" ? "assistant" : "user";
+  const role = o.role === "assistant" || o.role === "system" ? o.role : "user";
   return {
     id: asString(o.id, `m-${index}`),
     role,

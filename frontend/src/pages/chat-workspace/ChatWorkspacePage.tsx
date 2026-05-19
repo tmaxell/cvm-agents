@@ -1,5 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChatWorkspaceProvider, useChatWorkspaceStore, type SessionItem } from "../../chat-workspace/store/chatWorkspaceStore";
+import type { ChatMessage } from "../../api/chatApi";
+import { MarkdownText } from "../../components/MarkdownText";
 
 function isSameDay(left: Date, right: Date): boolean {
   return left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth() && left.getDate() === right.getDate();
@@ -35,6 +37,96 @@ function formatDateTime(value?: string | null): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
   return date.toLocaleString();
+}
+
+type TraceStepStatus = "selected" | "running" | "done";
+interface TraceStep {
+  title: string;
+  status: TraceStepStatus;
+}
+
+function parseStructured(content: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(content);
+    return typeof parsed === "object" && parsed !== null ? parsed as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+function MessageThread({ messages }: { messages: ChatMessage[] }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const wasNearBottomRef = useRef(true);
+
+  useEffect(() => {
+    const node = containerRef.current;
+    if (!node) return;
+    if (wasNearBottomRef.current) node.scrollTop = node.scrollHeight;
+  }, [messages]);
+
+  return (
+    <div
+      className="chat-messages"
+      ref={containerRef}
+      onScroll={(e) => {
+        const node = e.currentTarget;
+        const distanceFromBottom = node.scrollHeight - node.scrollTop - node.clientHeight;
+        wasNearBottomRef.current = distanceFromBottom < 64;
+      }}
+    >
+      {messages.length === 0 ? <div>Пока нет сообщений</div> : messages.map((m) => {
+        const structured = parseStructured(m.content);
+        const messageType = typeof structured?.type === "string" ? structured.type : null;
+        const explanation = typeof structured?.explanation === "string" ? structured.explanation : m.content;
+        const actionCardTitle = typeof structured?.title === "string" ? structured.title : "Action";
+        const traceSummary = typeof structured?.summary === "string" ? structured.summary : null;
+        const traceRaw = Array.isArray(structured?.trace) ? structured.trace : [];
+        const steps: TraceStep[] = traceRaw
+          .map((item) => {
+            if (!item || typeof item !== "object") return null;
+            const row = item as Record<string, unknown>;
+            const title = typeof row.step === "string" ? row.step : typeof row.title === "string" ? row.title : "";
+            const statusRaw = typeof row.status === "string" ? row.status : "";
+            const status: TraceStepStatus =
+              statusRaw === "done" ? "done" : statusRaw === "running" ? "running" : "selected";
+            return title ? { title, status } : null;
+          })
+          .filter((item): item is TraceStep => Boolean(item));
+        const activitiesRaw = Array.isArray(structured?.activities) ? structured.activities : [];
+        const activities = activitiesRaw.filter((item): item is string => typeof item === "string");
+
+        return (
+          <article key={m.id} className={`bubble ${m.role}`}>
+            <header className="bubble-meta">{m.role} · {formatDateTime(m.createdAt)}</header>
+            {messageType === "action_card" && (
+              <section className="action-card">
+                <strong>{actionCardTitle}</strong>
+                <MarkdownText content={explanation} />
+              </section>
+            )}
+            {(m.role === "system" || messageType === "trace-summary") && (
+              <section className="trace-summary">
+                <strong>План выполнения</strong>
+                {traceSummary && <p>{traceSummary}</p>}
+                {steps.length > 0 && (
+                  <ul className="trace-steps">
+                    {steps.map((step, idx) => <li key={`${step.title}-${idx}`} className={step.status}>{step.title}</li>)}
+                  </ul>
+                )}
+              </section>
+            )}
+            {activities.length > 0 && (
+              <details className="agent-activity">
+                <summary>Что сделал агент</summary>
+                <ul>{activities.map((activity, idx) => <li key={`${activity}-${idx}`}>{activity}</li>)}</ul>
+              </details>
+            )}
+            {messageType !== "action_card" && !(m.role === "system" || messageType === "trace-summary") && <MarkdownText content={explanation} />}
+          </article>
+        );
+      })}
+    </div>
+  );
 }
 
 function ChatListSidebar() {
@@ -89,9 +181,7 @@ function WorkspaceBody() {
     <div className="chat-workspace-layout">
       <ChatListSidebar />
       <main className="chat-center-panel">
-        <div className="chat-messages">
-          {loadingMessages ? <div>{chatState === "refreshing" ? "Фоновое обновление…" : "Загрузка…"}</div> : messages.length === 0 ? <div>Пока нет сообщений</div> : messages.map((m) => <div key={m.id} className={`bubble ${m.role}`}>{m.content}</div>)}
-        </div>
+        {loadingMessages ? <div className="chat-messages">{chatState === "refreshing" ? "Фоновое обновление…" : "Загрузка…"}</div> : <MessageThread messages={messages} />}
         {error && <div className="chat-error">{error} <button onClick={() => void retry()}>Retry</button></div>}
         <div className="chat-composer">
           <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder="Введите сообщение" />

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import hashlib
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -24,6 +26,7 @@ from models import (
     ChatRunEventModel,
     ChatRunModel,
     ChatSessionModel,
+    SavedArtifactModel,
 )
 from schemas import ChatTraceEvent, Message, Session, SessionDetail
 
@@ -99,10 +102,28 @@ async def init_db() -> None:
                     "FROM chat_runs cr"
                 )
             )
+        def _saved_artifacts_columns(sync_connection) -> set[str]:
+            inspector = inspect(sync_connection)
+            if not inspector.has_table("saved_artifacts"):
+                return set()
+            return {column["name"] for column in inspector.get_columns("saved_artifacts")}
+
+        saved_artifact_columns = await connection.run_sync(_saved_artifacts_columns)
+        saved_artifact_migrations = {
+            "source_run_id": "ALTER TABLE saved_artifacts ADD COLUMN source_run_id VARCHAR(64)",
+            "schema_version": "ALTER TABLE saved_artifacts ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1",
+            "content_json": "ALTER TABLE saved_artifacts ADD COLUMN content_json JSON",
+            "metadata_json": "ALTER TABLE saved_artifacts ADD COLUMN metadata_json JSON",
+            "artifact_hash": "ALTER TABLE saved_artifacts ADD COLUMN artifact_hash VARCHAR(64)",
+        }
+        for column_name, statement in saved_artifact_migrations.items():
+            if saved_artifact_columns and column_name not in saved_artifact_columns:
+                await connection.execute(text(statement))
 
 
 class DatabaseSessionStore:
     """SQL-backed repository for builder sessions, messages, and campaign state."""
+    _SUPPORTED_ARTIFACT_TYPES = {"campaign_draft", "segment_draft", "monitor_report", "recommendation_bundle"}
 
     async def list_sessions(self) -> list[Session]:
         async with session_scope() as db:
@@ -445,3 +466,44 @@ class DatabaseSessionStore:
         db.add(chat_session)
         await db.flush()
         return chat_session
+
+    async def save_artifact(
+        self,
+        *,
+        session_id: str,
+        artifact_type: str,
+        schema_version: int,
+        content_json: dict[str, Any] | None,
+        metadata_json: dict[str, Any] | None,
+        source_run_id: str | None,
+    ) -> str:
+        if artifact_type not in self._SUPPORTED_ARTIFACT_TYPES:
+            raise ValueError(f"Unsupported artifact_type: {artifact_type}")
+        artifact_hash = hashlib.sha256(
+            json.dumps(content_json or {}, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        async with session_scope() as db:
+            await self._ensure_chat_session_entity(db, session_id=session_id)
+            if source_run_id:
+                existing = await db.scalar(
+                    select(SavedArtifactModel).where(
+                        SavedArtifactModel.source_run_id == source_run_id,
+                        SavedArtifactModel.artifact_hash == artifact_hash,
+                    )
+                )
+                if existing is not None:
+                    return existing.id
+            artifact = SavedArtifactModel(
+                id=str(uuid4()),
+                session_id=session_id,
+                source_run_id=source_run_id,
+                artifact_type=artifact_type,
+                schema_version=schema_version,
+                content_json=content_json,
+                metadata_json=metadata_json,
+                artifact_hash=artifact_hash,
+                created_at=self._now(),
+            )
+            db.add(artifact)
+            await db.flush()
+            return artifact.id

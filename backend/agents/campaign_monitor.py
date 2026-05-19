@@ -11,6 +11,7 @@ F3 — Campaign Monitor Agent
 """
 
 import json
+import os
 import random
 import re
 
@@ -37,6 +38,8 @@ CHANNEL_LABELS = {
 }
 
 CLICK_BASED_CONTENT_TYPES = {"EmailContent", "CustomContent", "JsonContent"}
+
+ENABLE_LEGACY_RECOMMENDATIONS_SPLIT = os.getenv("ENABLE_LEGACY_RECOMMENDATIONS_SPLIT", "false").lower() == "true"
 
 
 # ── Детерминированная генерация метрик ────────────────────────────────────────
@@ -370,7 +373,7 @@ async def run(request: MonitorRequest) -> MonitorResponse:
         launch_recs = list(data.get("launch_recommendations") or [])
         similar_actions = list(data.get("similar_campaign_actions") or [])
         legacy_recs = list(data.get("recommendations") or [])
-        if not structure_recs and not launch_recs and legacy_recs:
+        if ENABLE_LEGACY_RECOMMENDATIONS_SPLIT and not structure_recs and not launch_recs and legacy_recs:
             midpoint = max(1, len(legacy_recs) // 2)
             structure_recs = legacy_recs[:midpoint]
             launch_recs = legacy_recs[midpoint:]

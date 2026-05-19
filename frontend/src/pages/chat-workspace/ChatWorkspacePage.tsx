@@ -7,6 +7,31 @@ import { ApiError, type ChatMessage } from "../../api/chatApi";
 import { MarkdownText } from "../../components/MarkdownText";
 import type { ChatSessionContext } from "../../api/chatApi";
 import { AppErrorBoundary } from "../../components/AppErrorBoundary";
+import { SKELETON_FLOW } from "../../components/flow/skeletonFlow";
+
+
+function isWidgetShellMode(): boolean {
+  if (typeof window === "undefined") return false;
+  const root = document.getElementById("root");
+  return document.body.classList.contains("floating-widget-root")
+    || document.documentElement.classList.contains("floating-widget-root")
+    || root?.classList.contains("floating-widget-root")
+    || root?.parentElement?.classList.contains("floating-widget-root")
+    || window.location.pathname.startsWith("/widget");
+}
+
+function WidgetBackgroundLayer() {
+  if (!isWidgetShellMode()) return null;
+
+  return <div className="chat-widget-background" data-testid="chat-widget-background" aria-hidden="true">
+    <div className="chat-widget-background-gradient" />
+    <div className="chat-widget-background-flow">
+      {SKELETON_FLOW.activities.map((activity) => (
+        <div key={activity.id} className="chat-widget-background-node">{activity.name ?? activity.type}</div>
+      ))}
+    </div>
+  </div>;
+}
 
 function isSameDay(left: Date, right: Date): boolean {
   return left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth() && left.getDate() === right.getDate();
@@ -239,9 +264,12 @@ function WorkspaceBody() {
 
   if (sessionMissing) {
     return <div className="chat-workspace-layout"><main className="chat-center-panel">
-      <h2>Not Found</h2>
-      <p>Чат с id <code>{sessionId}</code> не найден.</p>
-      <button onClick={async () => navigate(`/chat/${await createNewChat()}`)}>Создать новый чат</button>
+      <WidgetBackgroundLayer />
+      <div className="chat-center-panel-content">
+        <h2>Not Found</h2>
+        <p>Чат с id <code>{sessionId}</code> не найден.</p>
+        <button onClick={async () => navigate(`/chat/${await createNewChat()}`)}>Создать новый чат</button>
+      </div>
     </main></div>;
   }
 
@@ -249,28 +277,31 @@ function WorkspaceBody() {
     <div className="chat-workspace-layout">
       <ChatListSidebar />
       <main className="chat-center-panel">
-        {isOffline && <div className="chat-error">Проблемы с соединением. <button onClick={() => void retryFailedRequests()}>Повторить</button></div>}
-        <div className="chat-context-header">
-          <strong>Контекст:</strong> кампания {activeContext.campaign_id ?? "—"} / сегмент {activeContext.segment_id ?? "—"}
-        </div>
-        <div className="chat-context-switcher" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <input
-            placeholder="campaign_id"
-            value={activeContext.campaign_id ?? ""}
-            onChange={(e) => activeSessionId && setSessionContext(activeSessionId, { ...activeContext, campaign_id: e.target.value === "" ? null : Number(e.target.value) })}
-          />
-          <input
-            placeholder="segment_id"
-            value={activeContext.segment_id ?? ""}
-            onChange={(e) => activeSessionId && setSessionContext(activeSessionId, { ...activeContext, segment_id: e.target.value === "" ? null : Number(e.target.value) })}
-          />
-        </div>
-        {contextWarning && <div className="chat-error">{contextWarning}</div>}
-        {loadingMessages ? <div className="chat-messages">{chatState === "refreshing" ? "Фоновое обновление…" : "Загрузка…"}</div> : messages.length === 0 ? <div className="chat-empty-group">Сообщений пока нет</div> : <MessageThread messages={messages} onExecuteAction={executeAction} onLoadOlder={loadOlderMessages} hasMore={hasMoreMessages} loadingOlder={loadingOlderMessages} />}
-        {error && <div className="chat-error">[{errorState?.scope ?? "unknown"}] {error} <button disabled={errorState?.retryable === false} onClick={() => void retry()}>{retryLabel}</button></div>}
-        <div className="chat-composer">
-          <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder="Введите сообщение" />
-          <button disabled={sending || !input.trim() || !activeSessionId} onClick={async () => { await sendMessage(input); setInput(""); }}>Отправить</button>
+        <WidgetBackgroundLayer />
+        <div className="chat-center-panel-content">
+          {isOffline && <div className="chat-error">Проблемы с соединением. <button onClick={() => void retryFailedRequests()}>Повторить</button></div>}
+          <div className="chat-context-header">
+            <strong>Контекст:</strong> кампания {activeContext.campaign_id ?? "—"} / сегмент {activeContext.segment_id ?? "—"}
+          </div>
+          <div className="chat-context-switcher" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <input
+              placeholder="campaign_id"
+              value={activeContext.campaign_id ?? ""}
+              onChange={(e) => activeSessionId && setSessionContext(activeSessionId, { ...activeContext, campaign_id: e.target.value === "" ? null : Number(e.target.value) })}
+            />
+            <input
+              placeholder="segment_id"
+              value={activeContext.segment_id ?? ""}
+              onChange={(e) => activeSessionId && setSessionContext(activeSessionId, { ...activeContext, segment_id: e.target.value === "" ? null : Number(e.target.value) })}
+            />
+          </div>
+          {contextWarning && <div className="chat-error">{contextWarning}</div>}
+          {loadingMessages ? <div className="chat-messages">{chatState === "refreshing" ? "Фоновое обновление…" : "Загрузка…"}</div> : messages.length === 0 ? <div className="chat-empty-group">Сообщений пока нет</div> : <MessageThread messages={messages} onExecuteAction={executeAction} onLoadOlder={loadOlderMessages} hasMore={hasMoreMessages} loadingOlder={loadingOlderMessages} />}
+          {error && <div className="chat-error">[{errorState?.scope ?? "unknown"}] {error} <button disabled={errorState?.retryable === false} onClick={() => void retry()}>{retryLabel}</button></div>}
+          <div className="chat-composer">
+            <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder="Введите сообщение" />
+            <button disabled={sending || !input.trim() || !activeSessionId} onClick={async () => { await sendMessage(input); setInput(""); }}>Отправить</button>
+          </div>
         </div>
       </main>
       <aside className={`chat-right-panel ${collapsed ? "collapsed" : ""}`}>

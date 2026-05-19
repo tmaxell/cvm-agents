@@ -43,6 +43,48 @@ class CopilotResponse(BaseModel):
     citations: list[SourceCitation] = []  # цитируемые источники из RAG
 
 
+# ── Generic chat contract ─────────────────────────────────────────────────────
+
+class ChatAction(BaseModel):
+    id: str
+    label: str
+    kind: str = "default"
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class ChatTraceEvent(BaseModel):
+    event: str
+    status: Literal["info", "warning", "error"] = "info"
+    detail: str | None = None
+    ts: datetime | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ChatArtifact(BaseModel):
+    id: str
+    type: str
+    title: str | None = None
+    content: dict[str, Any] | None = None
+    url: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ChatRequest(BaseModel):
+    session_id: str
+    message: str
+    context: AgentContext = AgentContext()
+    action: ChatAction | None = None
+    artifact_id: str | None = None
+
+
+class ChatResponse(BaseModel):
+    assistant_message: str
+    trace: list[ChatTraceEvent] = Field(default_factory=list)
+    artifacts: list[ChatArtifact] = Field(default_factory=list)
+    actions_available: list[ChatAction] = Field(default_factory=list)
+    session_id: str
+
+
 # ── F2: Campaign Builder ──────────────────────────────────────────────────────
 
 class CampaignAudienceMatchedTargetGroup(BaseModel):

@@ -27,6 +27,10 @@ from pydantic import ValidationError
 from schemas import (
     CopilotRequest,
     CopilotResponse,
+    ChatRequest,
+    ChatResponse,
+    ChatTraceEvent,
+    ChatAction,
     BuilderRequest,
     BuilderResponse,
     BuilderOptimizeRequest,
@@ -95,6 +99,34 @@ async def copilot(request: CopilotRequest) -> CopilotResponse:
         return await copilot_answer(request)
     except Exception as e:
         _handle_llm_error(e)
+
+
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest) -> ChatResponse:
+    """Unified chat endpoint for frontend chat widgets."""
+    return ChatResponse(
+        assistant_message=request.message,
+        trace=[
+            ChatTraceEvent(
+                event="chat_received",
+                detail="Request accepted by /api/chat compatibility endpoint.",
+                metadata={
+                    "has_action": request.action is not None,
+                    "artifact_id": request.artifact_id,
+                },
+            )
+        ],
+        artifacts=[],
+        actions_available=[
+            ChatAction(
+                id="builder",
+                label="Открыть Builder",
+                kind="navigate",
+                payload={"route": "/builder", "session_id": request.session_id},
+            )
+        ],
+        session_id=request.session_id,
+    )
 
 
 @app.get("/api/sessions", response_model=list[Session])

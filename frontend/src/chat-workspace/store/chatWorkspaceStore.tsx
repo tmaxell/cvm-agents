@@ -1,8 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChatApiError, getChat, listChats, sendAction as postAction, sendMessage as postMessage, type ChatActionRequestPayload, type ChatActionResponse, type ChatArtifact, type ChatMessage, type ChatSession, type ChatSessionContext } from "../../api/chatApi";
+import { ChatApiError, getChat, listChats, listMessagesPage, sendAction as postAction, sendMessage as postMessage, type ChatActionRequestPayload, type ChatActionResponse, type ChatArtifact, type ChatMessage, type ChatSession, type ChatSessionContext } from "../../api/chatApi";
 
 const PAGE_SIZE = 50;
+const USE_LEGACY_MESSAGES_DATA_LAYER = import.meta.env.VITE_FF_LEGACY_MESSAGES_DATA_LAYER === "1";
 
 export interface SessionItem extends ChatSession { optimistic?: boolean }
 export interface ChatEntry extends ChatMessage { optimistic?: boolean; correlationId?: string }
@@ -37,6 +38,10 @@ interface ChatWorkspaceState {
 
 const ChatWorkspaceContext = createContext<ChatWorkspaceState | null>(null);
 const chatMessagesKey = (sessionId: string) => ["chatMessages", sessionId] as const;
+type MessagesQueryPage = { page: ChatEntry[]; artifacts: ArtifactItem[]; hasMore: boolean; nextCursor: string | null; immutable?: boolean };
+export function getNextMessagesCursor(lastPage: MessagesQueryPage): string | undefined {
+  return lastPage.hasMore ? (lastPage.nextCursor ?? undefined) : undefined;
+}
 
 function dedupeMessages(messages: ChatEntry[]): ChatEntry[] {
   const byId = new Map<string, ChatEntry>();
@@ -71,16 +76,26 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
   const messagesQuery = useInfiniteQuery({
     queryKey: activeSessionId ? chatMessagesKey(activeSessionId) : ["chatMessages", "empty"],
     enabled: Boolean(activeSessionId && !activeSessionId.startsWith("tmp-")),
-    initialPageParam: 0,
+    initialPageParam: null as string | null,
     queryFn: async ({ pageParam }) => {
       const sid = activeSessionId as string;
-      const detail = await getChat(sid);
-      const all = dedupeMessages(detail.messages as ChatEntry[]);
-      const start = Math.max(0, all.length - (pageParam + 1) * PAGE_SIZE);
-      const end = all.length - pageParam * PAGE_SIZE;
-      return { page: all.slice(start, end), all, artifacts: detail.artifacts, hasMore: start > 0 };
+      if (USE_LEGACY_MESSAGES_DATA_LAYER) {
+        const detail = await getChat(sid);
+        const all = dedupeMessages(detail.messages as ChatEntry[]);
+        const cursorPage = Number(pageParam ?? 0);
+        const start = Math.max(0, all.length - (cursorPage + 1) * PAGE_SIZE);
+        const end = all.length - cursorPage * PAGE_SIZE;
+        return { page: all.slice(start, end), artifacts: detail.artifacts, hasMore: start > 0, nextCursor: start > 0 ? String(cursorPage + 1) : null } satisfies MessagesQueryPage;
+      }
+      const response = await listMessagesPage(sid, pageParam, PAGE_SIZE);
+      const artifacts = pageParam ? [] : (await getChat(sid)).artifacts;
+      if (response.cursorUnsupported) {
+        const fallback = await getChat(sid);
+        return { page: dedupeMessages(fallback.messages as ChatEntry[]), artifacts: fallback.artifacts, hasMore: false, nextCursor: null, immutable: true } satisfies MessagesQueryPage;
+      }
+      return { page: dedupeMessages(response.messages as ChatEntry[]), artifacts, hasMore: response.hasMore, nextCursor: response.nextCursor, immutable: pageParam !== null } satisfies MessagesQueryPage;
     },
-    getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length : undefined),
+    getNextPageParam: (lastPage) => getNextMessagesCursor(lastPage),
   });
 
   const messages = useMemo(() => dedupeMessages((messagesQuery.data?.pages ?? []).flatMap((p) => p.page)), [messagesQuery.data]);
@@ -110,8 +125,8 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
     const optimistic: ChatEntry = { id: `tmp-${correlationId}`, role: "user", content, createdAt: new Date().toISOString(), optimistic: true, correlationId };
     queryClient.setQueryData(chatMessagesKey(activeSessionId), (old: any) => {
       const first = old?.pages?.[0];
-      if (!first) return { pages: [{ page: [optimistic], all: [optimistic], artifacts: [], hasMore: false }], pageParams: [0] };
-      return { ...old, pages: [{ ...first, page: dedupeMessages([...first.page, optimistic]), all: dedupeMessages([...(first.all ?? []), optimistic]) }, ...old.pages.slice(1)] };
+      if (!first) return { pages: [{ page: [optimistic], artifacts: [], hasMore: false, nextCursor: null }], pageParams: [null] };
+      return { ...old, pages: [{ ...first, page: dedupeMessages([...first.page, optimistic]) }, ...old.pages.slice(1)] };
     });
     try {
       await postMessage(activeSessionId, content, contextBySession[activeSessionId]);
@@ -121,7 +136,17 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
       throw e;
     }
     const detail = await getChat(activeSessionId);
-    queryClient.setQueryData(chatMessagesKey(activeSessionId), (old: any) => ({ ...old, pages: [{ page: mergeOptimisticMessages(old?.pages?.[0]?.page ?? [], detail.messages as ChatEntry[]), all: detail.messages, artifacts: detail.artifacts, hasMore: false }], pageParams: [0] }));
+    const latest = await listMessagesPage(activeSessionId, null, PAGE_SIZE);
+    queryClient.setQueryData(chatMessagesKey(activeSessionId), (old: any) => {
+      const firstPage = {
+        ...(old?.pages?.[0] ?? { artifacts: detail.artifacts, hasMore: latest.hasMore, nextCursor: latest.nextCursor }),
+        page: mergeOptimisticMessages(old?.pages?.[0]?.page ?? [], latest.messages as ChatEntry[]),
+        artifacts: detail.artifacts,
+        hasMore: latest.hasMore,
+        nextCursor: latest.nextCursor,
+      };
+      return { ...old, pages: [firstPage, ...(old?.pages?.slice(1) ?? [])], pageParams: old?.pageParams ?? [null] };
+    });
   }});
 
   const sendAction = useCallback(async ({ message, action, artifactId }: { message: string; action: ChatActionRequestPayload; artifactId?: string }) => {

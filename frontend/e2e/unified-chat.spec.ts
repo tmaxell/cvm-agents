@@ -2,10 +2,19 @@ import { expect, test } from '@playwright/test';
 
 test('unified chat: new chat, send message, trace and save segment action, reload /chat/:id', async ({ page }) => {
   const sessionId = 'chat-session-1';
+  const createdSessionId = 'chat-session-created';
   const now = '2026-05-19T09:00:00.000Z';
   let callCount = 0;
 
   await page.route('**/api/sessions', async (route) => {
+    if (route.request().method() === 'POST') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ id: createdSessionId, title: 'Новый чат', status: 'collect_brief', updated_at: now, last_message_preview: '' }),
+      });
+      return;
+    }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -44,7 +53,7 @@ test('unified chat: new chat, send message, trace and save segment action, reloa
   await expect(page.getByText('Demo unified chat')).toBeVisible();
 
   await page.getByRole('button', { name: 'New chat' }).click();
-  await expect(page).toHaveURL(/\/chat\/tmp-/);
+  await expect(page).toHaveURL(`/chat/${createdSessionId}`);
 
   await page.goto(`/chat/${sessionId}`);
   await expect(page.getByText('trace step 1')).toBeVisible();

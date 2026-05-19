@@ -97,6 +97,7 @@ const ERRORS = {
   messages: "Не удалось загрузить сообщения",
   artifacts: "Не удалось загрузить артефакты",
   send: "Не удалось отправить сообщение",
+  create: "Не удалось создать чат",
 };
 
 function telemetryApiError(sessionId: string | null, endpoint: string, statusCode: number | null): void {
@@ -185,6 +186,18 @@ async function fetchWithRetry(path: string, init: RequestInit, userError: string
     }
   }
   throw (lastError ?? new ChatApiError(userError, "unknown", null, false));
+}
+
+
+
+export async function createChat(context?: ChatSessionContext): Promise<ChatSession> {
+  const res = await fetchWithRetry("/api/sessions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(withDefaultContextMode(context)),
+  }, ERRORS.create);
+  const data = await res.json();
+  return normalizeSession(data);
 }
 
 export async function listChats(): Promise<ChatSession[]> {

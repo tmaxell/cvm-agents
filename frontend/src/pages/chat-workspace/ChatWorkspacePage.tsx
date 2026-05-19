@@ -183,10 +183,6 @@ function WorkspaceBody() {
     }
     setActiveSessionId(sessionId);
     window.localStorage.setItem("last-active-chat-session-id", sessionId);
-    if (sessionId.startsWith("tmp-")) {
-      setSessionMissing(false);
-      return;
-    }
     let cancelled = false;
     void (async () => {
       try {

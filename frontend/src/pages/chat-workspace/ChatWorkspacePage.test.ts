@@ -36,7 +36,7 @@ describe('ChatWorkspacePage component helpers', () => {
   it('loads widget shell styles only in widget mode', () => {
     const source = readFileSync(new URL('../../main.tsx', import.meta.url), 'utf-8');
     expect(source.includes('void import("./styles/widget-shell.css")')).toBe(true);
-    expect(source.includes('window.location.pathname.startsWith("/widget")')).toBe(true);
+    expect(source.includes("detectChatRenderMode(window.location.pathname, hasWidgetClass)")).toBe(true);
     expect(source.includes('floating-widget-root')).toBe(true);
   });
 

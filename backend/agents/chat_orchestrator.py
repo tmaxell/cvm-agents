@@ -7,6 +7,7 @@ existing specialized agents and route user messages by intent.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Literal, Protocol
 
@@ -14,6 +15,11 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from llm import get_llm
 from agents.campaign_attention import build_campaign_attention_report
+
+logger = logging.getLogger(__name__)
+LEGACY_ENTRYPOINT_WARNING = (
+    "Deprecated legacy orchestration entrypoint used; migrate caller to unified chat contract."
+)
 
 IntentName = Literal[
     "campaign_attention_report",
@@ -84,7 +90,7 @@ class AgentCapability(Protocol):
 
 
 class FunctionCapability:
-    """Adapter that wraps legacy agent entrypoints into a unified contract."""
+    """DEPRECATED: adapter for legacy agent entrypoints."""
 
     def __init__(
         self,
@@ -97,7 +103,11 @@ class FunctionCapability:
         self._handler = handler
 
     async def execute(self, payload: dict[str, Any], context: RoutingContext) -> Any:
-        return await self._handler(payload, context)
+        logger.warning("%s capability=%s", LEGACY_ENTRYPOINT_WARNING, self.name)
+        result = await self._handler(payload, context)
+        if isinstance(result, dict):
+            result.setdefault("warnings", []).append(LEGACY_ENTRYPOINT_WARNING)
+        return result
 
 
 class IntentClassifier:

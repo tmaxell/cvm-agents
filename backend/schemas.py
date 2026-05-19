@@ -1,8 +1,23 @@
 """Pydantic-схемы для запросов/ответов агентов."""
 
 from datetime import datetime
+import logging
 from typing import Any, Literal
 from pydantic import BaseModel, Field, model_validator
+
+
+logger = logging.getLogger(__name__)
+
+
+def _log_legacy_usage(feature: str, endpoint: str, client: str, metadata: dict[str, Any] | None = None) -> None:
+    details = metadata or {}
+    logger.warning(
+        "legacy_contract_usage feature=%s endpoint=%s client=%s metadata=%s",
+        feature,
+        endpoint,
+        client,
+        details,
+    )
 
 
 # ── Контекст экрана ───────────────────────────────────────────────────────────
@@ -257,9 +272,22 @@ class BuilderRequest(BaseModel):
     builder_preferences: dict[str, Any] = Field(default_factory=dict)  # legacy UI payload during brief migration
     review_checklist_acknowledged: bool = False  # user explicitly accepted non-blocking review warnings
 
+    def _client_endpoint_labels(self) -> tuple[str, str]:
+        client = str((self.context.user_role or "unknown")).strip() or "unknown"
+        endpoint = str((self.context.screen or "unknown")).strip() or "unknown"
+        return client, endpoint
+
     @model_validator(mode="after")
     def normalize_campaign_brief(self) -> "BuilderRequest":
         """Keep new campaign_brief and legacy builder_preferences in sync."""
+        client, endpoint = self._client_endpoint_labels()
+        if self.builder_preferences:
+            _log_legacy_usage(
+                "builder_preferences",
+                endpoint=endpoint,
+                client=client,
+                metadata={"keys": sorted(self.builder_preferences.keys())},
+            )
         if self.campaign_brief is None:
             self.campaign_brief = CampaignBrief.from_builder_preferences(self.builder_preferences)
         if not self.builder_preferences and self.campaign_brief is not None:
@@ -485,5 +513,16 @@ class MonitorResponse(BaseModel):
     launch_recommendations: list[str] = Field(default_factory=list)     # рекомендации по результатам после запуска
     similar_campaign_actions: list[str] = Field(default_factory=list)   # что сработало в похожих кампаниях
     optimization_recommendations: list[OptimizationRecommendation] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def log_legacy_recommendations(self) -> "MonitorResponse":
+        if self.recommendations and not (self.structure_recommendations or self.launch_recommendations):
+            _log_legacy_usage(
+                "monitor.recommendations",
+                endpoint="campaign_monitor",
+                client="unknown",
+                metadata={"count": len(self.recommendations)},
+            )
+        return self
     overall_score: int                  # 0–100, общая оценка кампании
     summary: str                        # краткое заключение

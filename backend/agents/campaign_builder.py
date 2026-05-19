@@ -31,6 +31,7 @@ from llm import get_llm
 from schemas import BuilderRequest, BuilderResponse, CampaignBriefCompleteness, FlowPatch
 from agents.safety_review import build_review_checklist
 from agents.flow_composer import compose_campaign_flow_result
+from agents.legacy_compat import flow_from_legacy_steps
 from tools import adtarget
 from tools.flow_builder import (
     make_common_activity,
@@ -1717,39 +1718,6 @@ def _extract_pseudo_tool_calls(text: str) -> list[tuple[str, dict]]:
     return calls
 
 
-def _flow_from_legacy_steps(data: dict) -> dict | None:
-    """Converts old prototype ``{name, steps[]}`` flow JSON to activities[]."""
-    steps = data.get("steps")
-    if not isinstance(steps, list):
-        return None
-
-    campaign_name = data.get("name") or "Новая кампания"
-    target_group_id: int | None = None
-    sms_channel_id: int | None = None
-    message_text: str | None = None
-
-    for step in steps:
-        if not isinstance(step, dict):
-            continue
-        step_type = step.get("type")
-        params = step.get("params") if isinstance(step.get("params"), dict) else {}
-        if step_type in {"Common", "TargetGroup", "TargetGroupActivity"} and params.get("target_group_id"):
-            target_group_id = int(params["target_group_id"])
-        elif step_type in {"SMS", "Sms", "PushCommunicationActivity"}:
-            if params.get("sms_channel_id"):
-                sms_channel_id = int(params["sms_channel_id"])
-            if params.get("message_text"):
-                message_text = str(params["message_text"])
-
-    if target_group_id and sms_channel_id and message_text:
-        return assemble_flow([
-            make_common_activity(campaign_name),
-            make_target_group_activity(target_group_id),
-            make_push_communication_activity(sms_channel_id, "SmsContent", message_text),
-        ])
-    return None
-
-
 async def _flow_from_tool_args(tool_name: str, args: dict) -> dict | None:
     """Builds a flow from parsed textual tool-call arguments."""
     try:
@@ -1869,7 +1837,7 @@ async def _flow_from_tool_args(tool_name: str, args: dict) -> dict | None:
             if isinstance(flow_data, dict):
                 if isinstance(flow_data.get("activities"), list):
                     return flow_data
-                return _flow_from_legacy_steps(flow_data)
+                return flow_from_legacy_steps(flow_data)
     except (KeyError, TypeError, ValueError, json.JSONDecodeError):
         return None
     return None

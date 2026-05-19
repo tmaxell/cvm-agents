@@ -35,16 +35,22 @@ PASSWORD = os.getenv("ADTARGET_PASSWORD", "")
 
 # ADTARGET_MOCK=true — принудительный mock-режим (без VPN)
 _MOCK_FORCED = os.getenv("ADTARGET_MOCK", "false").lower() == "true"
+_ENV_POLICY = os.getenv("ADTARGET_ENV_POLICY", "dev").strip().lower()
+_IS_PRODUCTION_POLICY = _ENV_POLICY in {"prod", "production"}
 # После первой ConnectError автоматически переключаемся на mock
 _mock_auto: bool = False
 
 
 def _is_mock() -> bool:
+    if _IS_PRODUCTION_POLICY:
+        return False
     return _MOCK_FORCED or _mock_auto
 
 
 def _enable_auto_mock() -> None:
     global _mock_auto
+    if _IS_PRODUCTION_POLICY:
+        raise RuntimeError("ADTARGET_ENV_POLICY=production forbids automatic fallback to mock")
     if not _mock_auto:
         print("[adtarget] ⚠️  API недоступен — переключаемся на mock-режим")
         _mock_auto = True

@@ -17,7 +17,7 @@ function groupByUpdatedAt(sessions: SessionItem[]) {
   };
 
   sessions.forEach((session) => {
-    const date = session.updated_at ? new Date(session.updated_at) : null;
+    const date = session.updatedAt ? new Date(session.updatedAt) : null;
     if (!date || Number.isNaN(date.getTime())) {
       grouped["Ранее"].push(session);
       return;
@@ -30,7 +30,7 @@ function groupByUpdatedAt(sessions: SessionItem[]) {
   return grouped;
 }
 
-function formatDateTime(value?: string): string {
+function formatDateTime(value?: string | null): string {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
@@ -38,14 +38,14 @@ function formatDateTime(value?: string): string {
 }
 
 function ChatListSidebar() {
-  const { sessions, activeSessionId, selectSession, createNewChat, loadingSessions } = useChatWorkspaceStore();
+  const { sessions, activeSessionId, selectSession, createNewChat, loadingSessions, sessionsState } = useChatWorkspaceStore();
   const [query, setQuery] = useState("");
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const sorted = [...sessions].sort((a, b) => (b.updated_at ?? "").localeCompare(a.updated_at ?? ""));
+    const sorted = [...sessions].sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
     if (!q) return sorted;
-    return sorted.filter((session) => `${session.title} ${session.last_message_preview ?? ""}`.toLowerCase().includes(q));
+    return sorted.filter((session) => `${session.title} ${session.lastMessagePreview ?? ""}`.toLowerCase().includes(q));
   }, [query, sessions]);
 
   const grouped = useMemo(() => groupByUpdatedAt(filtered), [filtered]);
@@ -57,16 +57,16 @@ function ChatListSidebar() {
         <button onClick={() => void createNewChat()}>New chat</button>
       </div>
       <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по title и last message" />
-      {loadingSessions && <div>Загрузка списка…</div>}
+      {loadingSessions && <div>{sessionsState === "refreshing" ? "Обновление списка…" : "Загрузка списка…"}</div>}
       {Object.entries(grouped).map(([label, items]) => (
         <section key={label}>
           <h4>{label}</h4>
           {items.length === 0 ? <div className="chat-empty-group">Нет чатов</div> : items.map((s) => (
             <button key={s.id} className={s.id === activeSessionId ? "active" : ""} onClick={() => void selectSession(s.id)}>
               <div>{s.title}</div>
-              <div>{s.last_message_preview || "(нет сообщений)"}</div>
+              <div>{s.lastMessagePreview || "(нет сообщений)"}</div>
               <div>status: {s.status ?? "—"}</div>
-              <div>updated: {formatDateTime(s.updated_at)}</div>
+              <div>updated: {formatDateTime(s.updatedAt)}</div>
             </button>
           ))}
         </section>
@@ -78,7 +78,7 @@ function ChatListSidebar() {
 function WorkspaceBody() {
   const [collapsed, setCollapsed] = useState(false);
   const [input, setInput] = useState("");
-  const { activeSessionId, messages, artifacts, sendMessage, sending, error, loadingMessages, refreshSessions, selectSession } = useChatWorkspaceStore();
+  const { activeSessionId, messages, artifacts, sendMessage, sending, error, loadingMessages, refreshSessions, selectSession, chatState } = useChatWorkspaceStore();
 
   const retry = async () => {
     await refreshSessions();
@@ -90,7 +90,7 @@ function WorkspaceBody() {
       <ChatListSidebar />
       <main className="chat-center-panel">
         <div className="chat-messages">
-          {loadingMessages ? <div>Загрузка…</div> : messages.length === 0 ? <div>Пока нет сообщений</div> : messages.map((m) => <div key={m.id} className={`bubble ${m.role}`}>{m.content}</div>)}
+          {loadingMessages ? <div>{chatState === "refreshing" ? "Фоновое обновление…" : "Загрузка…"}</div> : messages.length === 0 ? <div>Пока нет сообщений</div> : messages.map((m) => <div key={m.id} className={`bubble ${m.role}`}>{m.content}</div>)}
         </div>
         {error && <div className="chat-error">{error} <button onClick={() => void retry()}>Retry</button></div>}
         <div className="chat-composer">

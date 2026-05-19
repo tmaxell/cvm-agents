@@ -27,6 +27,19 @@ export interface ChatSessionDetail {
   artifacts: ChatArtifact[];
 }
 
+export interface ChatActionRequestPayload {
+  id: string;
+  label: string;
+  kind?: string;
+  payload?: Record<string, unknown>;
+}
+
+export interface ChatActionResponse {
+  assistant_message: string;
+  artifacts: ChatArtifact[];
+  actions_available: ChatActionRequestPayload[];
+}
+
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 const MAX_RETRIES = 2;
 
@@ -128,4 +141,18 @@ export async function sendMessage(sessionId: string, content: string): Promise<v
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ session_id: sessionId, message: content }),
   }, ERRORS.send);
+}
+
+export async function sendAction(sessionId: string, message: string, action: ChatActionRequestPayload, artifactId?: string): Promise<ChatActionResponse> {
+  const res = await fetchWithRetry("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      session_id: sessionId,
+      message,
+      action,
+      artifact_id: artifactId,
+    }),
+  }, ERRORS.send);
+  return await res.json() as ChatActionResponse;
 }

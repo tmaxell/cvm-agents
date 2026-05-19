@@ -4603,3 +4603,9 @@ button {
 .chat-composer textarea { flex:1; min-height:44px; }
 .chat-error { color: #fca5a5; padding: 0 12px 8px; }
 .chat-right-panel.collapsed { width: 72px; }
+
+.chat-action-card { display: grid; gap: 8px; }
+.chat-action-controls { display: flex; gap: 8px; align-items: center; }
+.chat-action-controls button[disabled] { opacity: .7; cursor: not-allowed; }
+.chat-action-error { color: #fca5a5; font-size: 12px; }
+.chat-action-success { border: 1px solid #14532d; background: rgba(22,163,74,.12); border-radius: 8px; padding: 8px; font-size: 12px; }

@@ -5,6 +5,8 @@ WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci
 
+COPY deploy/start-frontend.sh /usr/local/bin/start-frontend.sh
+
 EXPOSE 5173
 
-CMD ["npx", "vite", "--port", "5173", "--host", "0.0.0.0"]
+CMD ["/usr/local/bin/start-frontend.sh"]

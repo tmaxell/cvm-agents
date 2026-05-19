@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ChatApiError, getChat, listChats } from './chatApi';
+import { ChatApiError, getChat, listChats, listMessagesPage } from './chatApi';
 
 describe('chatApi integration-ish', () => {
   beforeEach(() => vi.restoreAllMocks());
@@ -56,5 +56,24 @@ describe('chatApi integration-ish', () => {
     const detail = await getChat('s1');
     expect(detail.messages).toEqual([]);
     expect(detail.artifacts[0]?.type).toBe('draft_flow');
+  });
+
+  it('reads cursor-based messages page payload', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ messages: [{ id: 'm-1', role: 'assistant', content: 'hello' }], next_cursor: 'cur-2', has_more: true }), { status: 200 })));
+    const page = await listMessagesPage('s1', null, 25);
+    expect(page.messages).toHaveLength(1);
+    expect(page.nextCursor).toBe('cur-2');
+    expect(page.hasMore).toBe(true);
+    expect(page.cursorUnsupported).toBe(false);
+  });
+
+  it('falls back when backend does not support cursor payload', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ legacy: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 's1', messages: [{ id: 'm-1', role: 'user', content: 'old' }] }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const page = await listMessagesPage('s1', null, 25);
+    expect(page.cursorUnsupported).toBe(true);
+    expect(page.messages[0]?.id).toBe('m-1');
   });
 });

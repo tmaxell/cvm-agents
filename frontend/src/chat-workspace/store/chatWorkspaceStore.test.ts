@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ChatApiError } from '../../api/chatApi';
-import { toWorkspaceError } from './chatWorkspaceStore';
+import { getNextMessagesCursor, toWorkspaceError } from './chatWorkspaceStore';
 
 describe('chatWorkspaceStore error mapping', () => {
   it('maps ChatApiError to unified workspace error shape', () => {
@@ -23,4 +23,9 @@ describe('chatWorkspaceStore error mapping', () => {
 it('keeps unified error shape mode-free for context-agnostic flows', () => {
   const result = toWorkspaceError('send_message', new Error('net'));
   expect(result).toEqual({ scope: 'send_message', message: 'net', retryable: false });
+});
+
+it('computes hasMore/fetchNextPage cursor from server page metadata', () => {
+  expect(getNextMessagesCursor({ page: [], artifacts: [], hasMore: true, nextCursor: 'c-1' })).toBe('c-1');
+  expect(getNextMessagesCursor({ page: [], artifacts: [], hasMore: false, nextCursor: 'c-2' })).toBeUndefined();
 });

@@ -27,6 +27,13 @@ export interface ChatSessionDetail {
   artifacts: ChatArtifact[];
 }
 
+export interface ChatMessagesPage {
+  messages: ChatMessage[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  cursorUnsupported: boolean;
+}
+
 export interface ChatActionRequestPayload {
   id: string;
   label: string;
@@ -210,8 +217,28 @@ function listArtifactsFromPayload(sessionId: string, data: unknown): ChatArtifac
 }
 
 export async function listMessages(sessionId: string): Promise<ChatMessage[]> {
+  const page = await listMessagesPage(sessionId, null, 50);
+  return page.messages;
+}
+
+export async function listMessagesPage(sessionId: string, cursor: string | null, limit = 50): Promise<ChatMessagesPage> {
+  const query = new URLSearchParams();
+  query.set("limit", String(limit));
+  if (cursor) query.set("cursor", cursor);
+  const res = await fetchWithRetry(`/api/sessions/${encodeURIComponent(sessionId)}/messages?${query.toString()}`, {}, ERRORS.messages);
+  const data = await res.json();
+  if (isObject(data) && Array.isArray(data.messages)) {
+    const nextCursor = typeof data.next_cursor === "string" ? data.next_cursor : null;
+    const hasMore = typeof data.has_more === "boolean" ? data.has_more : Boolean(nextCursor);
+    return {
+      messages: data.messages.map((m, i) => normalizeMessage(m, i)),
+      nextCursor,
+      hasMore,
+      cursorUnsupported: false,
+    };
+  }
   const detail = await getChat(sessionId);
-  return detail.messages;
+  return { messages: detail.messages, nextCursor: null, hasMore: false, cursorUnsupported: true };
 }
 
 export async function listArtifacts(sessionId: string): Promise<ChatArtifact[]> {

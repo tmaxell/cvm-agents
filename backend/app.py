@@ -49,11 +49,12 @@ from schemas import (
     CampaignActionRequest,
     CampaignActionResponse,
 )
-from agents.qa_copilot import answer as copilot_answer
-from agents.campaign_builder import run as builder_run
+from agents.adapters.copilot_adapter import CopilotAdapter, to_unified_payload as copilot_to_unified, from_unified_payload as copilot_from_unified
+from agents.adapters.builder_adapter import BuilderAdapter, to_unified_payload as builder_to_unified, from_unified_payload as builder_from_unified
 from agents.flow_optimizer import optimize_draft_flow
-from agents.segment_agent import suggest_segments as segment_suggest_run
-from agents.campaign_monitor import run as monitor_run
+from agents.adapters.segment_adapter import SegmentAdapter, to_unified_payload as segment_to_unified, from_unified_payload as segment_from_unified
+from agents.adapters.monitor_adapter import MonitorAdapter, to_unified_payload as monitor_to_unified, from_unified_payload as monitor_from_unified
+from agents.orchestrator import AgentTask, Orchestrator
 from db import DatabaseSessionStore, init_db
 from scripts.seed_demo_campaigns import seed_demo_campaigns
 from tools import adtarget
@@ -63,6 +64,13 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="CVM Agents API", version="0.1.0")
 session_store = DatabaseSessionStore()
+
+agent_orchestrator = Orchestrator({
+    "copilot": CopilotAdapter(),
+    "builder": BuilderAdapter(),
+    "segment": SegmentAdapter(),
+    "monitor": MonitorAdapter(),
+})
 
 app.add_middleware(
     CORSMiddleware,
@@ -101,7 +109,8 @@ async def health():
 async def copilot(request: CopilotRequest) -> CopilotResponse:
     """F1 CVM Copilot — отвечает на вопросы по платформе и текущей кампании."""
     try:
-        return await copilot_answer(request)
+        result = await agent_orchestrator.execute(AgentTask(agent="copilot", payload=copilot_to_unified(request)))
+        return copilot_from_unified(result.payload)
     except Exception as e:
         _handle_llm_error(e)
 
@@ -269,7 +278,8 @@ async def builder(request: BuilderRequest) -> BuilderResponse:
     )
 
     try:
-        response = await builder_run(effective_request)
+        result = await agent_orchestrator.execute(AgentTask(agent="builder", payload=builder_to_unified(effective_request)))
+        response = builder_from_unified(result.payload)
     except Exception as e:
         await session_store.update_session(session.id, status="error")
         await session_store.upsert_campaign_state(
@@ -545,7 +555,8 @@ async def builder_create(request: BuilderCreateRequest) -> BuilderResponse:
 async def suggest_segments(request: SegmentSuggestRequest) -> SegmentSuggestResponse:
     """Suggests 2-3 structured audience segment hypotheses for a campaign."""
     try:
-        return await segment_suggest_run(request)
+        result = await agent_orchestrator.execute(AgentTask(agent="segment", payload=segment_to_unified(request)))
+        return segment_from_unified(result.payload)
     except HTTPException:
         raise
     except ValidationError as e:
@@ -650,7 +661,8 @@ def _validate_campaign_action_request(
 async def monitor(request: MonitorRequest) -> MonitorResponse:
     """F3 Campaign Monitor — анализ кампании и рекомендации по улучшению."""
     try:
-        return await monitor_run(request)
+        result = await agent_orchestrator.execute(AgentTask(agent="monitor", payload=monitor_to_unified(request)))
+        return monitor_from_unified(result.payload)
     except Exception as e:
         _handle_llm_error(e)
 

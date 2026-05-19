@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { ChatWorkspaceProvider, useChatWorkspaceStore, type SessionItem } from "../../chat-workspace/store/chatWorkspaceStore";
-import type { ChatMessage } from "../../api/chatApi";
+import { ApiError, type ChatMessage } from "../../api/chatApi";
 import { MarkdownText } from "../../components/MarkdownText";
 import type { ChatSessionContext } from "../../api/chatApi";
 
@@ -182,7 +183,8 @@ function MessageThread({ messages, onExecuteAction }: { messages: ChatMessage[];
 }
 
 function ChatListSidebar() {
-  const { sessions, activeSessionId, selectSession, createNewChat, loadingSessions, sessionsState } = useChatWorkspaceStore();
+  const { sessions, activeSessionId, createNewChat, loadingSessions, sessionsState } = useChatWorkspaceStore();
+  const navigate = useNavigate();
   const [query, setQuery] = useState("");
 
   const filtered = useMemo(() => {
@@ -198,7 +200,7 @@ function ChatListSidebar() {
     <aside className="chat-left-panel">
       <div className="chat-left-panel-header">
         <h3>Чаты</h3>
-        <button onClick={() => void createNewChat()}>New chat</button>
+        <button onClick={async () => navigate(`/chat/${await createNewChat()}`)}>New chat</button>
       </div>
       <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по title и last message" />
       {loadingSessions && <div>{sessionsState === "refreshing" ? "Обновление списка…" : "Загрузка списка…"}</div>}
@@ -206,7 +208,7 @@ function ChatListSidebar() {
         <section key={label}>
           <h4>{label}</h4>
           {items.length === 0 ? <div className="chat-empty-group">Нет чатов</div> : items.map((s) => (
-            <button key={s.id} className={s.id === activeSessionId ? "active" : ""} onClick={() => void selectSession(s.id)}>
+            <button key={s.id} className={s.id === activeSessionId ? "active" : ""} onClick={() => navigate(`/chat/${s.id}`)}>
               <div>{s.title}</div>
               <div>{s.lastMessagePreview || "(нет сообщений)"}</div>
               <div>status: {s.status ?? "—"}</div>
@@ -220,12 +222,48 @@ function ChatListSidebar() {
 }
 
 function WorkspaceBody() {
+  const { sessionId } = useParams<{ sessionId: string }>();
+  const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
   const [input, setInput] = useState("");
-  const { activeSessionId, messages, artifacts, sendMessage, sendAction, sending, error, loadingMessages, refreshSessions, selectSession, chatState, contextBySession, setSessionContext } = useChatWorkspaceStore();
+  const [sessionMissing, setSessionMissing] = useState(false);
+  const { sessions, activeSessionId, setActiveSessionId, messages, artifacts, sendMessage, sendAction, sending, error, loadingMessages, refreshSessions, selectSession, chatState, contextBySession, setSessionContext, createNewChat } = useChatWorkspaceStore();
   const defaultContext: ChatSessionContext = { mode: "general_analysis", campaign_id: null, segment_id: null };
   const activeContext: ChatSessionContext = activeSessionId ? (contextBySession[activeSessionId] ?? defaultContext) : defaultContext;
   const [contextWarning, setContextWarning] = useState<string | null>(null);
+  useEffect(() => {
+    if (!sessionId) {
+      setActiveSessionId(null);
+      setSessionMissing(false);
+      return;
+    }
+    setActiveSessionId(sessionId);
+    window.localStorage.setItem("last-active-chat-session-id", sessionId);
+    if (sessionId.startsWith("tmp-")) {
+      setSessionMissing(false);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        await selectSession(sessionId);
+        if (!cancelled) setSessionMissing(false);
+      } catch (e) {
+        if (!cancelled) setSessionMissing(e instanceof ApiError && e.status === 404);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, selectSession, setActiveSessionId]);
+
+  useEffect(() => {
+    if (!sessionId && sessions.length > 0) {
+      const last = window.localStorage.getItem("last-active-chat-session-id");
+      const target = (last && sessions.some((s) => s.id === last)) ? last : sessions[0]?.id;
+      if (target) navigate(`/chat/${target}`, { replace: true });
+    }
+  }, [navigate, sessionId, sessions]);
 
   useEffect(() => {
     if (!activeSessionId) return;
@@ -249,6 +287,14 @@ function WorkspaceBody() {
     await refreshSessions();
     if (activeSessionId) await selectSession(activeSessionId);
   };
+
+  if (sessionMissing) {
+    return <div className="chat-workspace-layout"><main className="chat-center-panel">
+      <h2>Not Found</h2>
+      <p>Чат с id <code>{sessionId}</code> не найден.</p>
+      <button onClick={async () => navigate(`/chat/${await createNewChat()}`)}>Создать новый чат</button>
+    </main></div>;
+  }
 
   return (
     <div className="chat-workspace-layout">

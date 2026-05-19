@@ -22,10 +22,11 @@ interface ChatWorkspaceState {
   sessionsState: NetworkState;
   chatState: NetworkState;
   contextBySession: Record<string, ChatSessionContext>;
+  setActiveSessionId: (sessionId: string | null) => void;
   setSessionContext: (sessionId: string, context: ChatSessionContext) => void;
   selectSession: (sessionId: string) => Promise<void>;
   refreshSessions: (background?: boolean) => Promise<void>;
-  createNewChat: () => Promise<void>;
+  createNewChat: () => Promise<string>;
   sendMessage: (content: string) => Promise<void>;
   sendAction: (params: { message: string; action: ChatActionRequestPayload; artifactId?: string }) => Promise<ChatActionResponse>;
 }
@@ -109,6 +110,7 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
       setMessages([]);
       setArtifacts([]);
       setChatState("hard_error");
+      throw e;
     } finally {
       setLoadingMessages(false);
     }
@@ -122,6 +124,7 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
     setActiveSessionId(optimisticId);
     setMessages([]);
     setArtifacts([]);
+    return optimisticId;
   }, []);
 
   const sendMessage = useCallback(async (content: string) => {
@@ -160,12 +163,6 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
     void refreshSessions();
   }, [refreshSessions]);
 
-  useEffect(() => {
-    if (activeSessionId && !activeSessionId.startsWith("tmp-")) {
-      void selectSession(activeSessionId);
-    }
-  }, [activeSessionId, selectSession]);
-
   const value = useMemo(() => ({
     sessions,
     activeSessionId,
@@ -175,6 +172,7 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
     loadingMessages,
     sending,
     error,
+    setActiveSessionId,
     contextBySession,
     setSessionContext,
     sessionsState,

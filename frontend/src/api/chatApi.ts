@@ -49,6 +49,16 @@ export interface ChatSessionContext {
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 const MAX_RETRIES = 2;
 
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 const ERRORS = {
   chats: "Не удалось загрузить историю чатов",
   chat: "Не удалось загрузить чат",
@@ -88,7 +98,7 @@ async function fetchWithRetry(path: string, init: RequestInit, userError: string
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
     try {
       const res = await fetch(`${API_BASE}${path}`, init);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw new ApiError(`HTTP ${res.status}`, res.status);
       return res;
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(userError);

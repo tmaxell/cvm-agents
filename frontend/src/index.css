@@ -4586,6 +4586,19 @@ button {
 .bubble { max-width: 80%; padding: 10px 12px; border-radius: 10px; }
 .bubble.user { align-self: flex-end; background:#2563eb; color:#fff; }
 .bubble.assistant { align-self: flex-start; background:#1e293b; }
+.bubble.system { align-self: stretch; background:#0b1220; border: 1px solid #334155; }
+.bubble-meta { font-size: 11px; opacity: .7; margin-bottom: 6px; }
+.action-card { background: rgba(15, 23, 42, .5); border: 1px solid #334155; border-radius: 8px; padding: 8px; }
+.trace-summary { background: rgba(2, 132, 199, .08); border: 1px solid #0ea5e9; border-radius: 8px; padding: 8px; }
+.trace-steps { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+.trace-steps li.selected { color: #7dd3fc; }
+.trace-steps li.running { color: #fbbf24; }
+.trace-steps li.done { color: #86efac; }
+.agent-activity { margin-top: 8px; border: 1px solid #334155; border-radius: 8px; padding: 6px 8px; }
+.agent-activity summary { cursor: pointer; font-size: 12px; color: #cbd5e1; }
+.agent-activity ul { margin: 6px 0 0; padding-left: 16px; }
+.bubble .markdown-body p,
+.bubble .markdown-body li { margin: 4px 0; }
 .chat-composer { display:flex; gap:8px; padding:12px; border-top:1px solid #1e293b; }
 .chat-composer textarea { flex:1; min-height:44px; }
 .chat-error { color: #fca5a5; padding: 0 12px 8px; }

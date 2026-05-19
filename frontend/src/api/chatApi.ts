@@ -48,6 +48,7 @@ export interface ChatSessionContext {
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 const MAX_RETRIES = 2;
+const REQUEST_TIMEOUT_MS = 10_000;
 
 export class ApiError extends Error {
   status: number;
@@ -66,6 +67,34 @@ const ERRORS = {
   artifacts: "Не удалось загрузить артефакты",
   send: "Не удалось отправить сообщение",
 };
+
+function telemetryApiError(sessionId: string | null, endpoint: string, statusCode: number | null): void {
+  console.error("telemetry.api_error", {
+    session_id: sessionId,
+    endpoint,
+    status_code: statusCode,
+  });
+}
+
+function buildUserError(err: unknown, fallback: string): Error {
+  if (err instanceof ApiError) {
+    if (err.status >= 500) return new Error("Сервис временно недоступен (5xx). Попробуйте повторить запрос.");
+    if (err.status >= 400) return new Error("Запрос отклонён (4xx). Проверьте данные и попробуйте снова.");
+  }
+  if (err instanceof DOMException && err.name === "AbortError") return new Error("Превышено время ожидания ответа. Проверьте соединение и повторите.");
+  if (err instanceof TypeError) return new Error("Проблемы с соединением. Проверьте сеть и повторите.");
+  return new Error(fallback);
+}
+
+function extractSessionIdFromBody(body: RequestInit["body"]): string | null {
+  if (typeof body !== "string") return null;
+  try {
+    const parsed = JSON.parse(body);
+    return isObject(parsed) && typeof parsed.session_id === "string" ? parsed.session_id : null;
+  } catch {
+    return null;
+  }
+}
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 const asString = (v: unknown, fallback = ""): string => (typeof v === "string" ? v : fallback);
@@ -97,18 +126,25 @@ async function fetchWithRetry(path: string, init: RequestInit, userError: string
   let lastError: Error | null = null;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
     try {
-      const res = await fetch(`${API_BASE}${path}`, init);
-      if (!res.ok) throw new ApiError(`HTTP ${res.status}`, res.status);
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      const res = await fetch(`${API_BASE}${path}`, { ...init, signal: controller.signal });
+      window.clearTimeout(timeoutId);
+      if (!res.ok) {
+        const sessionId = extractSessionIdFromBody(init.body);
+        telemetryApiError(sessionId, path, res.status);
+        throw new ApiError(`HTTP ${res.status}`, res.status);
+      }
       return res;
     } catch (err) {
-      lastError = err instanceof Error ? err : new Error(userError);
+      lastError = buildUserError(err, userError);
       if (attempt < MAX_RETRIES) {
         await new Promise((resolve) => setTimeout(resolve, (attempt + 1) * 250));
         continue;
       }
     }
   }
-  throw new Error(userError + (lastError ? ` (${lastError.message})` : ""));
+  throw new Error(lastError?.message ?? userError);
 }
 
 export async function listChats(): Promise<ChatSession[]> {

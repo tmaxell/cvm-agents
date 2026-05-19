@@ -5,6 +5,7 @@ import { ChatWorkspaceProvider, useChatWorkspaceStore, type SessionItem } from "
 import { ApiError, type ChatMessage } from "../../api/chatApi";
 import { MarkdownText } from "../../components/MarkdownText";
 import type { ChatSessionContext } from "../../api/chatApi";
+import { AppErrorBoundary } from "../../components/AppErrorBoundary";
 
 function isSameDay(left: Date, right: Date): boolean {
   return left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth() && left.getDate() === right.getDate();
@@ -143,6 +144,10 @@ function ChatListSidebar() {
       </div>
       <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по title и last message" />
       {loadingSessions && <div>{sessionsState === "refreshing" ? "Обновление списка…" : "Загрузка списка…"}</div>}
+      {loadingSessions && sessions.length === 0 && Array.from({ length: 4 }).map((_, i) => (
+        <div key={i} className="chat-skeleton-row">Загрузка…</div>
+      ))}
+      {!loadingSessions && sessions.length === 0 && <div className="chat-empty-group">История чатов пуста</div>}
       {Object.entries(grouped).map(([label, items]) => (
         <section key={label}>
           <h4>{label}</h4>
@@ -166,7 +171,7 @@ function WorkspaceBody() {
   const [collapsed, setCollapsed] = useState(false);
   const [input, setInput] = useState("");
   const [sessionMissing, setSessionMissing] = useState(false);
-  const { sessions, activeSessionId, setActiveSessionId, messages, artifacts, sendMessage, sendAction, sending, error, loadingMessages, refreshSessions, selectSession, chatState, contextBySession, setSessionContext, createNewChat, loadOlderMessages, hasMoreMessages, loadingOlderMessages } = useChatWorkspaceStore();
+  const { sessions, activeSessionId, setActiveSessionId, messages, artifacts, sendMessage, sendAction, sending, error, loadingMessages, refreshSessions, selectSession, chatState, contextBySession, setSessionContext, createNewChat, loadOlderMessages, hasMoreMessages, loadingOlderMessages, isOffline, retryFailedRequests } = useChatWorkspaceStore();
   const defaultContext: ChatSessionContext = { mode: "general_analysis", campaign_id: null, segment_id: null };
   const activeContext: ChatSessionContext = activeSessionId ? (contextBySession[activeSessionId] ?? defaultContext) : defaultContext;
   const [contextWarning, setContextWarning] = useState<string | null>(null);
@@ -239,6 +244,7 @@ function WorkspaceBody() {
     <div className="chat-workspace-layout">
       <ChatListSidebar />
       <main className="chat-center-panel">
+        {isOffline && <div className="chat-error">Проблемы с соединением. <button onClick={() => void retryFailedRequests()}>Повторить</button></div>}
         <div className="chat-context-header">
           <strong>Контекст:</strong> кампания {activeContext.campaign_id ?? "—"} / сегмент {activeContext.segment_id ?? "—"} / режим {activeContext.mode ?? "general_analysis"}
         </div>
@@ -263,8 +269,8 @@ function WorkspaceBody() {
           />
         </div>
         {contextWarning && <div className="chat-error">{contextWarning}</div>}
-        {loadingMessages ? <div className="chat-messages">{chatState === "refreshing" ? "Фоновое обновление…" : "Загрузка…"}</div> : <MessageThread messages={messages} onExecuteAction={executeAction} onLoadOlder={loadOlderMessages} hasMore={hasMoreMessages} loadingOlder={loadingOlderMessages} />}
-        {error && <div className="chat-error">{error} <button onClick={() => void retry()}>Retry</button></div>}
+        {loadingMessages ? <div className="chat-messages">{chatState === "refreshing" ? "Фоновое обновление…" : "Загрузка…"}</div> : messages.length === 0 ? <div className="chat-empty-group">Сообщений пока нет</div> : <MessageThread messages={messages} onExecuteAction={executeAction} onLoadOlder={loadOlderMessages} hasMore={hasMoreMessages} loadingOlder={loadingOlderMessages} />}
+        {error && <div className="chat-error">{error} <button onClick={() => void retry()}>Повторить</button></div>}
         <div className="chat-composer">
           <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder="Введите сообщение" />
           <button disabled={sending || !input.trim() || !activeSessionId} onClick={async () => { await sendMessage(input); setInput(""); }}>Отправить</button>
@@ -286,7 +292,9 @@ function WorkspaceBody() {
 export function ChatWorkspacePage() {
   return (
     <ChatWorkspaceProvider>
-      <WorkspaceBody />
+      <AppErrorBoundary title="Ошибка workspace">
+        <WorkspaceBody />
+      </AppErrorBoundary>
     </ChatWorkspaceProvider>
   );
 }

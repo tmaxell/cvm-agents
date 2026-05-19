@@ -18,6 +18,7 @@ interface ChatWorkspaceState {
   createNewChat: () => Promise<string>; sendMessage: (content: string) => Promise<void>;
   sendAction: (params: { message: string; action: ChatActionRequestPayload; artifactId?: string }) => Promise<ChatActionResponse>;
   loadOlderMessages: () => Promise<void>; hasMoreMessages: boolean; loadingOlderMessages: boolean;
+  isOffline: boolean; retryFailedRequests: () => Promise<void>;
 }
 
 const ChatWorkspaceContext = createContext<ChatWorkspaceState | null>(null);
@@ -42,6 +43,7 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
   const [sessionsState, setSessionsState] = useState<NetworkState>("idle");
   const [chatState, setChatState] = useState<NetworkState>("idle");
   const [contextBySession, setContextBySession] = useState<Record<string, ChatSessionContext>>({});
+  const [isOffline, setIsOffline] = useState<boolean>(typeof navigator !== "undefined" ? !navigator.onLine : false);
 
   useEffect(() => {
     const raw = window.localStorage.getItem("chat-context-by-session");
@@ -102,6 +104,16 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
   }, [activeSessionId, contextBySession, queryClient, sessionsQuery]);
 
   useEffect(() => { void refreshSessions(true); }, [refreshSessions]);
+  useEffect(() => {
+    const onOnline = () => setIsOffline(false);
+    const onOffline = () => setIsOffline(true);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, []);
 
   const value = useMemo(() => ({
     sessions: sessionsQuery.data ?? [], activeSessionId, messages, artifacts, error,
@@ -112,7 +124,12 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
     sendAction,
     loadOlderMessages: async () => { await messagesQuery.fetchNextPage(); },
     hasMoreMessages: Boolean(messagesQuery.hasNextPage), loadingOlderMessages: messagesQuery.isFetchingNextPage,
-  }), [sessionsQuery.data, activeSessionId, messages, artifacts, error, sessionsQuery.isLoading, sessionsQuery.isFetching, messagesQuery.isLoading, sendMessageMutation.isPending, sessionsState, chatState, contextBySession, setSessionContext, selectSession, refreshSessions, sendAction, messagesQuery]);
+    isOffline,
+    retryFailedRequests: async () => {
+      await refreshSessions();
+      if (activeSessionId) await selectSession(activeSessionId);
+    },
+  }), [sessionsQuery.data, activeSessionId, messages, artifacts, error, sessionsQuery.isLoading, sessionsQuery.isFetching, messagesQuery.isLoading, sendMessageMutation.isPending, sessionsState, chatState, contextBySession, setSessionContext, selectSession, refreshSessions, sendAction, messagesQuery, isOffline]);
 
   return <ChatWorkspaceContext.Provider value={value}>{children}</ChatWorkspaceContext.Provider>;
 }

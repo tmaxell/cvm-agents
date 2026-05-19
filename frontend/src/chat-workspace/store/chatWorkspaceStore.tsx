@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChatApiError, getChat, listChats, listMessagesPage, sendAction as postAction, sendMessage as postMessage, type ChatActionRequestPayload, type ChatActionResponse, type ChatArtifact, type ChatMessage, type ChatSession, type ChatSessionContext } from "../../api/chatApi";
+import { ChatApiError, createChat, getChat, listChats, listMessagesPage, sendAction as postAction, sendMessage as postMessage, type ChatActionRequestPayload, type ChatActionResponse, type ChatArtifact, type ChatMessage, type ChatSession, type ChatSessionContext } from "../../api/chatApi";
 
 const PAGE_SIZE = 50;
 const USE_LEGACY_MESSAGES_DATA_LAYER = import.meta.env.VITE_FF_LEGACY_MESSAGES_DATA_LAYER === "1";
@@ -75,7 +75,7 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
 
   const messagesQuery = useInfiniteQuery({
     queryKey: activeSessionId ? chatMessagesKey(activeSessionId) : ["chatMessages", "empty"],
-    enabled: Boolean(activeSessionId && !activeSessionId.startsWith("tmp-")),
+    enabled: Boolean(activeSessionId),
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }) => {
       const sid = activeSessionId as string;
@@ -150,7 +150,7 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
   }});
 
   const sendAction = useCallback(async ({ message, action, artifactId }: { message: string; action: ChatActionRequestPayload; artifactId?: string }) => {
-    if (!activeSessionId || activeSessionId.startsWith("tmp-")) throw new Error("Сначала выберите сохранённую сессию");
+    if (!activeSessionId) throw new Error("Сначала выберите сессию");
     let response: ChatActionResponse;
     try {
       response = await postAction(activeSessionId, message, action, artifactId, contextBySession[activeSessionId]);
@@ -180,8 +180,8 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
     sessions: sessionsQuery.data ?? [], activeSessionId, messages, artifacts, error: error?.message ?? null, errorState: error,
     loadingSessions: sessionsQuery.isLoading || sessionsQuery.isFetching, loadingMessages: messagesQuery.isLoading,
     sending: sendMessageMutation.isPending, sessionsState, chatState, contextBySession, setActiveSessionId, setSessionContext,
-    selectSession, refreshSessions, createNewChat: async () => { const id = `tmp-${Date.now()}`; setActiveSessionId(id); return id; },
-    sendMessage: async (content: string) => { if (!content.trim() || !activeSessionId || activeSessionId.startsWith("tmp-")) return; setError(null); await sendMessageMutation.mutateAsync(content); await sessionsQuery.refetch(); },
+    selectSession, refreshSessions, createNewChat: async () => { const session = await createChat(); setActiveSessionId(session.id); await sessionsQuery.refetch(); return session.id; },
+    sendMessage: async (content: string) => { if (!content.trim() || !activeSessionId) return; setError(null); await sendMessageMutation.mutateAsync(content); await sessionsQuery.refetch(); },
     sendAction,
     loadOlderMessages: async () => { await messagesQuery.fetchNextPage(); },
     hasMoreMessages: Boolean(messagesQuery.hasNextPage), loadingOlderMessages: messagesQuery.isFetchingNextPage,

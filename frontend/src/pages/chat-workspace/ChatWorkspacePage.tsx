@@ -171,7 +171,7 @@ function WorkspaceBody() {
   const [collapsed, setCollapsed] = useState(false);
   const [input, setInput] = useState("");
   const [sessionMissing, setSessionMissing] = useState(false);
-  const { sessions, activeSessionId, setActiveSessionId, messages, artifacts, sendMessage, sendAction, sending, error, loadingMessages, refreshSessions, selectSession, chatState, contextBySession, setSessionContext, createNewChat, loadOlderMessages, hasMoreMessages, loadingOlderMessages, isOffline, retryFailedRequests } = useChatWorkspaceStore();
+  const { sessions, activeSessionId, setActiveSessionId, messages, artifacts, sendMessage, sendAction, sending, error, errorState, loadingMessages, refreshSessions, selectSession, chatState, contextBySession, setSessionContext, createNewChat, loadOlderMessages, hasMoreMessages, loadingOlderMessages, isOffline, retryFailedRequests } = useChatWorkspaceStore();
   const defaultContext: ChatSessionContext = { mode: "general_analysis", campaign_id: null, segment_id: null };
   const activeContext: ChatSessionContext = activeSessionId ? (contextBySession[activeSessionId] ?? defaultContext) : defaultContext;
   const [contextWarning, setContextWarning] = useState<string | null>(null);
@@ -232,6 +232,14 @@ function WorkspaceBody() {
     if (activeSessionId) await selectSession(activeSessionId);
   };
 
+  const retryLabel = errorState?.scope === "send_message"
+    ? "Повторить отправку"
+    : errorState?.scope === "execute_action"
+      ? "Повторить действие"
+      : errorState?.scope === "load_messages"
+        ? "Повторить загрузку сообщений"
+        : "Повторить загрузку";
+
   if (sessionMissing) {
     return <div className="chat-workspace-layout"><main className="chat-center-panel">
       <h2>Not Found</h2>
@@ -270,7 +278,7 @@ function WorkspaceBody() {
         </div>
         {contextWarning && <div className="chat-error">{contextWarning}</div>}
         {loadingMessages ? <div className="chat-messages">{chatState === "refreshing" ? "Фоновое обновление…" : "Загрузка…"}</div> : messages.length === 0 ? <div className="chat-empty-group">Сообщений пока нет</div> : <MessageThread messages={messages} onExecuteAction={executeAction} onLoadOlder={loadOlderMessages} hasMore={hasMoreMessages} loadingOlder={loadingOlderMessages} />}
-        {error && <div className="chat-error">{error} <button onClick={() => void retry()}>Повторить</button></div>}
+        {error && <div className="chat-error">[{errorState?.scope ?? "unknown"}] {error} <button disabled={errorState?.retryable === false} onClick={() => void retry()}>{retryLabel}</button></div>}
         <div className="chat-composer">
           <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder="Введите сообщение" />
           <button disabled={sending || !input.trim() || !activeSessionId} onClick={async () => { await sendMessage(input); setInput(""); }}>Отправить</button>

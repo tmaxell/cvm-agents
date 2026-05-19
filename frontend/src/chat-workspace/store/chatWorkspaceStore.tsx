@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { getChat, listChats, sendAction as postAction, sendMessage as postMessage, type ChatActionRequestPayload, type ChatActionResponse, type ChatArtifact, type ChatMessage, type ChatSession, type ChatSessionContext } from "../../api/chatApi";
+import { ChatApiError, getChat, listChats, sendAction as postAction, sendMessage as postMessage, type ChatActionRequestPayload, type ChatActionResponse, type ChatArtifact, type ChatMessage, type ChatSession, type ChatSessionContext } from "../../api/chatApi";
 
 const PAGE_SIZE = 50;
 
@@ -8,10 +8,24 @@ export interface SessionItem extends ChatSession { optimistic?: boolean }
 export interface ChatEntry extends ChatMessage { optimistic?: boolean; correlationId?: string }
 export interface ArtifactItem extends ChatArtifact {}
 type NetworkState = "idle" | "initial_loading" | "refreshing" | "hard_error";
+type ErrorScope = "load_sessions" | "load_messages" | "send_message" | "execute_action";
+export interface WorkspaceErrorState { scope: ErrorScope; message: string; retryable: boolean }
+
+function telemetryWorkspaceEvent(event: string, payload: Record<string, unknown>) {
+  console.error(`telemetry.${event}`, payload);
+}
+
+export function toWorkspaceError(scope: ErrorScope, err: unknown): WorkspaceErrorState {
+  if (err instanceof ChatApiError) {
+    return { scope, message: err.message, retryable: err.retryable };
+  }
+  return { scope, message: err instanceof Error ? err.message : "Неизвестная ошибка", retryable: false };
+}
 
 interface ChatWorkspaceState {
   sessions: SessionItem[]; activeSessionId: string | null; messages: ChatEntry[]; artifacts: ArtifactItem[];
   loadingSessions: boolean; loadingMessages: boolean; sending: boolean; error: string | null;
+  errorState: WorkspaceErrorState | null;
   sessionsState: NetworkState; chatState: NetworkState; contextBySession: Record<string, ChatSessionContext>;
   setActiveSessionId: (sessionId: string | null) => void; setSessionContext: (sessionId: string, context: ChatSessionContext) => void;
   selectSession: (sessionId: string) => Promise<void>; refreshSessions: (background?: boolean) => Promise<void>;
@@ -39,7 +53,7 @@ function mergeOptimisticMessages(current: ChatEntry[], server: ChatEntry[]): Cha
 export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<WorkspaceErrorState | null>(null);
   const [sessionsState, setSessionsState] = useState<NetworkState>("idle");
   const [chatState, setChatState] = useState<NetworkState>("idle");
   const [contextBySession, setContextBySession] = useState<Record<string, ChatSessionContext>>({});
@@ -74,13 +88,22 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
 
   const refreshSessions = useCallback(async (background = false) => {
     setSessionsState(background ? "refreshing" : "initial_loading");
-    try { await sessionsQuery.refetch(); setSessionsState("idle"); } catch (e) { setError(e instanceof Error ? e.message : "Не удалось загрузить историю чатов"); setSessionsState("hard_error"); }
-  }, [sessionsQuery]);
+    try { await sessionsQuery.refetch(); setSessionsState("idle"); } catch (e) {
+      setError(toWorkspaceError("load_sessions", e));
+      telemetryWorkspaceEvent("session_open_failed", { sessionId: activeSessionId, mode: activeSessionId ? contextBySession[activeSessionId]?.mode ?? null : null });
+      setSessionsState("hard_error");
+    }
+  }, [sessionsQuery, activeSessionId, contextBySession]);
 
   const selectSession = useCallback(async (sessionId: string) => {
     setActiveSessionId(sessionId); setChatState("initial_loading");
-    try { await queryClient.invalidateQueries({ queryKey: chatMessagesKey(sessionId) }); setChatState("idle"); } catch (e) { setError(e instanceof Error ? e.message : "Не удалось загрузить чат"); setChatState("hard_error"); throw e; }
-  }, [queryClient]);
+    try { await queryClient.invalidateQueries({ queryKey: chatMessagesKey(sessionId) }); setChatState("idle"); } catch (e) {
+      setError(toWorkspaceError("load_messages", e));
+      telemetryWorkspaceEvent("session_open_failed", { sessionId, mode: contextBySession[sessionId]?.mode ?? null });
+      setChatState("hard_error");
+      throw e;
+    }
+  }, [queryClient, contextBySession]);
 
   const sendMessageMutation = useMutation({ mutationFn: async (content: string) => {
     if (!activeSessionId) return; const correlationId = `corr-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
@@ -90,14 +113,27 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
       if (!first) return { pages: [{ page: [optimistic], all: [optimistic], artifacts: [], hasMore: false }], pageParams: [0] };
       return { ...old, pages: [{ ...first, page: dedupeMessages([...first.page, optimistic]), all: dedupeMessages([...(first.all ?? []), optimistic]) }, ...old.pages.slice(1)] };
     });
-    await postMessage(activeSessionId, content, contextBySession[activeSessionId]);
+    try {
+      await postMessage(activeSessionId, content, contextBySession[activeSessionId]);
+    } catch (e) {
+      setError(toWorkspaceError("send_message", e));
+      telemetryWorkspaceEvent("message_send_failed", { sessionId: activeSessionId, mode: contextBySession[activeSessionId]?.mode ?? null });
+      throw e;
+    }
     const detail = await getChat(activeSessionId);
     queryClient.setQueryData(chatMessagesKey(activeSessionId), (old: any) => ({ ...old, pages: [{ page: mergeOptimisticMessages(old?.pages?.[0]?.page ?? [], detail.messages as ChatEntry[]), all: detail.messages, artifacts: detail.artifacts, hasMore: false }], pageParams: [0] }));
   }});
 
   const sendAction = useCallback(async ({ message, action, artifactId }: { message: string; action: ChatActionRequestPayload; artifactId?: string }) => {
     if (!activeSessionId || activeSessionId.startsWith("tmp-")) throw new Error("Сначала выберите сохранённую сессию");
-    const response = await postAction(activeSessionId, message, action, artifactId, contextBySession[activeSessionId]);
+    let response: ChatActionResponse;
+    try {
+      response = await postAction(activeSessionId, message, action, artifactId, contextBySession[activeSessionId]);
+    } catch (e) {
+      setError(toWorkspaceError("execute_action", e));
+      telemetryWorkspaceEvent("action_execute_failed", { sessionId: activeSessionId, mode: contextBySession[activeSessionId]?.mode ?? null, actionId: action.id });
+      throw e;
+    }
     await queryClient.invalidateQueries({ queryKey: chatMessagesKey(activeSessionId) });
     await sessionsQuery.refetch();
     return response;
@@ -116,7 +152,7 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(() => ({
-    sessions: sessionsQuery.data ?? [], activeSessionId, messages, artifacts, error,
+    sessions: sessionsQuery.data ?? [], activeSessionId, messages, artifacts, error: error?.message ?? null, errorState: error,
     loadingSessions: sessionsQuery.isLoading || sessionsQuery.isFetching, loadingMessages: messagesQuery.isLoading,
     sending: sendMessageMutation.isPending, sessionsState, chatState, contextBySession, setActiveSessionId, setSessionContext,
     selectSession, refreshSessions, createNewChat: async () => { const id = `tmp-${Date.now()}`; setActiveSessionId(id); return id; },
@@ -126,8 +162,12 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
     hasMoreMessages: Boolean(messagesQuery.hasNextPage), loadingOlderMessages: messagesQuery.isFetchingNextPage,
     isOffline,
     retryFailedRequests: async () => {
-      await refreshSessions();
-      if (activeSessionId) await selectSession(activeSessionId);
+      if (error?.scope === "load_sessions") await refreshSessions();
+      if (error?.scope === "load_messages" && activeSessionId) await selectSession(activeSessionId);
+      if (!error) {
+        await refreshSessions();
+        if (activeSessionId) await selectSession(activeSessionId);
+      }
     },
   }), [sessionsQuery.data, activeSessionId, messages, artifacts, error, sessionsQuery.isLoading, sessionsQuery.isFetching, messagesQuery.isLoading, sendMessageMutation.isPending, sessionsState, chatState, contextBySession, setSessionContext, selectSession, refreshSessions, sendAction, messagesQuery, isOffline]);
 

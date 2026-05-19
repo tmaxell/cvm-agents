@@ -199,6 +199,19 @@ uvicorn app:app --reload --port 8000
 curl http://localhost:8000/api/health
 ```
 
+Заполнить demo-кампании (20–50 шт.) и диагностику `campaign_health`:
+
+```bash
+cd backend
+python -m scripts.seed_demo_campaigns
+```
+
+Автосид при старте backend в dev-режиме:
+
+```bash
+SEED_DEMO_CAMPAIGNS_ON_STARTUP=true uvicorn app:app --reload --port 8000
+```
+
 ### Frontend
 
 ```bash

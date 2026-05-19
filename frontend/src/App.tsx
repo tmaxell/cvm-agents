@@ -22,7 +22,17 @@ import type {
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
-const CHAT_WORKSPACE_ENABLED = (import.meta.env.VITE_CHAT_WORKSPACE_ENABLED ?? "true") !== "false";
+const UNIFIED_CHAT_ENABLED = (import.meta.env.VITE_UNIFIED_CHAT_ENABLED ?? "false") === "true";
+const UNIFIED_CHAT_DEFAULT_NAV = (import.meta.env.VITE_UNIFIED_CHAT_DEFAULT_NAV ?? "false") === "true";
+const UNIFIED_CHAT_ROLLOUT_ENVS = (import.meta.env.VITE_UNIFIED_CHAT_ROLLOUT_ENVS ?? "")
+  .split(",")
+  .map((value: string) => value.trim().toLowerCase())
+  .filter(Boolean);
+const UNIFIED_CHAT_ROLLOUT_USERS = (import.meta.env.VITE_UNIFIED_CHAT_ROLLOUT_USERS ?? "")
+  .split(",")
+  .map((value: string) => value.trim().toLowerCase())
+  .filter(Boolean);
+const APP_ENV = (import.meta.env.VITE_APP_ENV ?? "").trim().toLowerCase();
 
 function isLegacyMode() {
   if (typeof window === "undefined") return false;
@@ -30,15 +40,38 @@ function isLegacyMode() {
   return params.get("legacy") === "1" || window.location.pathname.startsWith("/legacy");
 }
 
+function getCurrentUserForRollout() {
+  if (typeof window === "undefined") return "";
+  const params = new URLSearchParams(window.location.search);
+  const queryUser = params.get("user")?.trim().toLowerCase();
+  if (queryUser) return queryUser;
+  const localUser = window.localStorage.getItem("cvm.rollout.user")?.trim().toLowerCase();
+  return localUser ?? "";
+}
+
+function shouldEnableUnifiedChat() {
+  if (!UNIFIED_CHAT_ENABLED) return false;
+  if (UNIFIED_CHAT_ROLLOUT_ENVS.length === 0 && UNIFIED_CHAT_ROLLOUT_USERS.length === 0) {
+    return true;
+  }
+
+  const envAllowed = UNIFIED_CHAT_ROLLOUT_ENVS.length === 0 || UNIFIED_CHAT_ROLLOUT_ENVS.includes(APP_ENV);
+  const user = getCurrentUserForRollout();
+  const userAllowed = UNIFIED_CHAT_ROLLOUT_USERS.length === 0 || (user ? UNIFIED_CHAT_ROLLOUT_USERS.includes(user) : false);
+  return envAllowed && userAllowed;
+}
+
 export function App() {
   const [legacyMode] = useState(isLegacyMode());
 
-  if (CHAT_WORKSPACE_ENABLED && !legacyMode) {
+  if (shouldEnableUnifiedChat() && !legacyMode) {
+    const defaultPath = UNIFIED_CHAT_DEFAULT_NAV ? "/chat" : "/legacy";
     return (
       <Routes>
-        <Route path="/" element={<Navigate to="/chat" replace />} />
+        <Route path="/" element={<Navigate to={defaultPath} replace />} />
         <Route path="/chat" element={<ChatWorkspacePage />} />
         <Route path="/chat/:sessionId" element={<ChatWorkspacePage />} />
+        <Route path="/legacy/*" element={<Navigate to="/" replace />} />
       </Routes>
     );
   }

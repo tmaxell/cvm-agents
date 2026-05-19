@@ -60,7 +60,17 @@ def test_segments_suggest_accepts_family_max_payload(monkeypatch):
             recommendation_only=True,
         )
 
-    monkeypatch.setattr(app_module, "segment_suggest_run", fake_segment_suggest_run)
+    
+    class _Result:
+        def __init__(self, payload):
+            self.payload = payload
+
+    async def fake_execute(_task):
+        req = type("Req", (), {"model_dump": lambda self: {"product": "Тариф Family Max", "campaign_goal": "Апсейл семейной аудитории", "audience_constraints": {"note": "Исключить opt-out и клиентов с контактом за последние 7 дней"}}})()
+        payload = await fake_segment_suggest_run(req)
+        return _Result(payload.model_dump())
+
+    monkeypatch.setattr(app_module.agent_orchestrator, "execute", fake_execute)
     client = TestClient(app_module.app)
 
     response = client.post(
@@ -89,7 +99,17 @@ def test_segments_suggest_validation_failure_returns_diagnostic_detail(monkeypat
     async def fake_segment_suggest_run(_request):
         SegmentSuggestResponse.model_validate({"summary": "bad", "hypotheses": []})
 
-    monkeypatch.setattr(app_module, "segment_suggest_run", fake_segment_suggest_run)
+    
+    class _Result:
+        def __init__(self, payload):
+            self.payload = payload
+
+    async def fake_execute(_task):
+        req = type("Req", (), {"model_dump": lambda self: {"product": "Тариф Family Max", "campaign_goal": "Апсейл семейной аудитории", "audience_constraints": {"note": "Исключить opt-out и клиентов с контактом за последние 7 дней"}}})()
+        payload = await fake_segment_suggest_run(req)
+        return _Result(payload.model_dump())
+
+    monkeypatch.setattr(app_module.agent_orchestrator, "execute", fake_execute)
     client = TestClient(app_module.app)
 
     response = client.post(

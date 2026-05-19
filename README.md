@@ -220,6 +220,17 @@ npm install
 npm run dev
 ```
 
+### Unified chat rollout flags (frontend)
+
+```env
+VITE_UNIFIED_CHAT_ENABLED=false
+VITE_UNIFIED_CHAT_ROLLOUT_ENVS=dev,stage
+VITE_UNIFIED_CHAT_ROLLOUT_USERS=user1,user2
+VITE_UNIFIED_CHAT_DEFAULT_NAV=false
+```
+
+Migration guide for frontend team: `docs/FRONTEND_UNIFIED_CHAT_MIGRATION.md`.
+
 UI будет доступен на <http://localhost:5173>. В dev-режиме Vite проксирует `/api/*` на backend; при необходимости задайте:
 
 ```bash

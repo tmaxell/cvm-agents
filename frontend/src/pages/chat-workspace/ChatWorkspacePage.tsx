@@ -54,7 +54,56 @@ function parseStructured(content: string): Record<string, unknown> | null {
   }
 }
 
-function MessageThread({ messages }: { messages: ChatMessage[] }) {
+type ActionStatus = "idle" | "pending" | "success" | "error";
+
+function ChatActionCard({
+  id,
+  title,
+  explanation,
+  onExecute,
+}: {
+  id: string;
+  title: string;
+  explanation: string;
+  onExecute: (actionId: "save_campaign" | "save_segment") => Promise<{ artifactId: string | null; nextActions: string[] }>;
+}) {
+  const [status, setStatus] = useState<ActionStatus>("idle");
+  const [result, setResult] = useState<{ artifactId: string | null; nextActions: string[] } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const isSupported = id === "save_campaign" || id === "save_segment";
+
+  const handleClick = async () => {
+    if (!isSupported || status === "pending") return;
+    setStatus("pending");
+    setError(null);
+    try {
+      const next = await onExecute(id);
+      setResult(next);
+      setStatus("success");
+    } catch (e) {
+      setStatus("error");
+      setError(e instanceof Error ? e.message : "Не удалось выполнить действие");
+    }
+  };
+
+  return <section className="action-card chat-action-card">
+    <strong>{title}</strong>
+    <MarkdownText content={explanation} />
+    {isSupported && <div className="chat-action-controls">
+      <button disabled={status === "pending"} onClick={() => void handleClick()}>
+        {status === "pending" ? "Сохранение…" : "Сохранить"}
+      </button>
+      {status === "pending" && <span>Выполняется…</span>}
+      {status === "error" && <span className="chat-action-error">{error}</span>}
+    </div>}
+    {status === "success" && result && <div className="chat-action-success">
+      <div>✅ Сохранено. artifact_id: <code>{result.artifactId ?? "—"}</code></div>
+      {result.nextActions.length > 0 && <div>Доступные next actions: {result.nextActions.join(", ")}</div>}
+    </div>}
+  </section>;
+}
+
+function MessageThread({ messages, onExecuteAction }: { messages: ChatMessage[]; onExecuteAction: (actionId: "save_campaign" | "save_segment", messageId: string) => Promise<{ artifactId: string | null; nextActions: string[] }>; }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const wasNearBottomRef = useRef(true);
 
@@ -99,10 +148,12 @@ function MessageThread({ messages }: { messages: ChatMessage[] }) {
           <article key={m.id} className={`bubble ${m.role}`}>
             <header className="bubble-meta">{m.role} · {formatDateTime(m.createdAt)}</header>
             {messageType === "action_card" && (
-              <section className="action-card">
-                <strong>{actionCardTitle}</strong>
-                <MarkdownText content={explanation} />
-              </section>
+              <ChatActionCard
+                id={typeof structured?.action_id === "string" ? structured.action_id : ""}
+                title={actionCardTitle}
+                explanation={explanation}
+                onExecute={(actionId) => onExecuteAction(actionId, m.id)}
+              />
             )}
             {(m.role === "system" || messageType === "trace-summary") && (
               <section className="trace-summary">
@@ -170,7 +221,16 @@ function ChatListSidebar() {
 function WorkspaceBody() {
   const [collapsed, setCollapsed] = useState(false);
   const [input, setInput] = useState("");
-  const { activeSessionId, messages, artifacts, sendMessage, sending, error, loadingMessages, refreshSessions, selectSession, chatState } = useChatWorkspaceStore();
+  const { activeSessionId, messages, artifacts, sendMessage, sendAction, sending, error, loadingMessages, refreshSessions, selectSession, chatState } = useChatWorkspaceStore();
+
+  const executeAction = async (actionId: "save_campaign" | "save_segment", messageId: string) => {
+    const response = await sendAction({
+      message: `Execute action ${actionId} from message ${messageId}`,
+      action: { id: actionId, label: actionId === "save_campaign" ? "Сохранить кампанию" : "Сохранить сегмент", kind: "default", payload: {} },
+    });
+    const nextActions = (response.actions_available ?? []).map((item) => item.label).filter((x): x is string => Boolean(x));
+    return { artifactId: response.artifacts?.[0]?.id ?? null, nextActions };
+  };
 
   const retry = async () => {
     await refreshSessions();
@@ -181,7 +241,7 @@ function WorkspaceBody() {
     <div className="chat-workspace-layout">
       <ChatListSidebar />
       <main className="chat-center-panel">
-        {loadingMessages ? <div className="chat-messages">{chatState === "refreshing" ? "Фоновое обновление…" : "Загрузка…"}</div> : <MessageThread messages={messages} />}
+        {loadingMessages ? <div className="chat-messages">{chatState === "refreshing" ? "Фоновое обновление…" : "Загрузка…"}</div> : <MessageThread messages={messages} onExecuteAction={executeAction} />}
         {error && <div className="chat-error">{error} <button onClick={() => void retry()}>Retry</button></div>}
         <div className="chat-composer">
           <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder="Введите сообщение" />

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { getChat, listChats, sendMessage as postMessage, type ChatArtifact, type ChatMessage, type ChatSession } from "../../api/chatApi";
+import { getChat, listChats, sendAction as postAction, sendMessage as postMessage, type ChatActionRequestPayload, type ChatActionResponse, type ChatArtifact, type ChatMessage, type ChatSession } from "../../api/chatApi";
 
 export interface SessionItem extends ChatSession {
   optimistic?: boolean;
@@ -25,6 +25,7 @@ interface ChatWorkspaceState {
   refreshSessions: (background?: boolean) => Promise<void>;
   createNewChat: () => Promise<void>;
   sendMessage: (content: string) => Promise<void>;
+  sendAction: (params: { message: string; action: ChatActionRequestPayload; artifactId?: string }) => Promise<ChatActionResponse>;
 }
 
 const ChatWorkspaceContext = createContext<ChatWorkspaceState | null>(null);
@@ -116,6 +117,23 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
     }
   }, [activeSessionId, refreshSessions, selectSession]);
 
+  const sendAction = useCallback(async ({ message, action, artifactId }: { message: string; action: ChatActionRequestPayload; artifactId?: string }) => {
+    if (!activeSessionId || activeSessionId.startsWith("tmp-")) throw new Error("Сначала выберите сохранённую сессию");
+    setSending(true);
+    setError(null);
+    try {
+      const response = await postAction(activeSessionId, message, action, artifactId);
+      await selectSession(activeSessionId);
+      await refreshSessions(true);
+      return response;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось отправить действие");
+      throw e;
+    } finally {
+      setSending(false);
+    }
+  }, [activeSessionId, refreshSessions, selectSession]);
+
   useEffect(() => {
     void refreshSessions();
   }, [refreshSessions]);
@@ -141,7 +159,8 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
     refreshSessions,
     createNewChat,
     sendMessage,
-  }), [sessions, activeSessionId, messages, artifacts, loadingSessions, loadingMessages, sending, error, sessionsState, chatState, selectSession, refreshSessions, createNewChat, sendMessage]);
+    sendAction,
+  }), [sessions, activeSessionId, messages, artifacts, loadingSessions, loadingMessages, sending, error, sessionsState, chatState, selectSession, refreshSessions, createNewChat, sendMessage, sendAction]);
 
   return <ChatWorkspaceContext.Provider value={value}>{children}</ChatWorkspaceContext.Provider>;
 }

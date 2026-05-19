@@ -231,6 +231,24 @@ VITE_UNIFIED_CHAT_DEFAULT_NAV=false
 
 Migration guide for frontend team: `docs/FRONTEND_UNIFIED_CHAT_MIGRATION.md`.
 
+### Widget shell / legacy styles flags (frontend)
+
+```env
+# enables legacy-compatible widget shell stylesheet loading from main.tsx
+VITE_ENABLE_LEGACY_CSS=false
+
+# optional hard switch for widget shell stylesheet (default true)
+VITE_WIDGET_SHELL_ENABLED=true
+```
+
+Defaults:
+
+- **Dev:** `VITE_ENABLE_LEGACY_CSS=false` (full-page chat by default, widget shell CSS not loaded).
+- **Prod:** `VITE_ENABLE_LEGACY_CSS=false`; enable per deployment only for widget embeds that still rely on legacy selectors.
+- `VITE_WIDGET_SHELL_ENABLED` defaults to `true`; set `false` to force-disable widget shell CSS even when legacy flag is enabled.
+- Styles are loaded only in widget mode (`/widget*` path or `.floating-widget-root` container).
+
+
 UI будет доступен на <http://localhost:5173>. В dev-режиме Vite проксирует `/api/*` на backend; при необходимости задайте:
 
 ```bash

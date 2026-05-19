@@ -18,3 +18,9 @@ describe('chatWorkspaceStore error mapping', () => {
     expect(result.scope).toBe('execute_action');
   });
 });
+
+
+it('keeps unified error shape mode-free for context-agnostic flows', () => {
+  const result = toWorkspaceError('send_message', new Error('net'));
+  expect(result).toEqual({ scope: 'send_message', message: 'net', retryable: false });
+});

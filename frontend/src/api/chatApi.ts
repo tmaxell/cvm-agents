@@ -40,10 +40,18 @@ export interface ChatActionResponse {
   actions_available: ChatActionRequestPayload[];
 }
 
+export type BackendChatMode = "general_analysis" | "builder" | "monitoring";
+
 export interface ChatSessionContext {
   campaign_id?: number | null;
   segment_id?: number | null;
-  mode?: "general_analysis" | "builder" | "monitoring";
+  mode?: BackendChatMode;
+}
+
+const DEFAULT_CHAT_MODE: BackendChatMode = "general_analysis";
+
+function withDefaultContextMode(context?: ChatSessionContext): ChatSessionContext {
+  return { ...(context ?? {}), mode: context?.mode ?? DEFAULT_CHAT_MODE };
 }
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
@@ -216,7 +224,7 @@ export async function sendMessage(sessionId: string, content: string, context?: 
   await fetchWithRetry("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ session_id: sessionId, message: content, context: context ?? {} }),
+    body: JSON.stringify({ session_id: sessionId, message: content, context: withDefaultContextMode(context) }),
   }, ERRORS.send);
 }
 
@@ -227,7 +235,7 @@ export async function sendAction(sessionId: string, message: string, action: Cha
     body: JSON.stringify({
       session_id: sessionId,
       message,
-      context: context ?? {},
+      context: withDefaultContextMode(context),
       action,
       artifact_id: artifactId,
     }),

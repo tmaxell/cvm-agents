@@ -172,7 +172,7 @@ function WorkspaceBody() {
   const [input, setInput] = useState("");
   const [sessionMissing, setSessionMissing] = useState(false);
   const { sessions, activeSessionId, setActiveSessionId, messages, artifacts, sendMessage, sendAction, sending, error, errorState, loadingMessages, refreshSessions, selectSession, chatState, contextBySession, setSessionContext, createNewChat, loadOlderMessages, hasMoreMessages, loadingOlderMessages, isOffline, retryFailedRequests } = useChatWorkspaceStore();
-  const defaultContext: ChatSessionContext = { mode: "general_analysis", campaign_id: null, segment_id: null };
+  const defaultContext: ChatSessionContext = { campaign_id: null, segment_id: null };
   const activeContext: ChatSessionContext = activeSessionId ? (contextBySession[activeSessionId] ?? defaultContext) : defaultContext;
   const [contextWarning, setContextWarning] = useState<string | null>(null);
   useEffect(() => {
@@ -254,17 +254,9 @@ function WorkspaceBody() {
       <main className="chat-center-panel">
         {isOffline && <div className="chat-error">Проблемы с соединением. <button onClick={() => void retryFailedRequests()}>Повторить</button></div>}
         <div className="chat-context-header">
-          <strong>Контекст:</strong> кампания {activeContext.campaign_id ?? "—"} / сегмент {activeContext.segment_id ?? "—"} / режим {activeContext.mode ?? "general_analysis"}
+          <strong>Контекст:</strong> кампания {activeContext.campaign_id ?? "—"} / сегмент {activeContext.segment_id ?? "—"}
         </div>
         <div className="chat-context-switcher" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <select
-            value={activeContext.mode ?? "general_analysis"}
-            onChange={(e) => activeSessionId && setSessionContext(activeSessionId, { ...activeContext, mode: e.target.value as "general_analysis" | "builder" | "monitoring" })}
-          >
-            <option value="general_analysis">общий анализ</option>
-            <option value="builder">builder</option>
-            <option value="monitoring">monitoring</option>
-          </select>
           <input
             placeholder="campaign_id"
             value={activeContext.campaign_id ?? ""}

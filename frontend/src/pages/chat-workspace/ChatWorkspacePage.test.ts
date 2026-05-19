@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { groupByUpdatedAt } from './ChatWorkspacePage';
 
 describe('ChatWorkspacePage component helpers', () => {
@@ -24,5 +25,11 @@ describe('ChatWorkspacePage component helpers', () => {
     expect(grouped['Сегодня']).toEqual([]);
     expect(grouped['Вчера']).toEqual([]);
     expect(grouped['Ранее']).toEqual([]);
+  });
+
+  it('does not render mode switcher select in unified dialog UX', () => {
+    const source = readFileSync(new URL('./ChatWorkspacePage.tsx', import.meta.url), 'utf-8');
+    expect(source.includes('chat-context-switcher')).toBe(true);
+    expect(source.includes('<select')).toBe(false);
   });
 });

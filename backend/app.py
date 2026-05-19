@@ -117,62 +117,168 @@ async def copilot(request: CopilotRequest) -> CopilotResponse:
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest) -> ChatResponse:
-    """Unified chat endpoint for frontend chat widgets."""
+    """Единая точка входа для виджета: классифицирует intent и маршрутизирует к нужному агенту.
+
+    Поддерживаемые интенты:
+      - campaign_attention_report → campaign_monitor
+      - build_campaign            → campaign_builder
+      - suggest_segments          → segment_agent
+      - save_campaign / save_segment → персистирует артефакт и предлагает next actions
+      - clarify / по умолчанию    → qa_copilot (документация + screen context)
+    """
+    from agents.chat_orchestrator import IntentClassifier
+
     await session_store.ensure_chat_session(session_id=request.session_id)
     await session_store.add_chat_message(session_id=request.session_id, role="user", content=request.message)
     run_id = await session_store.create_chat_run(session_id=request.session_id, user_message=request.message)
+
+    artifacts: list[dict[str, Any]] = []
+    next_actions: list[ChatAction] = []
+    assistant_message: str = ""
+
     try:
         await session_store.add_chat_run_event(
-            run_id=run_id,
-            event="route_selected",
-            detail="Request accepted by /api/chat compatibility endpoint.",
-            metadata={"route": "/api/chat"},
+            run_id=run_id, event="route_selected",
+            detail="Request accepted by /api/chat", metadata={"route": "/api/chat"},
         )
-        await session_store.add_chat_run_event(run_id=run_id, event="plan_created", detail="Compatibility responder plan created.")
-        await session_store.add_chat_run_event(run_id=run_id, event="step_started", detail="Building navigation action.")
 
-        tool_input = {"session_id": request.session_id, "artifact_id": request.artifact_id, "action": _model_dump(request.action)}
-        started = time.perf_counter()
-        await session_store.add_chat_run_event(
-            run_id=run_id,
-            event="tool_called",
-            detail="compose_builder_navigation_action",
-            metadata={"tool_name": "compose_builder_navigation_action", "tool_input": _redact_tool_payload(tool_input)},
-        )
-        action_payload = {"route": "/builder", "session_id": request.session_id}
-        artifacts = []
-        next_actions = [ChatAction(id="builder", label="Открыть Builder", kind="navigate", payload=action_payload)]
-        if request.action and request.action.id in {"save_campaign", "save_segment"}:
-            artifact_type = "campaign_draft" if request.action.id == "save_campaign" else "segment_draft"
-            artifact_content = request.action.payload.get("content_json") if request.action.payload else {}
-            artifact_metadata = request.action.payload.get("metadata_json") if request.action.payload else {}
+        # 1. Если пришло explicit action (save_campaign/save_segment) — сохраняем артефакт сразу.
+        if request.action and request.action.id in {"save_campaign", "save_segment", "save_target_group"}:
+            artifact_type = {
+                "save_campaign": "campaign_draft",
+                "save_segment": "segment_draft",
+                "save_target_group": "target_group_draft",
+            }[request.action.id]
+            payload = request.action.payload or {}
+            content_json = payload.get("content_json") if isinstance(payload.get("content_json"), dict) else payload
+            metadata_json = payload.get("metadata_json") if isinstance(payload.get("metadata_json"), dict) else {}
+            await session_store.add_chat_run_event(run_id=run_id, event="step_started", detail=f"Persisting {artifact_type}")
             artifact_id = await session_store.save_artifact(
                 session_id=request.session_id,
                 artifact_type=artifact_type,
-                schema_version=int(request.action.payload.get("schema_version", 1)) if request.action.payload else 1,
-                content_json=artifact_content if isinstance(artifact_content, dict) else {},
-                metadata_json=artifact_metadata if isinstance(artifact_metadata, dict) else {},
+                schema_version=int(payload.get("schema_version", 1)),
+                content_json=content_json if isinstance(content_json, dict) else {},
+                metadata_json=metadata_json,
                 source_run_id=run_id,
             )
-            artifacts.append({"id": artifact_id, "type": artifact_type, "content": artifact_content, "metadata": artifact_metadata})
-            next_actions = [
-                ChatAction(id="open_artifact", label="Открыть артефакт", kind="artifact", payload={"artifact_id": artifact_id}),
-                ChatAction(id="builder", label="Открыть Builder", kind="navigate", payload=action_payload),
-            ]
-        latency_ms = int((time.perf_counter() - started) * 1000)
-        await session_store.add_chat_run_event(
-            run_id=run_id,
-            event="tool_result",
-            detail="compose_builder_navigation_action",
-            metadata={"tool_name": "compose_builder_navigation_action", "status": "success", "latency_ms": latency_ms},
-        )
-        await session_store.add_chat_run_event(run_id=run_id, event="step_completed", detail="Navigation action is ready.")
+            artifacts.append({"id": artifact_id, "type": artifact_type, "content": content_json, "metadata": metadata_json})
+            await session_store.add_chat_run_event(run_id=run_id, event="step_completed", detail=f"Saved {artifact_type} {artifact_id}")
+            assistant_message = {
+                "save_campaign": "✅ Кампания сохранена. Хотите открыть её в AdTarget или продолжить доработку?",
+                "save_segment": "✅ Сегмент сохранён. Можно применить его в кампании или создать новый.",
+                "save_target_group": "✅ Таргет-группа сохранена.",
+            }[request.action.id]
+            next_actions = [ChatAction(id="open_artifact", label="Открыть артефакт", kind="artifact", payload={"artifact_id": artifact_id})]
+        else:
+            # 2. Классифицируем intent.
+            classifier = IntentClassifier()
+            decision = await classifier.classify(request.message)
+            await session_store.add_chat_run_event(
+                run_id=run_id, event="plan_created",
+                detail=f"Intent: {decision.intent} (confidence={decision.confidence:.2f})",
+                metadata={"intent": decision.intent, "reason": decision.reason},
+            )
+
+            # 3. Маршрутизация.
+            if decision.intent == "campaign_attention_report":
+                from agents.campaign_attention import build_campaign_attention_report
+                await session_store.add_chat_run_event(run_id=run_id, event="step_started", detail="Анализ кампаний")
+                started = time.perf_counter()
+                report = await build_campaign_attention_report()
+                assistant_message = _format_attention_report(report)
+                next_actions = [ChatAction(id="builder", label="Открыть Builder", kind="navigate", payload={"route": "/builder"})]
+                await session_store.add_chat_run_event(
+                    run_id=run_id, event="step_completed",
+                    detail="Отчёт по вниманию готов",
+                    metadata={"latency_ms": int((time.perf_counter() - started) * 1000)},
+                )
+
+            elif decision.intent == "suggest_segments":
+                from agents.segment_agent import suggest_segments
+                from schemas import SegmentSuggestRequest
+                await session_store.add_chat_run_event(run_id=run_id, event="step_started", detail="Сегмент-агент: генерация гипотез")
+                started = time.perf_counter()
+                seg_request = SegmentSuggestRequest(
+                    product=_extract_keyword(request.message, "продукт") or "general",
+                    campaign_goal=request.message,
+                )
+                seg_response = await suggest_segments(seg_request)
+                assistant_message = _format_segments(seg_response)
+                if seg_response.hypotheses:
+                    next_actions.append(ChatAction(
+                        id="save_segment",
+                        label="Сохранить сегмент",
+                        kind="save",
+                        payload={"content_json": _model_dump(seg_response.hypotheses[0]) or {}},
+                    ))
+                    next_actions.append(ChatAction(
+                        id="apply_segment",
+                        label="Применить в кампании",
+                        kind="apply",
+                        payload={"hypothesis": _model_dump(seg_response.hypotheses[0]) or {}},
+                    ))
+                await session_store.add_chat_run_event(
+                    run_id=run_id, event="step_completed", detail=f"Сгенерировано {len(seg_response.hypotheses)} гипотез",
+                    metadata={"latency_ms": int((time.perf_counter() - started) * 1000)},
+                )
+
+            elif decision.intent == "build_campaign":
+                from schemas import BuilderRequest
+                await session_store.add_chat_run_event(run_id=run_id, event="step_started", detail="Campaign Builder: сборка флоу")
+                started = time.perf_counter()
+                builder_request = BuilderRequest(goal=request.message, session_id=request.session_id)
+                builder_payload = builder_to_unified(builder_request)
+                builder_result = await agent_orchestrator.execute(AgentTask(agent="builder", payload=builder_payload))
+                builder_response = builder_from_unified(builder_result.payload)
+                assistant_message = builder_response.message
+                if builder_response.draft_flow:
+                    artifact_id = await session_store.save_artifact(
+                        session_id=request.session_id,
+                        artifact_type="draft_flow",
+                        schema_version=builder_response.draft_flow_version or 1,
+                        content_json=_model_dump(builder_response.draft_flow) or {},
+                        metadata_json={"campaign_id": builder_response.campaign_id},
+                        source_run_id=run_id,
+                    )
+                    artifacts.append({
+                        "id": artifact_id,
+                        "type": "draft_flow",
+                        "content": _model_dump(builder_response.draft_flow) or {},
+                        "metadata": {"campaign_id": builder_response.campaign_id},
+                    })
+                    next_actions.append(ChatAction(
+                        id="save_campaign",
+                        label="Сохранить кампанию",
+                        kind="save",
+                        payload={"content_json": _model_dump(builder_response.draft_flow) or {}, "metadata_json": {"campaign_id": builder_response.campaign_id}},
+                    ))
+                await session_store.add_chat_run_event(
+                    run_id=run_id, event="step_completed", detail=f"Builder статус: {builder_response.status}",
+                    metadata={"latency_ms": int((time.perf_counter() - started) * 1000)},
+                )
+
+            else:
+                # default → copilot (документация + screen context)
+                from agents.qa_copilot import answer as copilot_answer
+                from schemas import CopilotRequest
+                await session_store.add_chat_run_event(run_id=run_id, event="step_started", detail="QA Copilot: RAG ответ")
+                started = time.perf_counter()
+                copilot_response = await copilot_answer(CopilotRequest(question=request.message, context=request.context))
+                assistant_message = copilot_response.answer
+                if copilot_response.citations:
+                    citation_lines = "\n".join(f"- {c.title} ({c.source})" for c in copilot_response.citations[:5])
+                    assistant_message = f"{assistant_message}\n\n**Источники:**\n{citation_lines}"
+                await session_store.add_chat_run_event(
+                    run_id=run_id, event="step_completed", detail=f"Найдено источников: {len(copilot_response.citations)}",
+                    metadata={"latency_ms": int((time.perf_counter() - started) * 1000)},
+                )
+
         await session_store.add_chat_run_event(run_id=run_id, event="run_completed", detail="Chat run completed.")
         await session_store.complete_chat_run(run_id=run_id, status="completed")
 
         trace = _safe_chat_trace(await session_store.list_chat_run_events(run_id=run_id))
         response = ChatResponse(
-            assistant_message=request.message,
+            assistant_message=assistant_message or "Я не смог обработать запрос.",
             trace=trace,
             artifacts=artifacts,
             actions_available=next_actions,
@@ -182,13 +288,72 @@ async def chat(request: ChatRequest) -> ChatResponse:
             session_id=request.session_id,
             role="assistant",
             content=response.assistant_message,
-            metadata={"run_id": run_id},
+            metadata={"run_id": run_id, "intent": "auto"},
         )
         return response
     except Exception as exc:
+        logger.exception("/api/chat failed")
         await session_store.add_chat_run_event(run_id=run_id, event="run_failed", status="error", detail=str(exc)[:300])
         await session_store.complete_chat_run(run_id=run_id, status="failed")
-        raise
+        trace = _safe_chat_trace(await session_store.list_chat_run_events(run_id=run_id))
+        fallback = f"Не удалось обработать запрос: {str(exc)[:200]}"
+        await session_store.add_chat_message(session_id=request.session_id, role="assistant", content=fallback)
+        return ChatResponse(
+            assistant_message=fallback,
+            trace=trace,
+            artifacts=[],
+            actions_available=[],
+            session_id=request.session_id,
+        )
+
+
+def _format_attention_report(report: dict[str, Any]) -> str:
+    """Форматирует attention report в читаемое markdown-сообщение."""
+    summary = report.get("summary", "")
+    items = report.get("items") or report.get("campaigns") or []
+    if not items:
+        return summary or "Кампаний, требующих внимания, не найдено."
+    lines = [summary] if summary else []
+    lines.append("**Топ кампаний, требующих внимания:**")
+    for item in items[:5]:
+        name = item.get("campaign_name") or item.get("name") or f"Кампания #{item.get('campaign_id', '?')}"
+        what = item.get("what_is_wrong", "")
+        fix = item.get("suggested_fix", "")
+        score = item.get("priority_score")
+        line = f"- **{name}**"
+        if score is not None:
+            line += f" (priority: {score})"
+        if what:
+            line += f"\n  - Что не так: {what}"
+        if fix:
+            line += f"\n  - Рекомендация: {fix}"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _format_segments(seg_response: Any) -> str:
+    summary = getattr(seg_response, "summary", "") or ""
+    hypotheses = getattr(seg_response, "hypotheses", []) or []
+    if not hypotheses:
+        return summary or "Не удалось предложить сегменты для этого запроса."
+    lines = [summary] if summary else []
+    lines.append(f"**Гипотезы сегментов ({len(hypotheses)}):**")
+    for h in hypotheses[:3]:
+        name = getattr(h, "name", None) or getattr(h, "title", "Без названия")
+        desc = getattr(h, "audience_description", None) or getattr(h, "description", "")
+        reason = getattr(h, "relevance_reason", None) or getattr(h, "rationale", "")
+        lines.append(f"- **{name}**" + (f": {desc}" if desc else "") + (f"\n  - Почему: {reason}" if reason else ""))
+    return "\n".join(lines)
+
+
+def _extract_keyword(message: str, marker: str) -> str | None:
+    """Достаёт значение после маркера (`продукт: X`) из сообщения."""
+    lower = message.lower()
+    if marker not in lower:
+        return None
+    idx = lower.index(marker) + len(marker)
+    tail = message[idx:].lstrip(": ").strip()
+    return tail.split(".")[0].split(",")[0].strip() or None
 
 
 @app.get("/api/sessions", response_model=list[Session])

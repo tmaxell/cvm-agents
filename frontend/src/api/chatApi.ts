@@ -1,3 +1,8 @@
+/**
+ * Единый API чата для плавающего виджета.
+ * Все взаимодействия с агентами идут через POST /api/chat (intent routing на бэкенде).
+ */
+
 export interface ChatSession {
   id: string;
   title: string;
@@ -11,6 +16,7 @@ export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
   createdAt: string | null;
+  metadata?: Record<string, unknown>;
 }
 
 export interface ChatArtifact {
@@ -21,119 +27,46 @@ export interface ChatArtifact {
   metadata: Record<string, unknown>;
 }
 
+export interface ChatTraceEvent {
+  event: string;
+  status: "info" | "warning" | "error";
+  detail: string | null;
+  ts: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface ChatAction {
+  id: string;
+  label: string;
+  kind: string;
+  payload: Record<string, unknown>;
+}
+
 export interface ChatSessionDetail {
   session: ChatSession;
   messages: ChatMessage[];
   artifacts: ChatArtifact[];
 }
 
-export interface ChatMessagesPage {
-  messages: ChatMessage[];
-  nextCursor: string | null;
-  hasMore: boolean;
-  cursorUnsupported: boolean;
-}
-
-export interface ChatActionRequestPayload {
-  id: string;
-  label: string;
-  kind?: string;
-  payload?: Record<string, unknown>;
-}
-
-export interface ChatActionResponse {
+export interface ChatResponse {
   assistant_message: string;
+  trace: ChatTraceEvent[];
   artifacts: ChatArtifact[];
-  actions_available: ChatActionRequestPayload[];
-}
-
-export type BackendChatMode = "general_analysis" | "builder" | "monitoring";
-
-export interface ChatSessionContext {
-  campaign_id?: number | null;
-  segment_id?: number | null;
-  mode?: BackendChatMode;
-}
-
-const DEFAULT_CHAT_MODE: BackendChatMode = "general_analysis";
-
-function withDefaultContextMode(context?: ChatSessionContext): ChatSessionContext {
-  return { ...(context ?? {}), mode: context?.mode ?? DEFAULT_CHAT_MODE };
+  actions_available: ChatAction[];
+  session_id: string;
 }
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
-const MAX_RETRIES = 2;
-const REQUEST_TIMEOUT_MS = 10_000;
-
-export class ApiError extends Error {
-  status: number;
-
-  constructor(message: string, status: number) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-  }
-}
-
-export type ApiErrorKind = "network" | "timeout" | "http" | "validation" | "unknown";
+const REQUEST_TIMEOUT_MS = 30_000;
 
 export class ChatApiError extends Error {
-  kind: ApiErrorKind;
   status: number | null;
   retryable: boolean;
-
-  constructor(message: string, kind: ApiErrorKind, status: number | null, retryable: boolean) {
+  constructor(message: string, status: number | null, retryable: boolean) {
     super(message);
     this.name = "ChatApiError";
-    this.kind = kind;
     this.status = status;
     this.retryable = retryable;
-  }
-}
-
-const ERRORS = {
-  chats: "Не удалось загрузить историю чатов",
-  chat: "Не удалось загрузить чат",
-  messages: "Не удалось загрузить сообщения",
-  artifacts: "Не удалось загрузить артефакты",
-  send: "Не удалось отправить сообщение",
-  create: "Не удалось создать чат",
-};
-
-function telemetryApiError(sessionId: string | null, endpoint: string, statusCode: number | null): void {
-  console.error("telemetry.api_error", {
-    session_id: sessionId,
-    endpoint,
-    status_code: statusCode,
-  });
-}
-
-function classifyApiError(err: unknown, fallback: string): ChatApiError {
-  if (err instanceof ChatApiError) return err;
-  if (err instanceof ApiError) {
-    const message = err.status >= 500
-      ? "Сервис временно недоступен (5xx). Попробуйте повторить запрос."
-      : err.status === 422
-        ? "Ошибка валидации данных запроса (422). Проверьте параметры и повторите."
-        : "Запрос отклонён (4xx). Проверьте данные и попробуйте снова.";
-    return new ChatApiError(message, err.status === 422 ? "validation" : "http", err.status, err.status >= 500);
-  }
-  if (err instanceof DOMException && err.name === "AbortError") {
-    return new ChatApiError("Превышено время ожидания ответа. Проверьте соединение и повторите.", "timeout", null, true);
-  }
-  if (err instanceof TypeError) {
-    return new ChatApiError("Проблемы с соединением. Проверьте сеть и повторите.", "network", null, true);
-  }
-  return new ChatApiError(fallback, "unknown", null, false);
-}
-
-function extractSessionIdFromBody(body: RequestInit["body"]): string | null {
-  if (typeof body !== "string") return null;
-  try {
-    const parsed = JSON.parse(body);
-    return isObject(parsed) && typeof parsed.session_id === "string" ? parsed.session_id : null;
-  } catch {
-    return null;
   }
 }
 
@@ -141,144 +74,140 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 const asString = (v: unknown, fallback = ""): string => (typeof v === "string" ? v : fallback);
 const asNullableString = (v: unknown): string | null => (typeof v === "string" ? v : null);
 
+async function http<T>(path: string, init?: RequestInit): Promise<T> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      await res.text().catch(() => "");
+      throw new ChatApiError(
+        res.status >= 500 ? "Сервис временно недоступен" : `Ошибка запроса (${res.status})`,
+        res.status,
+        res.status >= 500,
+      );
+    }
+    return (await res.json()) as T;
+  } catch (err) {
+    if (err instanceof ChatApiError) throw err;
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new ChatApiError("Превышено время ожидания ответа", null, true);
+    }
+    if (err instanceof TypeError) {
+      throw new ChatApiError("Проблемы с соединением", null, true);
+    }
+    throw new ChatApiError("Неизвестная ошибка", null, false);
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
 function normalizeSession(raw: unknown): ChatSession {
   const o = isObject(raw) ? raw : {};
   return {
-    id: asString(o.id, `unknown-${Math.random().toString(36).slice(2, 9)}`),
-    title: asString(o.title, "Без названия"),
-    status: asString(o.status, "unknown"),
-    updatedAt: asNullableString(o.updated_at),
-    lastMessagePreview: asString(o.last_message_preview),
+    id: asString(o.id, `tmp-${Math.random().toString(36).slice(2, 9)}`),
+    title: asString(o.title, "Новый диалог"),
+    status: asString(o.status, "active"),
+    updatedAt: asNullableString(o.updated_at ?? o.updatedAt),
+    lastMessagePreview: asString(o.last_message_preview ?? o.lastMessagePreview),
   };
 }
 
-function normalizeMessage(raw: unknown, index: number): ChatMessage {
+function normalizeMessage(raw: unknown, idx: number): ChatMessage {
   const o = isObject(raw) ? raw : {};
   const role = o.role === "assistant" || o.role === "system" ? o.role : "user";
   return {
-    id: asString(o.id, `m-${index}`),
+    id: asString(o.id, `m-${idx}`),
     role,
     content: asString(o.content),
-    createdAt: asNullableString(o.created_at),
+    createdAt: asNullableString(o.created_at ?? o.createdAt),
+    metadata: isObject(o.metadata) ? o.metadata : undefined,
   };
 }
 
-async function fetchWithRetry(path: string, init: RequestInit, userError: string): Promise<Response> {
-  let lastError: ChatApiError | null = null;
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-      const res = await fetch(`${API_BASE}${path}`, { ...init, signal: controller.signal });
-      window.clearTimeout(timeoutId);
-      if (!res.ok) {
-        const sessionId = extractSessionIdFromBody(init.body);
-        telemetryApiError(sessionId, path, res.status);
-        throw new ApiError(`HTTP ${res.status}`, res.status);
-      }
-      return res;
-    } catch (err) {
-      lastError = classifyApiError(err, userError);
-      if (attempt < MAX_RETRIES && lastError.retryable) {
-        await new Promise((resolve) => setTimeout(resolve, (attempt + 1) * 250));
-        continue;
-      }
-    }
-  }
-  throw (lastError ?? new ChatApiError(userError, "unknown", null, false));
+function normalizeArtifact(raw: unknown, idx: number): ChatArtifact {
+  const o = isObject(raw) ? raw : {};
+  return {
+    id: asString(o.id, `art-${idx}`),
+    type: asString(o.type, "unknown"),
+    title: asNullableString(o.title),
+    content: isObject(o.content) ? o.content : null,
+    metadata: isObject(o.metadata) ? o.metadata : {},
+  };
 }
 
+function normalizeTrace(raw: unknown): ChatTraceEvent[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item) => {
+    const o = isObject(item) ? item : {};
+    const status = o.status === "warning" || o.status === "error" ? o.status : "info";
+    return {
+      event: asString(o.event, "step"),
+      status,
+      detail: asNullableString(o.detail),
+      ts: asNullableString(o.ts),
+      metadata: isObject(o.metadata) ? o.metadata : {},
+    };
+  });
+}
 
+function normalizeActions(raw: unknown): ChatAction[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item) => {
+    const o = isObject(item) ? item : {};
+    return {
+      id: asString(o.id),
+      label: asString(o.label, asString(o.id)),
+      kind: asString(o.kind, "default"),
+      payload: isObject(o.payload) ? o.payload : {},
+    };
+  });
+}
 
-export async function createChat(context?: ChatSessionContext): Promise<ChatSession> {
-  const res = await fetchWithRetry("/api/sessions", {
+export async function createChat(title?: string): Promise<ChatSession> {
+  const data = await http<unknown>("/api/sessions", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(withDefaultContextMode(context)),
-  }, ERRORS.create);
-  const data = await res.json();
+    body: JSON.stringify({ title: title ?? "Новый диалог" }),
+  });
   return normalizeSession(data);
 }
 
 export async function listChats(): Promise<ChatSession[]> {
-  const res = await fetchWithRetry("/api/sessions", {}, ERRORS.chats);
-  const data = await res.json();
-  const list = Array.isArray(data) ? data : (isObject(data) && Array.isArray(data.sessions) ? data.sessions : []);
+  const data = await http<unknown>("/api/sessions");
+  const list = Array.isArray(data) ? data : isObject(data) && Array.isArray(data.sessions) ? data.sessions : [];
   return list.map(normalizeSession);
 }
 
 export async function getChat(sessionId: string): Promise<ChatSessionDetail> {
-  const res = await fetchWithRetry(`/api/sessions/${encodeURIComponent(sessionId)}`, {}, ERRORS.chat);
-  const data = await res.json();
-  const session = normalizeSession({ ...(isObject(data) ? data : {}), id: sessionId });
-  const messages = listMessagesFromPayload(data);
-  const artifacts = listArtifactsFromPayload(sessionId, data);
+  const data = await http<unknown>(`/api/sessions/${encodeURIComponent(sessionId)}`);
+  const o = isObject(data) ? data : {};
+  const session = normalizeSession({ ...o, id: sessionId });
+  const messages = Array.isArray(o.messages) ? o.messages.map(normalizeMessage) : [];
+  const artifacts: ChatArtifact[] = [];
+  if (Array.isArray(o.artifacts)) {
+    o.artifacts.forEach((a, i) => artifacts.push(normalizeArtifact(a, i)));
+  }
+  if (isObject(o.draft_flow)) {
+    artifacts.push({ id: `${sessionId}-draft-flow`, type: "draft_flow", title: null, content: o.draft_flow, metadata: {} });
+  }
   return { session, messages, artifacts };
 }
 
-function listMessagesFromPayload(data: unknown): ChatMessage[] {
-  if (!isObject(data) || !Array.isArray(data.messages)) return [];
-  return data.messages.map((m, i) => normalizeMessage(m, i));
-}
-
-function listArtifactsFromPayload(sessionId: string, data: unknown): ChatArtifact[] {
-  if (!isObject(data)) return [];
-  const items: ChatArtifact[] = [];
-  if (isObject(data.draft_flow)) items.push({ id: `${sessionId}-draft-flow`, type: "draft_flow", title: null, content: data.draft_flow, metadata: {} });
-  if (isObject(data.campaign_brief)) items.push({ id: `${sessionId}-campaign-brief`, type: "campaign_brief", title: null, content: data.campaign_brief, metadata: {} });
-  return items;
-}
-
-export async function listMessages(sessionId: string): Promise<ChatMessage[]> {
-  const page = await listMessagesPage(sessionId, null, 50);
-  return page.messages;
-}
-
-export async function listMessagesPage(sessionId: string, cursor: string | null, limit = 50): Promise<ChatMessagesPage> {
-  const query = new URLSearchParams();
-  query.set("limit", String(limit));
-  if (cursor) query.set("cursor", cursor);
-  const res = await fetchWithRetry(`/api/sessions/${encodeURIComponent(sessionId)}/messages?${query.toString()}`, {}, ERRORS.messages);
-  const data = await res.json();
-  if (isObject(data) && Array.isArray(data.messages)) {
-    const nextCursor = typeof data.next_cursor === "string" ? data.next_cursor : null;
-    const hasMore = typeof data.has_more === "boolean" ? data.has_more : Boolean(nextCursor);
-    return {
-      messages: data.messages.map((m, i) => normalizeMessage(m, i)),
-      nextCursor,
-      hasMore,
-      cursorUnsupported: false,
-    };
-  }
-  const detail = await getChat(sessionId);
-  return { messages: detail.messages, nextCursor: null, hasMore: false, cursorUnsupported: true };
-}
-
-export async function listArtifacts(sessionId: string): Promise<ChatArtifact[]> {
-  const detail = await getChat(sessionId);
-  return detail.artifacts;
-}
-
-export async function sendMessage(sessionId: string, content: string, context?: ChatSessionContext): Promise<void> {
-  if (!content.trim()) return;
-  await fetchWithRetry("/api/chat", {
+export async function sendChat(sessionId: string, message: string, action?: ChatAction): Promise<ChatResponse> {
+  const data = await http<unknown>("/api/chat", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ session_id: sessionId, message: content, context: withDefaultContextMode(context) }),
-  }, ERRORS.send);
-}
-
-export async function sendAction(sessionId: string, message: string, action: ChatActionRequestPayload, artifactId?: string, context?: ChatSessionContext): Promise<ChatActionResponse> {
-  const res = await fetchWithRetry("/api/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      session_id: sessionId,
-      message,
-      context: withDefaultContextMode(context),
-      action,
-      artifact_id: artifactId,
-    }),
-  }, ERRORS.send);
-  return await res.json() as ChatActionResponse;
+    body: JSON.stringify({ session_id: sessionId, message, action }),
+  });
+  const o = isObject(data) ? data : {};
+  return {
+    assistant_message: asString(o.assistant_message),
+    trace: normalizeTrace(o.trace),
+    artifacts: Array.isArray(o.artifacts) ? o.artifacts.map(normalizeArtifact) : [],
+    actions_available: normalizeActions(o.actions_available),
+    session_id: asString(o.session_id, sessionId),
+  };
 }

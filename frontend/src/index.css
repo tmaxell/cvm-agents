@@ -1,8 +1,6 @@
 @import "./styles/base.css";
+@import "./styles/adtarget-mock.css";
+@import "./styles/floating-widget.css";
 
-/*
- * Legacy/widget shell CSS toggle:
- * - default: widget shell styles are enabled when VITE_ENABLE_LEGACY_CSS=true.
- * - set VITE_WIDGET_SHELL_ENABLED=false to hard-disable loading widget-shell.css.
- * - widget-shell.css is loaded only in widget mode from main.tsx.
- */
+html, body, #root { height: 100%; }
+body { overflow: hidden; }

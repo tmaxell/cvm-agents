@@ -152,3 +152,76 @@ def test_runtime_status_migration_updates_existing_sqlite_schema(tmp_path, monke
     database_path = tmp_path / "legacy.sqlite3"
 
     asyncio.run(_run_migration_smoke_test(f"sqlite+aiosqlite:///{database_path}", monkeypatch))
+
+
+async def _create_legacy_chat_schema(engine):
+    async with engine.begin() as connection:
+        await connection.execute(text("""
+            CREATE TABLE sessions (
+                id VARCHAR(64) PRIMARY KEY,
+                campaign_id INTEGER,
+                title VARCHAR(255) NOT NULL,
+                status VARCHAR(32) NOT NULL,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL
+            )
+        """))
+        await connection.execute(text("""
+            CREATE TABLE chat_sessions (
+                id VARCHAR(64) PRIMARY KEY,
+                builder_session_id VARCHAR(64),
+                title VARCHAR(255),
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL
+            )
+        """))
+        await connection.execute(text("""
+            CREATE TABLE chat_runs (
+                id VARCHAR(64) PRIMARY KEY,
+                session_id VARCHAR(64) NOT NULL,
+                status VARCHAR(32) NOT NULL,
+                user_message TEXT,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL
+            )
+        """))
+        await connection.execute(text("""
+            INSERT INTO sessions (id, campaign_id, title, status, created_at, updated_at)
+            VALUES ('legacy-session', 42, 'Legacy session', 'collect_brief', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        """))
+        await connection.execute(text("""
+            INSERT INTO chat_runs (id, session_id, status, user_message, created_at, updated_at)
+            VALUES
+                ('run-1', 'legacy-session', 'done', 'one', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+                ('run-2', 'legacy-session', 'done', 'two', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        """))
+
+
+async def _run_chat_sessions_backfill_idempotent_test(database_url: str, monkeypatch):
+    engine = create_async_engine(database_url, pool_pre_ping=True)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    monkeypatch.setattr(db, "engine", engine)
+    monkeypatch.setattr(db, "AsyncSessionLocal", session_factory)
+
+    try:
+        await _create_legacy_chat_schema(engine)
+
+        await db.init_db()
+        await db.init_db()
+
+        async with engine.begin() as connection:
+            total_rows = await connection.scalar(text("SELECT COUNT(*) FROM chat_sessions"))
+            legacy_rows = await connection.scalar(
+                text("SELECT COUNT(*) FROM chat_sessions WHERE id = 'legacy-session'")
+            )
+
+        assert total_rows == 1
+        assert legacy_rows == 1
+    finally:
+        await engine.dispose()
+
+
+def test_chat_sessions_backfill_is_idempotent_on_repeated_init(tmp_path, monkeypatch):
+    database_path = tmp_path / "legacy_chat.sqlite3"
+
+    asyncio.run(_run_chat_sessions_backfill_idempotent_test(f"sqlite+aiosqlite:///{database_path}", monkeypatch))

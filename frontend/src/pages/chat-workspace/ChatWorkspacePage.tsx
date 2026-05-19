@@ -1,3 +1,4 @@
+import "../../styles/chat-workspace.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useNavigate, useParams } from "react-router-dom";

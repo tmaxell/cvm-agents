@@ -20,8 +20,10 @@ from models import (
     BuilderMessageModel,
     BuilderSessionModel,
     CampaignStateModel,
+    ChatMessageModel,
     ChatRunEventModel,
     ChatRunModel,
+    ChatSessionModel,
 )
 from schemas import ChatTraceEvent, Message, Session, SessionDetail
 
@@ -81,6 +83,22 @@ async def init_db() -> None:
         for column_name, statement in column_migrations.items():
             if columns and column_name not in columns:
                 await connection.execute(text(statement))
+
+        def _chat_runs_columns(sync_connection) -> set[str]:
+            inspector = inspect(sync_connection)
+            if not inspector.has_table("chat_runs"):
+                return set()
+            return {column["name"] for column in inspector.get_columns("chat_runs")}
+
+        chat_runs_columns = await connection.run_sync(_chat_runs_columns)
+        if chat_runs_columns and "session_id" in chat_runs_columns:
+            await connection.execute(
+                text(
+                    "INSERT OR IGNORE INTO chat_sessions (id, builder_session_id, title, created_at, updated_at) "
+                    "SELECT DISTINCT cr.session_id, cr.session_id, 'Builder chat', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP "
+                    "FROM chat_runs cr"
+                )
+            )
 
 
 class DatabaseSessionStore:
@@ -291,6 +309,7 @@ class DatabaseSessionStore:
 
     async def create_chat_run(self, *, session_id: str, user_message: str | None = None) -> str:
         async with session_scope() as db:
+            await self._ensure_chat_session_entity(db, session_id)
             now = self._now()
             run = ChatRunModel(
                 id=str(uuid4()),
@@ -303,6 +322,49 @@ class DatabaseSessionStore:
             db.add(run)
             await db.flush()
             return run.id
+
+    async def ensure_chat_session(
+        self, *, session_id: str, title: str | None = None, builder_session_id: str | None = None
+    ) -> str:
+        async with session_scope() as db:
+            chat_session = await self._ensure_chat_session_entity(
+                db, session_id=session_id, title=title, builder_session_id=builder_session_id
+            )
+            return chat_session.id
+
+    async def add_chat_message(
+        self, *, session_id: str, role: str, content: str, metadata: dict[str, Any] | None = None
+    ) -> None:
+        async with session_scope() as db:
+            session = await self._ensure_chat_session_entity(db, session_id=session_id)
+            session.updated_at = self._now()
+            db.add(
+                ChatMessageModel(
+                    id=str(uuid4()),
+                    session_id=session_id,
+                    role=role,
+                    content=content,
+                    metadata_json=metadata,
+                    created_at=self._now(),
+                )
+            )
+
+    async def get_chat_history(self, *, session_id: str) -> list[Message]:
+        async with session_scope() as db:
+            result = await db.scalars(
+                select(ChatMessageModel).where(ChatMessageModel.session_id == session_id).order_by(ChatMessageModel.created_at)
+            )
+            return [
+                Message(
+                    id=item.id,
+                    session_id=item.session_id,
+                    role=item.role,
+                    content=item.content,
+                    created_at=item.created_at,
+                    metadata=item.metadata_json,
+                )
+                for item in result
+            ]
 
     async def add_chat_run_event(
         self,
@@ -353,3 +415,33 @@ class DatabaseSessionStore:
                 )
                 for item in result
             ]
+
+    async def _ensure_chat_session_entity(
+        self,
+        db: AsyncSession,
+        session_id: str,
+        title: str | None = None,
+        builder_session_id: str | None = None,
+    ) -> ChatSessionModel:
+        chat_session = await db.get(ChatSessionModel, session_id)
+        now = self._now()
+        if chat_session is not None:
+            if builder_session_id is not None and not chat_session.builder_session_id:
+                chat_session.builder_session_id = builder_session_id
+            chat_session.updated_at = now
+            return chat_session
+        linked_builder_id = builder_session_id if builder_session_id is not None else session_id
+        if linked_builder_id is not None:
+            maybe_builder = await db.get(BuilderSessionModel, linked_builder_id)
+            if maybe_builder is None:
+                linked_builder_id = None
+        chat_session = ChatSessionModel(
+            id=session_id,
+            builder_session_id=linked_builder_id,
+            title=title or "Builder chat",
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(chat_session)
+        await db.flush()
+        return chat_session

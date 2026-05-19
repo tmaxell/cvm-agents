@@ -105,6 +105,8 @@ async def copilot(request: CopilotRequest) -> CopilotResponse:
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest) -> ChatResponse:
     """Unified chat endpoint for frontend chat widgets."""
+    await session_store.ensure_chat_session(session_id=request.session_id)
+    await session_store.add_chat_message(session_id=request.session_id, role="user", content=request.message)
     run_id = await session_store.create_chat_run(session_id=request.session_id, user_message=request.message)
     try:
         await session_store.add_chat_run_event(
@@ -137,13 +139,20 @@ async def chat(request: ChatRequest) -> ChatResponse:
         await session_store.complete_chat_run(run_id=run_id, status="completed")
 
         trace = _safe_chat_trace(await session_store.list_chat_run_events(run_id=run_id))
-        return ChatResponse(
+        response = ChatResponse(
             assistant_message=request.message,
             trace=trace,
             artifacts=[],
             actions_available=[ChatAction(id="builder", label="Открыть Builder", kind="navigate", payload=action_payload)],
             session_id=request.session_id,
         )
+        await session_store.add_chat_message(
+            session_id=request.session_id,
+            role="assistant",
+            content=response.assistant_message,
+            metadata={"run_id": run_id},
+        )
+        return response
     except Exception as exc:
         await session_store.add_chat_run_event(run_id=run_id, event="run_failed", status="error", detail=str(exc)[:300])
         await session_store.complete_chat_run(run_id=run_id, status="failed")

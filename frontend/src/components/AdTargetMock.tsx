@@ -8,6 +8,7 @@
 
 import { useState } from "react";
 import type { CampaignFlow, CampaignOffer, CampaignRuntimeStatus, FlowActivity } from "../types/api";
+import { SKELETON_FLOW } from "./flow/skeletonFlow";
 
 interface Props {
   flow: CampaignFlow | null;
@@ -389,13 +390,6 @@ function AdtRightToolbar() {
 }
 
 // ── Canvas empty state ────────────────────────────────────────────────────────
-
-// Skeleton placeholder activities always shown on empty canvas
-const SKELETON_ACTIVITIES: FlowActivity[] = [
-  { id: "sk-common", type: "CommonActivity", name: "Campaign", nextActivityId: "sk-tg" },
-  { id: "sk-tg", type: "TargetGroupActivity", name: "Target group", nextActivityId: undefined },
-];
-const SKELETON_FLOW = { activities: SKELETON_ACTIVITIES };
 
 function AdtCanvasEmpty() {
   return (

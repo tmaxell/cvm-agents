@@ -44,4 +44,12 @@ describe('ChatWorkspacePage component helpers', () => {
     const indexCss = readFileSync(new URL('../../index.css', import.meta.url), 'utf-8');
     expect(indexCss.includes('@import "./styles/widget-shell.css";')).toBe(false);
   });
+
+  it('defines widget background layer under chat content', () => {
+    const source = readFileSync(new URL('./ChatWorkspacePage.tsx', import.meta.url), 'utf-8');
+    const css = readFileSync(new URL('../../styles/chat-workspace.css', import.meta.url), 'utf-8');
+    expect(source.includes('data-testid="chat-widget-background"')).toBe(true);
+    expect(css.includes('pointer-events: none;')).toBe(true);
+    expect(css.includes('z-index: 0;')).toBe(true);
+  });
 });

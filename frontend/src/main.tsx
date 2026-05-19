@@ -5,9 +5,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
 import "./index.css";
 
-if (import.meta.env.VITE_ENABLE_LEGACY_CSS === "true") {
-  await import("./styles/legacy.css");
-}
 
 const queryClient = new QueryClient();
 

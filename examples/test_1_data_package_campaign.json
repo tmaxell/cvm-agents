@@ -1,0 +1,1417 @@
+{
+    "id": 0,
+    "campaignId": 0,
+    "activities": [
+        {
+            "type": "CommonActivity",
+            "id": "c5fc8387-1fda-41b2-97ec-eec7923d6af5",
+            "name": "Тестовая 1 Предложение пакетов  Мб за ДП и не ДП_Copy",
+            "position": {
+                "left": 848,
+                "top": 38
+            },
+            "nextActivityId": "88d1fd94-2854-4ecb-a535-1d47352af111",
+            "description": "Предложение разовых пакетов по событию утилизации интернет трафика на 95%, с реал тайм проверками по балансу и доступности услуги Доверительного платежа (ДП). Тем у кого недостаточно средств на балансе предлагается пакет за ДП. Коммуникация по двум каналам. Отклики по двум каналам (интерактивные и по смс). Активации по 4 продуктам",
+            "priority": 1,
+            "typeId": 43,
+            "schedule": {
+                "period": {
+                    "tzBehavior": "System",
+                    "beginDate": "0001-01-01T00:00:00+04:03",
+                    "tzBeginDate": "0001-01-01T00:00:00+04:03",
+                    "endDate": "0001-01-01T00:00:00+04:03",
+                    "tzEndDate": "0001-01-01T00:00:00+04:03"
+                },
+                "frequency": {
+                    "type": "DailyFrequency",
+                    "periodInDays": 1
+                }
+            },
+            "settings": {
+                "useContactPolicies": true,
+                "hasImpactOnContactPolicies": true,
+                "useBlackLists": true,
+                "communicationLimit": null,
+                "businessTransactionLimit": null
+            },
+            "campaignGroupId": null,
+            "tagIds": []
+        },
+        {
+            "type": "TargetGroupActivity",
+            "id": "88d1fd94-2854-4ecb-a535-1d47352af111",
+            "name": "Target group",
+            "position": {
+                "left": 848,
+                "top": 179
+            },
+            "nextActivityId": "1f89b21d-0cdc-4a8c-aa9f-ef0d8c273ceb",
+            "clientSourceType": "TargetGroup",
+            "clientSourceId": 174,
+            "description": "FROM \"All clients\"",
+            "acceptClients": false,
+            "excludeClients": false,
+            "useLocalControlGroup": true,
+            "targetGroupSnapshotId": null,
+            "lCGroupClientCalculationResult": null,
+            "localControlGroupSettings": {
+                "rule": "Online",
+                "percent": 10,
+                "filters": [],
+                "clientParametersDeviationPercent": 5
+            },
+            "useUniversalControlGroup": true,
+            "useTestGroup": true,
+            "testGroupClientSourceId": 561,
+            "tagIds": []
+        },
+        {
+            "type": "EventActivity",
+            "id": "1f89b21d-0cdc-4a8c-aa9f-ef0d8c273ceb",
+            "name": "Event",
+            "position": {
+                "left": 848,
+                "top": 345.5
+            },
+            "defaultSuccessActivityId": null,
+            "cases": {
+                "1": "3a209376-a258-4deb-90aa-1f8dbcd84d09"
+            },
+            "eventCode": "DataPackageUtilization",
+            "filters": [
+                {
+                    "parameterFilters": [
+                        {
+                            "eventParameterName": "UtilizationPercent",
+                            "eventParameterOperation": "Between",
+                            "eventParameterArguments": [
+                                "95"
+                            ]
+                        }
+                    ],
+                    "index": 1
+                }
+            ],
+            "eventRelevanceInMinutes": 15,
+            "haveToCheckSchedule": false,
+            "timeoutParameters": null,
+            "timeOutNextActivityId": null,
+            "invalidTimeNextActivityId": null,
+            "defaultFailActivityId": null,
+            "tagIds": []
+        },
+        {
+            "type": "RealTimeCheckActivity",
+            "id": "3a209376-a258-4deb-90aa-1f8dbcd84d09",
+            "name": "Проверка баланса",
+            "position": {
+                "left": 848,
+                "top": 663
+            },
+            "defaultSuccessActivityId": null,
+            "cases": {
+                "1": "7621d4e6-c5f1-4d88-81ad-88ef5ff3de99",
+                "2": "bd480a6e-35a2-4177-b3b8-c38bd5340ac3",
+                "3": "019f0b9c-59d8-4bc8-a723-47856dce04e3"
+            },
+            "parameterName": "Balance",
+            "parameterArguments": [],
+            "filters": [
+                {
+                    "type": "SimpleRealTimeParameterFilter",
+                    "function": "Between",
+                    "arguments": [
+                        null,
+                        "10"
+                    ],
+                    "index": 1
+                },
+                {
+                    "type": "SimpleRealTimeParameterFilter",
+                    "function": "Between",
+                    "arguments": [
+                        "10",
+                        "50"
+                    ],
+                    "index": 2
+                },
+                {
+                    "type": "SimpleRealTimeParameterFilter",
+                    "function": "Between",
+                    "arguments": [
+                        "50",
+                        null
+                    ],
+                    "index": 3
+                }
+            ],
+            "retryPolicy": {
+                "attempts": 3,
+                "interval": 120
+            },
+            "frequencyForClient": {
+                "amount": 1,
+                "interval": 3600
+            },
+            "defaultFailActivityId": null,
+            "tagIds": []
+        },
+        {
+            "type": "PushCommunicationActivity",
+            "id": "bd480a6e-35a2-4177-b3b8-c38bd5340ac3",
+            "name": "ДСТК пакет за 10",
+            "position": {
+                "left": 266,
+                "top": 970
+            },
+            "defaultSuccessActivityId": "1edc6a28-a7f8-471f-83f3-b7a60def0e9c",
+            "cases": {},
+            "isNotification": false,
+            "content": {
+                "type": "JsonContent",
+                "localizedContents": {
+                    "1": {
+                        "type": "JsonContentTranslation",
+                        "body": "{\n    \"JsonContent\" : \"Купи пакет за 10 рублей, нажав Ок\"\n}\n\n",
+                        "languageId": 1
+                    },
+                    "2": {
+                        "type": "JsonContentTranslation",
+                        "body": "{\n    \"JsonContent\" : \"Купи пакет за 10 рублей, нажав Ок \"\n}",
+                        "languageId": 2
+                    }
+                }
+            },
+            "schedule": {
+                "period": {
+                    "tzBehavior": "System",
+                    "beginDate": "0001-01-01T00:00:00+04:03",
+                    "tzBeginDate": "0001-01-01T00:00:00+04:03",
+                    "endDate": "0001-01-01T00:00:00+04:03",
+                    "tzEndDate": "0001-01-01T00:00:00+04:03"
+                },
+                "frequency": {
+                    "type": "DailyFrequency",
+                    "periodInDays": 1
+                }
+            },
+            "timeIntervals": [
+                {
+                    "begin": 28800,
+                    "end": 72000
+                }
+            ],
+            "frequencyForClient": {
+                "amount": 1,
+                "interval": 86400
+            },
+            "offers": [],
+            "limit": null,
+            "realtimeChecks": [],
+            "contentType": "JsonContent",
+            "contentTemplateId": 53,
+            "productId": null,
+            "timeoutParameters": {
+                "timerType": "WaitForInterval",
+                "interval": 300,
+                "waitUntil": null,
+                "waitUntilExpression": null
+            },
+            "timeOutNextActivityId": "95eaae5f-5750-44f7-8204-d7f423014bc6",
+            "clientLimit": null,
+            "useNbo": false,
+            "waitForDeliveryReport": true,
+            "channelId": 19,
+            "retryPolicy": {
+                "attempts": 3,
+                "interval": 3600
+            },
+            "disableRetries": true,
+            "validityPeriod": null,
+            "frequency": null,
+            "invalidTimeNextActivityId": null,
+            "customContentTypeId": null,
+            "priorityType": "Campaign",
+            "isInteractive": true,
+            "defaultFailActivityId": null,
+            "tagIds": []
+        },
+        {
+            "type": "InteractiveResponseActivity",
+            "id": "1edc6a28-a7f8-471f-83f3-b7a60def0e9c",
+            "name": "Interactive response",
+            "position": {
+                "left": 120.5,
+                "top": 1287.5
+            },
+            "defaultSuccessActivityId": "5f98c0c4-4e82-43eb-a900-16d5311e581a",
+            "cases": {},
+            "haveToCheckSchedule": false,
+            "timeoutParameters": null,
+            "timeOutNextActivityId": null,
+            "invalidTimeNextActivityId": null,
+            "linkedCommunicationActivities": [
+                "bd480a6e-35a2-4177-b3b8-c38bd5340ac3"
+            ],
+            "operations": null,
+            "filters": [],
+            "defaultFailActivityId": null,
+            "tagIds": []
+        },
+        {
+            "type": "PushCommunicationActivity",
+            "id": "019f0b9c-59d8-4bc8-a723-47856dce04e3",
+            "name": "ДСТК пакет за 50",
+            "position": {
+                "left": 848,
+                "top": 970
+            },
+            "defaultSuccessActivityId": "58b1c3bf-9df5-4d9c-a5c6-e09a12a43f13",
+            "cases": {},
+            "isNotification": false,
+            "content": {
+                "type": "JsonContent",
+                "localizedContents": {
+                    "1": {
+                        "type": "JsonContentTranslation",
+                        "body": "{\n    \"JsonContent\" : \"Купи пакет за 50 рублей, нажав Ок\"\n}\n\n",
+                        "languageId": 1
+                    },
+                    "2": {
+                        "type": "JsonContentTranslation",
+                        "body": "{\n    \"JsonContent\" : \"Купи пакет за 50 рублей, нажав Ок \"\n}",
+                        "languageId": 2
+                    }
+                }
+            },
+            "schedule": {
+                "period": {
+                    "tzBehavior": "System",
+                    "beginDate": "0001-01-01T00:00:00+04:03",
+                    "tzBeginDate": "0001-01-01T00:00:00+04:03",
+                    "endDate": "0001-01-01T00:00:00+04:03",
+                    "tzEndDate": "0001-01-01T00:00:00+04:03"
+                },
+                "frequency": {
+                    "type": "DailyFrequency",
+                    "periodInDays": 1
+                }
+            },
+            "timeIntervals": [
+                {
+                    "begin": 28800,
+                    "end": 72000
+                }
+            ],
+            "frequencyForClient": {
+                "amount": 1,
+                "interval": 86400
+            },
+            "offers": [],
+            "limit": null,
+            "realtimeChecks": [],
+            "contentType": "JsonContent",
+            "contentTemplateId": 53,
+            "productId": null,
+            "timeoutParameters": {
+                "timerType": "WaitForInterval",
+                "interval": 300,
+                "waitUntil": null,
+                "waitUntilExpression": null
+            },
+            "timeOutNextActivityId": "159e7014-728a-4f18-a76d-77c1d09ec43d",
+            "clientLimit": null,
+            "useNbo": false,
+            "waitForDeliveryReport": true,
+            "channelId": 19,
+            "retryPolicy": {
+                "attempts": 3,
+                "interval": 3600
+            },
+            "disableRetries": true,
+            "validityPeriod": null,
+            "frequency": null,
+            "invalidTimeNextActivityId": null,
+            "customContentTypeId": null,
+            "priorityType": "Campaign",
+            "isInteractive": true,
+            "defaultFailActivityId": null,
+            "tagIds": []
+        },
+        {
+            "type": "InteractiveResponseActivity",
+            "id": "58b1c3bf-9df5-4d9c-a5c6-e09a12a43f13",
+            "name": "Interactive response",
+            "position": {
+                "left": 702.5,
+                "top": 1287.5
+            },
+            "defaultSuccessActivityId": "f6589592-bbec-4eee-9ea4-91f95b8a1325",
+            "cases": {},
+            "haveToCheckSchedule": false,
+            "timeoutParameters": null,
+            "timeOutNextActivityId": null,
+            "invalidTimeNextActivityId": null,
+            "linkedCommunicationActivities": [
+                "019f0b9c-59d8-4bc8-a723-47856dce04e3"
+            ],
+            "operations": null,
+            "filters": [],
+            "defaultFailActivityId": null,
+            "tagIds": []
+        },
+        {
+            "type": "RealTimeCheckActivity",
+            "id": "7621d4e6-c5f1-4d88-81ad-88ef5ff3de99",
+            "name": "Проверка на доступность ДП",
+            "position": {
+                "left": 1575.5,
+                "top": 970
+            },
+            "defaultSuccessActivityId": null,
+            "cases": {
+                "1": "c9757bff-aead-4372-92cf-956769bb58b8"
+            },
+            "parameterName": "CanActivateService",
+            "parameterArguments": [
+                {
+                    "name": "bpId",
+                    "value": "qwe"
+                },
+                {
+                    "name": "volume",
+                    "value": "1000"
+                },
+                {
+                    "name": "date",
+                    "value": null
+                }
+            ],
+            "filters": [
+                {
+                    "type": "SimpleRealTimeParameterFilter",
+                    "function": "Equals",
+                    "arguments": [
+                        "1"
+                    ],
+                    "index": 1
+                }
+            ],
+            "retryPolicy": {
+                "attempts": 3,
+                "interval": 120
+            },
+            "frequencyForClient": {
+                "amount": 1,
+                "interval": 3600
+            },
+            "defaultFailActivityId": null,
+            "tagIds": []
+        },
+        {
+            "type": "PushCommunicationActivity",
+            "id": "95eaae5f-5750-44f7-8204-d7f423014bc6",
+            "name": "SMS пакет за 10",
+            "position": {
+                "left": 411.5,
+                "top": 1123.5
+            },
+            "defaultSuccessActivityId": "dab3856b-f830-4602-bb3b-3b12a0e25b1e",
+            "cases": {},
+            "isNotification": false,
+            "content": {
+                "type": "SmsContent",
+                "priority": 1,
+                "localizedContents": {
+                    "1": {
+                        "type": "SmsContentTranslation",
+                        "senderName": "sender1",
+                        "body": "Купи пакет за 10 рублей, прислав 1 на 5555",
+                        "languageId": 1
+                    },
+                    "2": {
+                        "type": "SmsContentTranslation",
+                        "senderName": "sender1",
+                        "body": "Купи пакет за 10 рублей,  прислав 1 на 5555",
+                        "languageId": 2
+                    }
+                }
+            },
+            "schedule": {
+                "period": {
+                    "tzBehavior": "System",
+                    "beginDate": "0001-01-01T00:00:00+04:03",
+                    "tzBeginDate": "0001-01-01T00:00:00+04:03",
+                    "endDate": "0001-01-01T00:00:00+04:03",
+                    "tzEndDate": "0001-01-01T00:00:00+04:03"
+                },
+                "frequency": {
+                    "type": "DailyFrequency",
+                    "periodInDays": 1
+                }
+            },
+            "timeIntervals": [
+                {
+                    "begin": 28800,
+                    "end": 72000
+                }
+            ],
+            "frequencyForClient": {
+                "amount": 1,
+                "interval": 86400
+            },
+            "offers": [],
+            "limit": null,
+            "realtimeChecks": [],
+            "contentType": "SmsContent",
+            "contentTemplateId": null,
+            "productId": null,
+            "timeoutParameters": null,
+            "timeOutNextActivityId": null,
+            "clientLimit": null,
+            "useNbo": false,
+            "waitForDeliveryReport": false,
+            "channelId": 1,
+            "retryPolicy": {
+                "attempts": 3,
+                "interval": 3600
+            },
+            "disableRetries": true,
+            "validityPeriod": 3600,
+            "frequency": null,
+            "invalidTimeNextActivityId": null,
+            "customContentTypeId": null,
+            "priorityType": "Campaign",
+            "isInteractive": false,
+            "defaultFailActivityId": null,
+            "tagIds": []
+        },
+        {
+            "type": "PushCommunicationActivity",
+            "id": "159e7014-728a-4f18-a76d-77c1d09ec43d",
+            "name": "SMS пакет за 50",
+            "position": {
+                "left": 993.5,
+                "top": 1123.5
+            },
+            "defaultSuccessActivityId": "8ae7c3b9-6eee-4898-8182-0af1504012c9",
+            "cases": {},
+            "isNotification": false,
+            "content": {
+                "type": "SmsContent",
+                "priority": 1,
+                "localizedContents": {
+                    "1": {
+                        "type": "SmsContentTranslation",
+                        "senderName": "sender1",
+                        "body": "Купи пакет за 50 рублей,прислав 1 на 5555",
+                        "languageId": 1
+                    },
+                    "2": {
+                        "type": "SmsContentTranslation",
+                        "senderName": "sender1",
+                        "body": "Купи пакет за 50 рублей, прислав 1 на 5555",
+                        "languageId": 2
+                    }
+                }
+            },
+            "schedule": {
+                "period": {
+                    "tzBehavior": "System",
+                    "beginDate": "0001-01-01T00:00:00+04:03",
+                    "tzBeginDate": "0001-01-01T00:00:00+04:03",
+                    "endDate": "0001-01-01T00:00:00+04:03",
+                    "tzEndDate": "0001-01-01T00:00:00+04:03"
+                },
+                "frequency": {
+                    "type": "DailyFrequency",
+                    "periodInDays": 1
+                }
+            },
+            "timeIntervals": [
+                {
+                    "begin": 28800,
+                    "end": 72000
+                }
+            ],
+            "frequencyForClient": {
+                "amount": 1,
+                "interval": 86400
+            },
+            "offers": [],
+            "limit": null,
+            "realtimeChecks": [],
+            "contentType": "SmsContent",
+            "contentTemplateId": null,
+            "productId": null,
+            "timeoutParameters": null,
+            "timeOutNextActivityId": null,
+            "clientLimit": null,
+            "useNbo": false,
+            "waitForDeliveryReport": false,
+            "channelId": 1,
+            "retryPolicy": {
+                "attempts": 3,
+                "interval": 3600
+            },
+            "disableRetries": true,
+            "validityPeriod": 3600,
+            "frequency": null,
+            "invalidTimeNextActivityId": null,
+            "customContentTypeId": null,
+            "priorityType": "Campaign",
+            "isInteractive": false,
+            "defaultFailActivityId": null,
+            "tagIds": []
+        },
+        {
+            "type": "ResponseActivity",
+            "id": "dab3856b-f830-4602-bb3b-3b12a0e25b1e",
+            "name": "Пакет за 10",
+            "position": {
+                "left": 411.5,
+                "top": 1287.5
+            },
+            "defaultSuccessActivityId": null,
+            "cases": {
+                "0": "5f98c0c4-4e82-43eb-a900-16d5311e581a"
+            },
+            "responseSourceId": 9,
+            "haveToCheckSchedule": false,
+            "timeoutParameters": null,
+            "timeOutNextActivityId": null,
+            "invalidTimeNextActivityId": null,
+            "linkedCommunicationActivities": [
+                "95eaae5f-5750-44f7-8204-d7f423014bc6"
+            ],
+            "operations": "LTrim, RTrim, CaseInsensitive, DelLPoint, DelRPoint, SpaceTrim",
+            "filters": [
+                {
+                    "type": "DictionaryResponseFilter",
+                    "responseDictionaryItemId": 25,
+                    "index": 0
+                }
+            ],
+            "defaultFailActivityId": null,
+            "tagIds": []
+        },
+        {
+            "type": "ResponseActivity",
+            "id": "8ae7c3b9-6eee-4898-8182-0af1504012c9",
+            "name": "Пакет за 50",
+            "position": {
+                "left": 993.5,
+                "top": 1287.5
+            },
+            "defaultSuccessActivityId": null,
+            "cases": {
+                "0": "f6589592-bbec-4eee-9ea4-91f95b8a1325"
+            },
+            "responseSourceId": 9,
+            "haveToCheckSchedule": false,
+            "timeoutParameters": null,
+            "timeOutNextActivityId": null,
+            "invalidTimeNextActivityId": null,
+            "linkedCommunicationActivities": [
+                "159e7014-728a-4f18-a76d-77c1d09ec43d"
+            ],
+            "operations": "LTrim, RTrim, CaseInsensitive, DelLPoint, DelRPoint, SpaceTrim",
+            "filters": [
+                {
+                    "type": "DictionaryResponseFilter",
+                    "responseDictionaryItemId": 25,
+                    "index": 0
+                }
+            ],
+            "defaultFailActivityId": null,
+            "tagIds": []
+        },
+        {
+            "type": "OrJoinActivity",
+            "id": "5f98c0c4-4e82-43eb-a900-16d5311e581a",
+            "name": "Or",
+            "position": {
+                "left": 266,
+                "top": 1615.5
+            },
+            "nextActivityId": "70975058-f79a-43cb-823d-0d3ec39f63c8",
+            "tagIds": []
+        },
+        {
+            "type": "BusinessTransactionActivity",
+            "id": "70975058-f79a-43cb-823d-0d3ec39f63c8",
+            "name": "Пакет за 10",
+            "position": {
+                "left": 266,
+                "top": 1779.5
+            },
+            "defaultSuccessActivityId": null,
+            "cases": {},
+            "offerId": null,
+            "offerTemplateId": null,
+            "productId": null,
+            "businessOperation": {
+                "id": "addBusinessProduct",
+                "parameters": [
+                    {
+                        "name": "bpId",
+                        "value": "qwe",
+                        "valueExpression": null
+                    },
+                    {
+                        "name": "Amount",
+                        "value": "10",
+                        "valueExpression": null
+                    },
+                    {
+                        "name": "ChargeAmount",
+                        "value": "1000",
+                        "valueExpression": null
+                    },
+                    {
+                        "name": "EndDay",
+                        "value": null,
+                        "valueExpression": null
+                    }
+                ]
+            },
+            "retryPolicy": {
+                "attempts": 3,
+                "interval": 120
+            },
+            "frequencyForClient": {
+                "amount": 1,
+                "interval": 86400
+            },
+            "limit": null,
+            "clientLimit": null,
+            "schedule": {
+                "period": {
+                    "tzBehavior": "System",
+                    "beginDate": "0001-01-01T00:00:00+04:03",
+                    "tzBeginDate": "0001-01-01T00:00:00+04:03",
+                    "endDate": "0001-01-01T00:00:00+04:03",
+                    "tzEndDate": "0001-01-01T00:00:00+04:03"
+                },
+                "frequency": {
+                    "type": "DailyFrequency",
+                    "periodInDays": 1
+                }
+            },
+            "timeIntervals": [
+                {
+                    "begin": 0,
+                    "end": 86400
+                }
+            ],
+            "invalidTimeNextActivityId": null,
+            "realtimeChecks": [],
+            "defaultFailActivityId": null,
+            "tagIds": []
+        },
+        {
+            "type": "OrJoinActivity",
+            "id": "f6589592-bbec-4eee-9ea4-91f95b8a1325",
+            "name": "Or",
+            "position": {
+                "left": 848,
+                "top": 1615.5
+            },
+            "nextActivityId": "e57ca292-1c76-4e14-9c75-119e3c36a113",
+            "tagIds": []
+        },
+        {
+            "type": "BusinessTransactionActivity",
+            "id": "e57ca292-1c76-4e14-9c75-119e3c36a113",
+            "name": "Пакет за 50",
+            "position": {
+                "left": 848,
+                "top": 1779.5
+            },
+            "defaultSuccessActivityId": null,
+            "cases": {},
+            "offerId": null,
+            "offerTemplateId": null,
+            "productId": null,
+            "businessOperation": {
+                "id": "addBusinessProduct",
+                "parameters": [
+                    {
+                        "name": "bpId",
+                        "value": "qwe",
+                        "valueExpression": null
+                    },
+                    {
+                        "name": "Amount",
+                        "value": "50",
+                        "valueExpression": null
+                    },
+                    {
+                        "name": "ChargeAmount",
+                        "value": "5000",
+                        "valueExpression": null
+                    },
+                    {
+                        "name": "EndDay",
+                        "value": null,
+                        "valueExpression": null
+                    }
+                ]
+            },
+            "retryPolicy": {
+                "attempts": 3,
+                "interval": 120
+            },
+            "frequencyForClient": {
+                "amount": 1,
+                "interval": 86400
+            },
+            "limit": null,
+            "clientLimit": null,
+            "schedule": {
+                "period": {
+                    "tzBehavior": "System",
+                    "beginDate": "0001-01-01T00:00:00+04:03",
+                    "tzBeginDate": "0001-01-01T00:00:00+04:03",
+                    "endDate": "0001-01-01T00:00:00+04:03",
+                    "tzEndDate": "0001-01-01T00:00:00+04:03"
+                },
+                "frequency": {
+                    "type": "DailyFrequency",
+                    "periodInDays": 1
+                }
+            },
+            "timeIntervals": [
+                {
+                    "begin": 0,
+                    "end": 86400
+                }
+            ],
+            "invalidTimeNextActivityId": null,
+            "realtimeChecks": [],
+            "defaultFailActivityId": null,
+            "tagIds": []
+        },
+        {
+            "type": "PushCommunicationActivity",
+            "id": "c9757bff-aead-4372-92cf-956769bb58b8",
+            "name": "ДСТК пакет  по ДП за 10",
+            "position": {
+                "left": 1575.5,
+                "top": 1287.5
+            },
+            "defaultSuccessActivityId": "3c49fae9-7bc1-4695-a32d-8ffd6d22d2e2",
+            "cases": {},
+            "isNotification": false,
+            "content": {
+                "type": "JsonContent",
+                "localizedContents": {
+                    "1": {
+                        "type": "JsonContentTranslation",
+                        "body": "{\n    \"JsonContent\" : \"Доверительный платеж на пакет за 10 рублей, нажав Ок\"\n}\n\n",
+                        "languageId": 1
+                    },
+                    "2": {
+                        "type": "JsonContentTranslation",
+                        "body": "{\n    \"JsonContent\" : \"Доверительный платеж на пакет за 10 рублей, нажав Ок\"\n}",
+                        "languageId": 2
+                    }
+                }
+            },
+            "schedule": {
+                "period": {
+                    "tzBehavior": "System",
+                    "beginDate": "0001-01-01T00:00:00+04:03",
+                    "tzBeginDate": "0001-01-01T00:00:00+04:03",
+                    "endDate": "0001-01-01T00:00:00+04:03",
+                    "tzEndDate": "0001-01-01T00:00:00+04:03"
+                },
+                "frequency": {
+                    "type": "DailyFrequency",
+                    "periodInDays": 1
+                }
+            },
+            "timeIntervals": [
+                {
+                    "begin": 28800,
+                    "end": 72000
+                }
+            ],
+            "frequencyForClient": {
+                "amount": 1,
+                "interval": 86400
+            },
+            "offers": [],
+            "limit": null,
+            "realtimeChecks": [],
+            "contentType": "JsonContent",
+            "contentTemplateId": 53,
+            "productId": null,
+            "timeoutParameters": {
+                "timerType": "WaitForInterval",
+                "interval": 300,
+                "waitUntil": null,
+                "waitUntilExpression": null
+            },
+            "timeOutNextActivityId": "d7be3699-697a-42b2-a4ee-0be62727a035",
+            "clientLimit": null,
+            "useNbo": false,
+            "waitForDeliveryReport": true,
+            "channelId": 19,
+            "retryPolicy": {
+                "attempts": 3,
+                "interval": 3600
+            },
+            "disableRetries": true,
+            "validityPeriod": null,
+            "frequency": null,
+            "invalidTimeNextActivityId": null,
+            "customContentTypeId": null,
+            "priorityType": "Campaign",
+            "isInteractive": true,
+            "defaultFailActivityId": null,
+            "tagIds": []
+        },
+        {
+            "type": "InteractiveResponseActivity",
+            "id": "3c49fae9-7bc1-4695-a32d-8ffd6d22d2e2",
+            "name": "Interactive response",
+            "position": {
+                "left": 1284.5,
+                "top": 1615.5
+            },
+            "defaultSuccessActivityId": "01c7f91d-1c81-4612-8371-ba77ad4066ad",
+            "cases": {},
+            "haveToCheckSchedule": false,
+            "timeoutParameters": null,
+            "timeOutNextActivityId": null,
+            "invalidTimeNextActivityId": null,
+            "linkedCommunicationActivities": [
+                "c9757bff-aead-4372-92cf-956769bb58b8"
+            ],
+            "operations": null,
+            "filters": [],
+            "defaultFailActivityId": null,
+            "tagIds": []
+        },
+        {
+            "type": "PushCommunicationActivity",
+            "id": "d7be3699-697a-42b2-a4ee-0be62727a035",
+            "name": "SMS пакет за 10 или 50",
+            "position": {
+                "left": 1721,
+                "top": 1451.5
+            },
+            "defaultSuccessActivityId": "e1c849c5-3e13-4961-8266-e27c1888680a",
+            "cases": {},
+            "isNotification": false,
+            "content": {
+                "type": "SmsContent",
+                "priority": 1,
+                "localizedContents": {
+                    "1": {
+                        "type": "SmsContentTranslation",
+                        "senderName": "sender1",
+                        "body": "Купи пакет за 10 рублей по ДП, прислав 1 на 5555, или за 50 рублей, прислав 2 на 5555",
+                        "languageId": 1
+                    },
+                    "2": {
+                        "type": "SmsContentTranslation",
+                        "senderName": "sender1",
+                        "body": "Купи пакет за 10 рублей по ДП, прислав 1 на 5555, или за 50 рублей, прислав 2 на 5555",
+                        "languageId": 2
+                    }
+                }
+            },
+            "schedule": {
+                "period": {
+                    "tzBehavior": "System",
+                    "beginDate": "0001-01-01T00:00:00+04:03",
+                    "tzBeginDate": "0001-01-01T00:00:00+04:03",
+                    "endDate": "0001-01-01T00:00:00+04:03",
+                    "tzEndDate": "0001-01-01T00:00:00+04:03"
+                },
+                "frequency": {
+                    "type": "DailyFrequency",
+                    "periodInDays": 1
+                }
+            },
+            "timeIntervals": [
+                {
+                    "begin": 28800,
+                    "end": 72000
+                }
+            ],
+            "frequencyForClient": {
+                "amount": 1,
+                "interval": 86400
+            },
+            "offers": [],
+            "limit": null,
+            "realtimeChecks": [],
+            "contentType": "SmsContent",
+            "contentTemplateId": null,
+            "productId": null,
+            "timeoutParameters": null,
+            "timeOutNextActivityId": null,
+            "clientLimit": null,
+            "useNbo": false,
+            "waitForDeliveryReport": false,
+            "channelId": 1,
+            "retryPolicy": {
+                "attempts": 3,
+                "interval": 3600
+            },
+            "disableRetries": true,
+            "validityPeriod": 3600,
+            "frequency": null,
+            "invalidTimeNextActivityId": null,
+            "customContentTypeId": null,
+            "priorityType": "Campaign",
+            "isInteractive": false,
+            "defaultFailActivityId": null,
+            "tagIds": []
+        },
+        {
+            "type": "ResponseActivity",
+            "id": "e1c849c5-3e13-4961-8266-e27c1888680a",
+            "name": "Пакеты за 10 или 50",
+            "position": {
+                "left": 1721,
+                "top": 1615.5
+            },
+            "defaultSuccessActivityId": null,
+            "cases": {
+                "0": "01c7f91d-1c81-4612-8371-ba77ad4066ad",
+                "1": "cf2f7ad2-21e1-476d-862b-d4ac53c4ca7d"
+            },
+            "responseSourceId": 9,
+            "haveToCheckSchedule": false,
+            "timeoutParameters": null,
+            "timeOutNextActivityId": null,
+            "invalidTimeNextActivityId": null,
+            "linkedCommunicationActivities": [
+                "d7be3699-697a-42b2-a4ee-0be62727a035"
+            ],
+            "operations": "LTrim, RTrim, CaseInsensitive, DelLPoint, DelRPoint, SpaceTrim",
+            "filters": [
+                {
+                    "type": "DictionaryResponseFilter",
+                    "responseDictionaryItemId": 25,
+                    "index": 0
+                },
+                {
+                    "type": "DictionaryResponseFilter",
+                    "responseDictionaryItemId": 58,
+                    "index": 1
+                }
+            ],
+            "defaultFailActivityId": null,
+            "tagIds": []
+        },
+        {
+            "type": "OrJoinActivity",
+            "id": "01c7f91d-1c81-4612-8371-ba77ad4066ad",
+            "name": "Or",
+            "position": {
+                "left": 1430,
+                "top": 1930.5
+            },
+            "nextActivityId": "97ea9dba-d7f0-47d9-b18c-996321d6aee4",
+            "tagIds": []
+        },
+        {
+            "type": "BusinessTransactionActivity",
+            "id": "97ea9dba-d7f0-47d9-b18c-996321d6aee4",
+            "name": "ДП на 10",
+            "position": {
+                "left": 1430,
+                "top": 2081.5
+            },
+            "defaultSuccessActivityId": "f9067b4a-35f3-4fbf-91d4-f9d5b974d899",
+            "cases": {},
+            "offerId": null,
+            "offerTemplateId": null,
+            "productId": null,
+            "businessOperation": {
+                "id": "addBusinessProduct",
+                "parameters": [
+                    {
+                        "name": "bpId",
+                        "value": "qwe",
+                        "valueExpression": null
+                    },
+                    {
+                        "name": "Amount",
+                        "value": "10",
+                        "valueExpression": null
+                    },
+                    {
+                        "name": "ChargeAmount",
+                        "value": "1000",
+                        "valueExpression": null
+                    },
+                    {
+                        "name": "EndDay",
+                        "value": null,
+                        "valueExpression": null
+                    }
+                ]
+            },
+            "retryPolicy": {
+                "attempts": 3,
+                "interval": 120
+            },
+            "frequencyForClient": {
+                "amount": 1,
+                "interval": 86400
+            },
+            "limit": null,
+            "clientLimit": null,
+            "schedule": {
+                "period": {
+                    "tzBehavior": "System",
+                    "beginDate": "0001-01-01T00:00:00+04:03",
+                    "tzBeginDate": "0001-01-01T00:00:00+04:03",
+                    "endDate": "0001-01-01T00:00:00+04:03",
+                    "tzEndDate": "0001-01-01T00:00:00+04:03"
+                },
+                "frequency": {
+                    "type": "DailyFrequency",
+                    "periodInDays": 1
+                }
+            },
+            "timeIntervals": [
+                {
+                    "begin": 0,
+                    "end": 86400
+                }
+            ],
+            "invalidTimeNextActivityId": null,
+            "realtimeChecks": [],
+            "defaultFailActivityId": null,
+            "tagIds": []
+        },
+        {
+            "type": "BusinessTransactionActivity",
+            "id": "f9067b4a-35f3-4fbf-91d4-f9d5b974d899",
+            "name": "Пакет за 10 по ДП",
+            "position": {
+                "left": 1430,
+                "top": 2232.5
+            },
+            "defaultSuccessActivityId": null,
+            "cases": {},
+            "offerId": null,
+            "offerTemplateId": null,
+            "productId": null,
+            "businessOperation": {
+                "id": "addBusinessProduct",
+                "parameters": [
+                    {
+                        "name": "bpId",
+                        "value": "qwe",
+                        "valueExpression": null
+                    },
+                    {
+                        "name": "Amount",
+                        "value": "10",
+                        "valueExpression": null
+                    },
+                    {
+                        "name": "ChargeAmount",
+                        "value": "1000",
+                        "valueExpression": null
+                    },
+                    {
+                        "name": "EndDay",
+                        "value": null,
+                        "valueExpression": null
+                    }
+                ]
+            },
+            "retryPolicy": {
+                "attempts": 3,
+                "interval": 120
+            },
+            "frequencyForClient": {
+                "amount": 1,
+                "interval": 86400
+            },
+            "limit": null,
+            "clientLimit": null,
+            "schedule": {
+                "period": {
+                    "tzBehavior": "System",
+                    "beginDate": "0001-01-01T00:00:00+04:03",
+                    "tzBeginDate": "0001-01-01T00:00:00+04:03",
+                    "endDate": "0001-01-01T00:00:00+04:03",
+                    "tzEndDate": "0001-01-01T00:00:00+04:03"
+                },
+                "frequency": {
+                    "type": "DailyFrequency",
+                    "periodInDays": 1
+                }
+            },
+            "timeIntervals": [
+                {
+                    "begin": 0,
+                    "end": 86400
+                }
+            ],
+            "invalidTimeNextActivityId": null,
+            "realtimeChecks": [],
+            "defaultFailActivityId": null,
+            "tagIds": []
+        },
+        {
+            "type": "BusinessTransactionActivity",
+            "id": "cf2f7ad2-21e1-476d-862b-d4ac53c4ca7d",
+            "name": "ДП на 50",
+            "position": {
+                "left": 1866.5,
+                "top": 1930.5
+            },
+            "defaultSuccessActivityId": "4cb5f7fd-89b6-40fa-8c19-a8f13a8f90ed",
+            "cases": {},
+            "offerId": null,
+            "offerTemplateId": null,
+            "productId": null,
+            "businessOperation": {
+                "id": "addBusinessProduct",
+                "parameters": [
+                    {
+                        "name": "bpId",
+                        "value": "qwe",
+                        "valueExpression": null
+                    },
+                    {
+                        "name": "Amount",
+                        "value": "50",
+                        "valueExpression": null
+                    },
+                    {
+                        "name": "ChargeAmount",
+                        "value": "5000",
+                        "valueExpression": null
+                    },
+                    {
+                        "name": "EndDay",
+                        "value": null,
+                        "valueExpression": null
+                    }
+                ]
+            },
+            "retryPolicy": {
+                "attempts": 3,
+                "interval": 120
+            },
+            "frequencyForClient": {
+                "amount": 1,
+                "interval": 86400
+            },
+            "limit": null,
+            "clientLimit": null,
+            "schedule": {
+                "period": {
+                    "tzBehavior": "System",
+                    "beginDate": "0001-01-01T00:00:00+04:03",
+                    "tzBeginDate": "0001-01-01T00:00:00+04:03",
+                    "endDate": "0001-01-01T00:00:00+04:03",
+                    "tzEndDate": "0001-01-01T00:00:00+04:03"
+                },
+                "frequency": {
+                    "type": "DailyFrequency",
+                    "periodInDays": 1
+                }
+            },
+            "timeIntervals": [
+                {
+                    "begin": 0,
+                    "end": 86400
+                }
+            ],
+            "invalidTimeNextActivityId": null,
+            "realtimeChecks": [],
+            "defaultFailActivityId": null,
+            "tagIds": []
+        },
+        {
+            "type": "BusinessTransactionActivity",
+            "id": "4cb5f7fd-89b6-40fa-8c19-a8f13a8f90ed",
+            "name": "Пакет за 50 по ДП",
+            "position": {
+                "left": 1866.5,
+                "top": 2081.5
+            },
+            "defaultSuccessActivityId": null,
+            "cases": {},
+            "offerId": null,
+            "offerTemplateId": null,
+            "productId": null,
+            "businessOperation": {
+                "id": "addBusinessProduct",
+                "parameters": [
+                    {
+                        "name": "bpId",
+                        "value": "qwe",
+                        "valueExpression": null
+                    },
+                    {
+                        "name": "Amount",
+                        "value": "50",
+                        "valueExpression": null
+                    },
+                    {
+                        "name": "ChargeAmount",
+                        "value": "5000",
+                        "valueExpression": null
+                    },
+                    {
+                        "name": "EndDay",
+                        "value": null,
+                        "valueExpression": null
+                    }
+                ]
+            },
+            "retryPolicy": {
+                "attempts": 3,
+                "interval": 120
+            },
+            "frequencyForClient": {
+                "amount": 1,
+                "interval": 86400
+            },
+            "limit": null,
+            "clientLimit": null,
+            "schedule": {
+                "period": {
+                    "tzBehavior": "System",
+                    "beginDate": "0001-01-01T00:00:00+04:03",
+                    "tzBeginDate": "0001-01-01T00:00:00+04:03",
+                    "endDate": "0001-01-01T00:00:00+04:03",
+                    "tzEndDate": "0001-01-01T00:00:00+04:03"
+                },
+                "frequency": {
+                    "type": "DailyFrequency",
+                    "periodInDays": 1
+                }
+            },
+            "timeIntervals": [
+                {
+                    "begin": 0,
+                    "end": 86400
+                }
+            ],
+            "invalidTimeNextActivityId": null,
+            "realtimeChecks": [],
+            "defaultFailActivityId": null,
+            "tagIds": []
+        }
+    ],
+    "offers": [],
+    "zoom": 0.4791940429259746,
+    "autoAlign": true,
+    "position": {
+        "left": 993.5000000000001,
+        "top": 1141.5000000000002
+    },
+    "subNodes": [
+        {
+            "id": "1f89b21d-0cdc-4a8c-aa9f-ef0d8c273ceb__1",
+            "type": "ActivityFilter",
+            "position": {
+                "left": 848,
+                "top": 509.5
+            }
+        },
+        {
+            "id": "3a209376-a258-4deb-90aa-1f8dbcd84d09__1",
+            "type": "ActivityFilter",
+            "position": {
+                "left": 1575.5,
+                "top": 816.5
+            }
+        },
+        {
+            "id": "3a209376-a258-4deb-90aa-1f8dbcd84d09__2",
+            "type": "ActivityFilter",
+            "position": {
+                "left": 266,
+                "top": 816.5
+            }
+        },
+        {
+            "id": "3a209376-a258-4deb-90aa-1f8dbcd84d09__3",
+            "type": "ActivityFilter",
+            "position": {
+                "left": 848,
+                "top": 816.5
+            }
+        },
+        {
+            "id": "1edc6a28-a7f8-471f-83f3-b7a60def0e9c__SwitchDefault",
+            "type": "SwitchDefault",
+            "position": {
+                "left": 120.5,
+                "top": 1451.5
+            }
+        },
+        {
+            "id": "58b1c3bf-9df5-4d9c-a5c6-e09a12a43f13__SwitchDefault",
+            "type": "SwitchDefault",
+            "position": {
+                "left": 702.5,
+                "top": 1451.5
+            }
+        },
+        {
+            "id": "7621d4e6-c5f1-4d88-81ad-88ef5ff3de99__1",
+            "type": "ActivityFilter",
+            "position": {
+                "left": 1575.5,
+                "top": 1123.5
+            }
+        },
+        {
+            "id": "dab3856b-f830-4602-bb3b-3b12a0e25b1e__0",
+            "type": "ActivityFilter",
+            "position": {
+                "left": 411.5,
+                "top": 1451.5
+            }
+        },
+        {
+            "id": "8ae7c3b9-6eee-4898-8182-0af1504012c9__0",
+            "type": "ActivityFilter",
+            "position": {
+                "left": 993.5,
+                "top": 1451.5
+            }
+        },
+        {
+            "id": "3c49fae9-7bc1-4695-a32d-8ffd6d22d2e2__SwitchDefault",
+            "type": "SwitchDefault",
+            "position": {
+                "left": 1284.5,
+                "top": 1779.5
+            }
+        },
+        {
+            "id": "e1c849c5-3e13-4961-8266-e27c1888680a__0",
+            "type": "ActivityFilter",
+            "position": {
+                "left": 1575.5,
+                "top": 1779.5
+            }
+        },
+        {
+            "id": "e1c849c5-3e13-4961-8266-e27c1888680a__1",
+            "type": "ActivityFilter",
+            "position": {
+                "left": 1866.5,
+                "top": 1779.5
+            }
+        }
+    ]
+}

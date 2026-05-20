@@ -1,0 +1,517 @@
+{
+  "id": 0,
+  "campaignId": 0,
+  "activities": [
+    {
+      "type": "CommonActivity",
+      "id": "c5fc8387-1fda-41b2-97ec-eec7923d6af5",
+      "name": "Тестовая 5 этап 1 Подарок за погашение АП по ТП",
+      "position": {
+        "left": 0,
+        "top": 0
+      },
+      "nextActivityId": "88d1fd94-2854-4ecb-a535-1d47352af111",
+      "description": "Перевод абонентов из кампании Тестовая 6 с предложением активации пакета",
+      "priority": 1,
+      "typeId": 43,
+      "schedule": {
+        "period": {
+          "tzBehavior": "System",
+          "beginDate": "2023-10-19T00:00:00+05:00",
+          "tzBeginDate": "2023-10-19T00:00:00+05:00",
+          "endDate": "2024-10-19T23:59:00+05:00",
+          "tzEndDate": "2024-10-19T23:59:00+05:00"
+        },
+        "frequency": {
+          "type": "DailyFrequency",
+          "periodInDays": 1
+        }
+      },
+      "settings": {
+        "useContactPolicies": true,
+        "hasImpactOnContactPolicies": true,
+        "useBlackLists": true,
+        "communicationLimit": null,
+        "businessTransactionLimit": null
+      },
+      "campaignGroupId": null,
+      "tagIds": []
+    },
+    {
+      "type": "TargetGroupActivity",
+      "id": "88d1fd94-2854-4ecb-a535-1d47352af111",
+      "name": "Target group",
+      "position": {
+        "left": 0,
+        "top": 0
+      },
+      "nextActivityId": "27686a52-9d30-45bf-ba18-e950adebea4c",
+      "clientSourceType": "TargetGroup",
+      "clientSourceId": 159,
+      "description": "FROM \"All clients\": \"AgeGroup\" = 'Unknown' AND \"Gender\" = 'M' AND \"IsMarried\" = False AND \"Brand\" = 'KCELL'",
+      "acceptClients": false,
+      "excludeClients": false,
+      "useLocalControlGroup": false,
+      "targetGroupSnapshotId": null,
+      "lCGroupClientCalculationResult": null,
+      "localControlGroupSettings": null,
+      "useUniversalControlGroup": true,
+      "useTestGroup": false,
+      "testGroupClientSourceId": null,
+      "tagIds": []
+    },
+    {
+      "type": "PushCommunicationActivity",
+      "id": "27686a52-9d30-45bf-ba18-e950adebea4c",
+      "name": "SMS push",
+      "position": {
+        "left": 0,
+        "top": 0
+      },
+      "defaultSuccessActivityId": "df04337c-4f64-466b-9aeb-8778b13866bc",
+      "cases": {},
+      "isNotification": false,
+      "content": {
+        "type": "SmsContent",
+        "priority": 1,
+        "localizedContents": {
+          "1": {
+            "type": "SmsContentTranslation",
+            "senderName": "sender1",
+            "body": "Мы заметили, что сейчас Вы без связи :(\nПополните баланс для оплаты своего тарифа и получите в ПОДАРОК - безлимитные Социальные сети + 2000 Мб!\nУспейте пополнить баланс и воспользоваться подарочным пакетом до {{AddDays(Today(),3):Ddd.MM.yyyy}}",
+            "languageId": 1
+          }
+        }
+      },
+      "schedule": {
+        "period": {
+          "tzBehavior": "System",
+          "beginDate": "2023-10-19T00:00:00+05:00",
+          "tzBeginDate": "2023-10-19T00:00:00+05:00",
+          "endDate": "2024-10-19T23:59:00+05:00",
+          "tzEndDate": "2024-10-19T23:59:00+05:00"
+        },
+        "frequency": {
+          "type": "DailyFrequency",
+          "periodInDays": 1
+        }
+      },
+      "timeIntervals": [
+        {
+          "begin": 28800,
+          "end": 72000
+        }
+      ],
+      "frequencyForClient": {
+        "amount": 1,
+        "interval": 2592000
+      },
+      "offers": [],
+      "limit": null,
+      "realtimeChecks": [],
+      "contentType": "SmsContent",
+      "contentTemplateId": null,
+      "productId": null,
+      "timeoutParameters": null,
+      "timeOutNextActivityId": null,
+      "clientLimit": null,
+      "useNbo": false,
+      "waitForDeliveryReport": false,
+      "channelId": 1,
+      "retryPolicy": {
+        "attempts": 3,
+        "interval": 3600
+      },
+      "disableRetries": false,
+      "validityPeriod": 3600,
+      "frequency": null,
+      "invalidTimeNextActivityId": null,
+      "customContentTypeId": null,
+      "priorityType": "Campaign",
+      "isInteractive": false,
+      "defaultFailActivityId": null,
+      "tagIds": []
+    },
+    {
+      "type": "EventActivity",
+      "id": "df04337c-4f64-466b-9aeb-8778b13866bc",
+      "name": "Успешное списание АП по ТП",
+      "position": {
+        "left": 0,
+        "top": 0
+      },
+      "defaultSuccessActivityId": "b8154a00-12f0-4288-9141-819e1df361ae",
+      "cases": {},
+      "eventCode": "Charge",
+      "filters": [],
+      "eventRelevanceInMinutes": 15,
+      "haveToCheckSchedule": false,
+      "timeoutParameters": {
+        "timerType": "WaitForInterval",
+        "interval": 345600,
+        "waitUntil": null,
+        "waitUntilExpression": null
+      },
+      "timeOutNextActivityId": null,
+      "invalidTimeNextActivityId": null,
+      "defaultFailActivityId": null,
+      "tagIds": []
+    },
+    {
+      "type": "BusinessTransactionActivity",
+      "id": "b8154a00-12f0-4288-9141-819e1df361ae",
+      "name": "Подарок Соцсети 1000",
+      "position": {
+        "left": 0,
+        "top": 0
+      },
+      "defaultSuccessActivityId": "ea226baa-b57f-4b5b-ab4d-6d2d99ac55ea",
+      "cases": {},
+      "offerId": null,
+      "offerTemplateId": null,
+      "productId": null,
+      "businessOperation": {
+        "id": "addBusinessProduct",
+        "parameters": [
+          {
+            "name": "bpId",
+            "value": "qwe",
+            "valueExpression": null
+          },
+          {
+            "name": "Amount",
+            "value": "1000",
+            "valueExpression": null
+          },
+          {
+            "name": "ChargeAmount",
+            "value": "0",
+            "valueExpression": null
+          },
+          {
+            "name": "EndDay",
+            "value": null,
+            "valueExpression": null
+          }
+        ]
+      },
+      "retryPolicy": {
+        "attempts": 3,
+        "interval": 3600
+      },
+      "frequencyForClient": {
+        "amount": 1,
+        "interval": 86400
+      },
+      "limit": null,
+      "clientLimit": null,
+      "schedule": {
+        "period": {
+          "tzBehavior": "System",
+          "beginDate": "2023-10-19T00:00:00+05:00",
+          "tzBeginDate": "2023-10-19T00:00:00+05:00",
+          "endDate": "2024-10-19T23:59:00+05:00",
+          "tzEndDate": "2024-10-19T23:59:00+05:00"
+        },
+        "frequency": {
+          "type": "DailyFrequency",
+          "periodInDays": 1
+        }
+      },
+      "timeIntervals": [
+        {
+          "begin": 0,
+          "end": 86400
+        }
+      ],
+      "invalidTimeNextActivityId": null,
+      "realtimeChecks": [],
+      "defaultFailActivityId": null,
+      "tagIds": []
+    },
+    {
+      "type": "PushCommunicationActivity",
+      "id": "ea226baa-b57f-4b5b-ab4d-6d2d99ac55ea",
+      "name": "вкл Подарок на 7 дней",
+      "position": {
+        "left": 0,
+        "top": 0
+      },
+      "defaultSuccessActivityId": "d1b2995c-6759-403b-aff6-186bb1d45933",
+      "cases": {},
+      "isNotification": true,
+      "content": {
+        "type": "SmsContent",
+        "priority": 1,
+        "localizedContents": {
+          "1": {
+            "type": "SmsContentTranslation",
+            "senderName": "sender1",
+            "body": "Вы получили в ПОДАРОК безлимитный доступ на Facebook, VK, OK, Instagram и Twitter + 1000 Мб на высокой скорости. Успейте воспользоваться подарочным пакетом до {{AddDays(Today(),7):Ddd.MM.yyyy}}",
+            "languageId": 1
+          }
+        }
+      },
+      "schedule": {
+        "period": {
+          "tzBehavior": "System",
+          "beginDate": "2023-10-19T00:00:00+05:00",
+          "tzBeginDate": "2023-10-19T00:00:00+05:00",
+          "endDate": "2024-10-19T23:59:00+05:00",
+          "tzEndDate": "2024-10-19T23:59:00+05:00"
+        },
+        "frequency": {
+          "type": "DailyFrequency",
+          "periodInDays": 1
+        }
+      },
+      "timeIntervals": [
+        {
+          "begin": 28800,
+          "end": 72000
+        }
+      ],
+      "frequencyForClient": {
+        "amount": 1,
+        "interval": 86400
+      },
+      "offers": [],
+      "limit": null,
+      "realtimeChecks": [],
+      "contentType": "SmsContent",
+      "contentTemplateId": null,
+      "productId": null,
+      "timeoutParameters": null,
+      "timeOutNextActivityId": null,
+      "clientLimit": null,
+      "useNbo": false,
+      "waitForDeliveryReport": false,
+      "channelId": 1,
+      "retryPolicy": {
+        "attempts": 3,
+        "interval": 3600
+      },
+      "disableRetries": false,
+      "validityPeriod": 3600,
+      "frequency": null,
+      "invalidTimeNextActivityId": null,
+      "customContentTypeId": null,
+      "priorityType": "Campaign",
+      "isInteractive": false,
+      "defaultFailActivityId": null,
+      "tagIds": []
+    },
+    {
+      "type": "WaitActivity",
+      "id": "d1b2995c-6759-403b-aff6-186bb1d45933",
+      "name": "Wait",
+      "position": {
+        "left": 0,
+        "top": 0
+      },
+      "nextActivityId": null,
+      "timeoutParameters": {
+        "timerType": "WaitForInterval",
+        "interval": 605100,
+        "waitUntil": null,
+        "waitUntilExpression": null
+      },
+      "timeOutNextActivityId": "68bb6a16-e7e6-4e6a-879d-6ad8e011dd00",
+      "tagIds": []
+    },
+    {
+      "type": "BusinessTransactionActivity",
+      "id": "68bb6a16-e7e6-4e6a-879d-6ad8e011dd00",
+      "name": "откл. Подарок",
+      "position": {
+        "left": 0,
+        "top": 0
+      },
+      "defaultSuccessActivityId": "5001156b-14f3-4d8a-b8bd-5b0970aa7eee",
+      "cases": {},
+      "offerId": null,
+      "offerTemplateId": null,
+      "productId": null,
+      "businessOperation": {
+        "id": "removeBusinessProduct",
+        "parameters": [
+          {
+            "name": "bpId",
+            "value": "1q2w",
+            "valueExpression": null
+          },
+          {
+            "name": "ChargeAmount",
+            "value": "0",
+            "valueExpression": null
+          },
+          {
+            "name": "FromDay",
+            "value": null,
+            "valueExpression": null
+          }
+        ]
+      },
+      "retryPolicy": {
+        "attempts": 3,
+        "interval": 120
+      },
+      "frequencyForClient": {
+        "amount": 1,
+        "interval": 86400
+      },
+      "limit": null,
+      "clientLimit": null,
+      "schedule": {
+        "period": {
+          "tzBehavior": "System",
+          "beginDate": "2023-10-19T00:00:00+05:00",
+          "tzBeginDate": "2023-10-19T00:00:00+05:00",
+          "endDate": "2024-10-19T23:59:00+05:00",
+          "tzEndDate": "2024-10-19T23:59:00+05:00"
+        },
+        "frequency": {
+          "type": "DailyFrequency",
+          "periodInDays": 1
+        }
+      },
+      "timeIntervals": [
+        {
+          "begin": 0,
+          "end": 86400
+        }
+      ],
+      "invalidTimeNextActivityId": null,
+      "realtimeChecks": [],
+      "defaultFailActivityId": null,
+      "tagIds": []
+    },
+    {
+      "type": "PushCommunicationActivity",
+      "id": "5001156b-14f3-4d8a-b8bd-5b0970aa7eee",
+      "name": "SMS откл Подарок",
+      "position": {
+        "left": 0,
+        "top": 0
+      },
+      "defaultSuccessActivityId": "3f063d5e-1903-4d30-b5ba-2df8e27f28a3",
+      "cases": {},
+      "isNotification": false,
+      "content": {
+        "type": "SmsContent",
+        "priority": 1,
+        "localizedContents": {
+          "1": {
+            "type": "SmsContentTranslation",
+            "senderName": "sender1",
+            "body": "Срок действия подарочного пакета «Подарок_Соцсети+1000» истёк.\nПришлите 11 на 5555 и получите безлимитный доступа на популярные социальные сети: Facebook, VK, OK, Instagram, Twitter + 1000 Мб всего за 10 руб/мес. Не ждите! Предложение действует до {{AddDays(Today(),5):Ddd.MM.yyyy}}",
+            "languageId": 1
+          }
+        }
+      },
+      "schedule": {
+        "period": {
+          "tzBehavior": "System",
+          "beginDate": "2023-10-19T00:00:00+05:00",
+          "tzBeginDate": "2023-10-19T00:00:00+05:00",
+          "endDate": "2024-10-19T23:59:00+05:00",
+          "tzEndDate": "2024-10-19T23:59:00+05:00"
+        },
+        "frequency": {
+          "type": "DailyFrequency",
+          "periodInDays": 1
+        }
+      },
+      "timeIntervals": [
+        {
+          "begin": 28800,
+          "end": 72000
+        }
+      ],
+      "frequencyForClient": {
+        "amount": 1,
+        "interval": 86400
+      },
+      "offers": [],
+      "limit": null,
+      "realtimeChecks": [],
+      "contentType": "SmsContent",
+      "contentTemplateId": null,
+      "productId": null,
+      "timeoutParameters": null,
+      "timeOutNextActivityId": null,
+      "clientLimit": null,
+      "useNbo": false,
+      "waitForDeliveryReport": false,
+      "channelId": 1,
+      "retryPolicy": {
+        "attempts": 3,
+        "interval": 3600
+      },
+      "disableRetries": false,
+      "validityPeriod": 3600,
+      "frequency": null,
+      "invalidTimeNextActivityId": null,
+      "customContentTypeId": null,
+      "priorityType": "Campaign",
+      "isInteractive": false,
+      "defaultFailActivityId": null,
+      "tagIds": []
+    },
+    {
+      "type": "TransferToCampaignActivity",
+      "id": "3f063d5e-1903-4d30-b5ba-2df8e27f28a3",
+      "name": "Перевод в этап 2",
+      "position": {
+        "left": 0,
+        "top": 0
+      },
+      "nextActivityId": "25c4d1a8-27e8-4e64-8d80-9a3fa5af936f",
+      "campaigns": [
+        1870
+      ],
+      "tagIds": []
+    },
+    {
+      "type": "WaitActivity",
+      "id": "25c4d1a8-27e8-4e64-8d80-9a3fa5af936f",
+      "name": "Wait",
+      "position": {
+        "left": 0,
+        "top": 0
+      },
+      "nextActivityId": null,
+      "timeoutParameters": {
+        "timerType": "WaitForInterval",
+        "interval": 518400,
+        "waitUntil": null,
+        "waitUntilExpression": null
+      },
+      "timeOutNextActivityId": "869e85d3-9827-4c0d-82dd-67f3bf4794e6",
+      "tagIds": []
+    },
+    {
+      "type": "ExcludeFromCampaignActivity",
+      "id": "869e85d3-9827-4c0d-82dd-67f3bf4794e6",
+      "name": "Исключение из этапа 2",
+      "position": {
+        "left": 0,
+        "top": 0
+      },
+      "nextActivityId": null,
+      "campaigns": [
+        1870
+      ],
+      "removeFromCurrentCampaign": false,
+      "tagIds": []
+    }
+  ],
+  "offers": [],
+  "zoom": 1,
+  "autoAlign": true,
+  "position": {
+    "left": 0,
+    "top": 0
+  },
+  "subNodes": []
+}

@@ -23,19 +23,45 @@ interface Props {
 
 // ── Node type metadata ────────────────────────────────────────────────────────
 
+// Соответствие типу активности — цвет акцентной полоски и базовый лейбл (header card).
+// Цвета подобраны под реальный AdTarget UI (см. examples/*.png).
 const NODE_META: Record<string, { label: string; color: string }> = {
-  CommonActivity:               { label: "Common",               color: "#6366f1" },
-  TargetGroupActivity:          { label: "Target group",          color: "#f97316" },
-  EventActivity:                { label: "Event",                 color: "#eab308" },
-  FilterActivity:               { label: "Filter",                color: "#f97316" },
-  WaitActivity:                 { label: "Wait",                  color: "#06b6d4" },
-  PushCommunicationActivity:    { label: "Communication",         color: "#ef4444" },
-  PullCommunicationActivity:    { label: "Pull",                  color: "#ef4444" },
-  BusinessTransactionActivity:  { label: "Business transaction",  color: "#3b82f6" },
-  ResponseActivity:             { label: "Response",              color: "#10b981" },
-  RealTimeCheckActivity:        { label: "RT Check",              color: "#10b981" },
-  SplitActivity:                { label: "Split",                 color: "#8b5cf6" },
+  CommonActivity:                { label: "Common",               color: "#475569" },
+  TargetGroupActivity:           { label: "Target group",         color: "#475569" },
+  EventActivity:                 { label: "Event",                color: "#a855f7" },
+  FilterActivity:                { label: "Filter",               color: "#94a3b8" },
+  WaitActivity:                  { label: "Wait",                 color: "#f59e0b" },
+  PushCommunicationActivity:     { label: "Push communication",   color: "#3b82f6" },
+  PullCommunicationActivity:     { label: "Pull communication",   color: "#3b82f6" },
+  BusinessTransactionActivity:   { label: "Business transaction", color: "#1d4ed8" },
+  ResponseActivity:              { label: "Response",             color: "#10b981" },
+  InteractiveResponseActivity:   { label: "Interactive response", color: "#10b981" },
+  RealTimeCheckActivity:         { label: "Real-time check",      color: "#64748b" },
+  OrJoinActivity:                { label: "Or",                   color: "#c026d3" },
+  SplitActivity:                 { label: "Split",                color: "#8b5cf6" },
+  TransferToCampaignActivity:    { label: "Transfer to campaign", color: "#f97316" },
+  ExcludeFromCampaignActivity:   { label: "Exclude from campaign", color: "#f97316" },
 };
+
+// Лейбл Push/Pull зависит от contentType: SmsContent → «SMS push», PushContent → «Push push» и т.д.
+function resolveNodeLabel(activity: FlowActivity): string {
+  const meta = NODE_META[activity.type];
+  if (!meta) return activity.type;
+  if (activity.type === "PushCommunicationActivity" || activity.type === "PullCommunicationActivity") {
+    const ct = activity.content?.type ?? activity.contentType ?? "";
+    const kind = activity.type === "PushCommunicationActivity" ? "push" : "pull";
+    if (/sms/i.test(ct))     return `SMS ${kind}`;
+    if (/email/i.test(ct))   return `Email ${kind}`;
+    if (/ussd/i.test(ct))    return `USSD ${kind}`;
+    if (/push/i.test(ct))    return `Push ${kind}`;
+    if (/custom/i.test(ct))  return `Custom ${kind}`;
+  }
+  return meta.label;
+}
+
+function resolveNodeColor(activity: FlowActivity): string {
+  return NODE_META[activity.type]?.color ?? "#9ca3af";
+}
 
 const NODE_W = 158;
 const NODE_H = 68;
@@ -492,9 +518,10 @@ function AdtNode({ activity, offers, x, y, animDelay }: {
   activity: FlowActivity; offers: CampaignOffer[]; x: number; y: number; animDelay: number;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const meta = NODE_META[activity.type] ?? { label: activity.type, color: "#9ca3af" };
+  const label = resolveNodeLabel(activity);
+  const color = resolveNodeColor(activity);
   const hasError = Array.isArray(activity.errors) && activity.errors.length > 0;
-  const subtitleText = activity.name && activity.name !== meta.label ? activity.name : "";
+  const subtitleText = activity.name && activity.name !== label ? activity.name : "";
   const communicationDetails = getCommunicationDetails(activity, offers);
   const isExpandable = communicationDetails.length > 0;
 
@@ -514,13 +541,13 @@ function AdtNode({ activity, offers, x, y, animDelay }: {
       }}
     >
       {/* Left colored strip */}
-      <div className="adt-node-strip" style={{ background: hasError ? "#ef4444" : meta.color }} />
+      <div className="adt-node-strip" style={{ background: hasError ? "#ef4444" : color }} />
 
       {/* Colored dot */}
-      <span className="adt-node-dot" style={{ background: hasError ? "#ef4444" : meta.color }} />
+      <span className="adt-node-dot" style={{ background: hasError ? "#ef4444" : color }} />
 
       <div className="adt-node-body">
-        <div className="adt-node-type">{meta.label}</div>
+        <div className="adt-node-type" style={{ color: hasError ? "#ef4444" : color }}>{label}</div>
         {subtitle && (
           <div className="adt-node-name">
             <svg width="8" height="8" viewBox="0 0 8 8" fill="none" style={{ flexShrink: 0, opacity: 0.4, marginRight: 2 }}>

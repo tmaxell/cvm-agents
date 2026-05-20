@@ -72,6 +72,9 @@ _RULES: list[tuple[IntentName, list[re.Pattern[str]]]] = [
         [
             re.compile(r"\b(доработай|оптимизируй|улучши|поправь)\s+(этот\s+|эту\s+|текущ)?\s*(кампани|флоу|flow|draft)", re.IGNORECASE),
             re.compile(r"\b(refine|optimize|improve)\s+(this\s+|the\s+)?campaign", re.IGNORECASE),
+            # «добавь / вставь» SMS, БТ, Wait, Event, Response — модификация существующего флоу.
+            re.compile(r"\b(добавь|вставь|вставить|добавить)\b.*\b(sms|email|push|ussd|коммуникац|бизнес[ -]?транзакц|wait|пауз|event|событи|response|отклик|interactive|real[ -]?time|чек|transfer|exclude)", re.IGNORECASE),
+            re.compile(r"\b(add|append|insert)\b.*\b(sms|email|push|ussd|communication|business|transaction|wait|event|response|interactive|real[ -]?time|check|transfer|exclude)", re.IGNORECASE),
         ],
     ),
     (

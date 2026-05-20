@@ -1,9 +1,11 @@
 """RefinerAgent — доработка кампании.
 
-Два режима:
+Три режима:
 1. inputs.campaign_id  → загружает demo_campaigns + health, формирует план фикса.
-2. inputs.draft_flow OR последний draft_flow артефакт сессии → анализирует структуру
-   и предлагает изменения через flow_optimizer.
+2. «добавь активность X» (SMS / БТ / Wait / Response / Event / ...) — модифицирует
+   последний draft_flow в сессии, добавляя ноду нужного типа в конец цепочки.
+3. inputs.draft_flow OR последний draft_flow артефакт сессии → анализ структуры
+   и рекомендации по доработке (без модификации).
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from agents.base import AgentContext, AgentResult
+from agents.builder.modify import append_activity_to_flow, detect_add_intent
 from db import AsyncSessionLocal
 from models import CampaignHealthModel, DemoCampaignModel
 from schemas import ChatAction
@@ -40,7 +43,12 @@ async def execute(ctx: AgentContext) -> AgentResult:
         latest = ctx.latest_artifact("draft_flow", "campaign_draft") if not draft_flow else None
         if not draft_flow and latest:
             draft_flow = latest.get("content")
-        if not draft_flow:
+
+        # Если пользователь явно просит ДОБАВИТЬ активность — модифицируем flow.
+        add_step = detect_add_intent(ctx.message)
+        if add_step and draft_flow:
+            result = await _append_activity(ctx, draft_flow, add_step)
+        elif not draft_flow:
             await ctx.emit("step_completed", status="warning", detail="Нет campaign_id и draft_flow в сессии")
             return AgentResult(
                 assistant_message=(
@@ -50,7 +58,8 @@ async def execute(ctx: AgentContext) -> AgentResult:
                 actions=[ChatAction(id="build_campaign", label="Создать новую кампанию", kind="navigate", payload={})],
                 status="needs_input",
             )
-        result = await _refine_draft(ctx, draft_flow)
+        else:
+            result = await _refine_draft(ctx, draft_flow)
 
     latency = int((time.perf_counter() - started) * 1000)
     await ctx.emit("step_completed", detail=f"RefinerAgent готов", metadata={"latency_ms": latency})
@@ -177,6 +186,40 @@ async def _refine_draft(ctx: AgentContext, draft_flow: dict[str, Any]) -> AgentR
         assistant_message="\n".join(lines),
         actions=actions,
         metadata={"activities_count": len(activities), "suggestions": len(suggestions)},
+    )
+
+
+# ── Режим 3: добавление активности в существующий draft_flow ──────────────────
+
+async def _append_activity(ctx: AgentContext, draft_flow: dict[str, Any], step: dict[str, Any]) -> AgentResult:
+    await ctx.emit("step_started", detail=f"RefinerAgent: добавляю {step.get('type')}")
+    updated = append_activity_to_flow(draft_flow, step)
+    if updated is None:
+        return AgentResult(
+            assistant_message="Не удалось добавить активность — проверьте текущий черновик кампании.",
+            status="error",
+        )
+    activities_count = len(updated.get("activities") or [])
+    artifact_id = await ctx.store.save_artifact(
+        session_id=ctx.session_id,
+        artifact_type="draft_flow",
+        content_json=updated,
+        metadata_json={"mode": "append", "added_type": step.get("type"), "activities_count": activities_count},
+        source_run_id=ctx.run_id,
+    )
+    artifact = await ctx.store.get_artifact(artifact_id)
+    new_node_name = step.get("name") or step.get("type")
+    actions = [
+        ChatAction(id="save_campaign", label="Сохранить кампанию в AdTarget", kind="save", payload={"draft_flow": updated}),
+        ChatAction(id="refine_campaign", label="Доработать дальше", kind="refine", payload={"draft_flow": updated}),
+    ]
+    return AgentResult(
+        assistant_message=(
+            f"Добавил **{new_node_name}** в конец цепочки. Активностей теперь: {activities_count}."
+        ),
+        artifacts=[artifact] if artifact else [],
+        actions=actions,
+        metadata={"activities_count": activities_count, "added_type": step.get("type")},
     )
 
 

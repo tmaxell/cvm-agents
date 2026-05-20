@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ChatApiError,
   createChat,
@@ -9,13 +9,10 @@ import {
   type ChatArtifact,
   type ChatMessage,
   type ChatSession,
-  type ChatTraceEvent,
 } from "../../api/chatApi";
 import type { CampaignFlow } from "../../types/api";
 
 export interface ChatEntry extends ChatMessage {
-  trace?: ChatTraceEvent[];
-  actions_available?: ChatAction[];
   optimistic?: boolean;
 }
 
@@ -62,22 +59,47 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const userActedRef = useRef(false);
 
-  const refreshSessions = useCallback(async () => {
+  const refreshSessions = useCallback(async (silent = false) => {
     setLoadingSessions(true);
     try {
       const list = await listChats();
       setSessions(list.sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "")));
+      setError(null);
     } catch (e) {
-      setError(toError(e));
+      // Не показываем "сервис недоступен" пока пользователь не начал действовать —
+      // backend часто стартует чуть позже фронта.
+      if (!silent && userActedRef.current) {
+        setError(toError(e));
+      }
     } finally {
       setLoadingSessions(false);
     }
   }, []);
 
+  // Initial load: silent retry до 5 раз с шагом 1.5с.
   useEffect(() => {
-    void refreshSessions();
-  }, [refreshSessions]);
+    let cancelled = false;
+    let attempts = 0;
+    const tryLoad = async () => {
+      attempts += 1;
+      try {
+        const list = await listChats();
+        if (!cancelled) {
+          setSessions(list.sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "")));
+          setError(null);
+        }
+      } catch (e) {
+        if (cancelled) return;
+        if (attempts < 5) {
+          setTimeout(tryLoad, 1500);
+        }
+      }
+    };
+    void tryLoad();
+    return () => { cancelled = true; };
+  }, []);
 
   const selectSession = useCallback(async (sessionId: string) => {
     setActiveSessionId(sessionId);
@@ -120,6 +142,7 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
       }
       setError(null);
       setSending(true);
+      userActedRef.current = true;
 
       const userTmpId = `tmp-${Date.now()}`;
       const userMsg: ChatEntry = {
@@ -139,7 +162,7 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
           content: response.assistant_message,
           createdAt: new Date().toISOString(),
           trace: response.trace,
-          actions_available: response.actions_available,
+          actions: response.actions_available,
         };
         setMessages((prev) => [...prev.filter((m) => m.id !== userTmpId), { ...userMsg, optimistic: false }, assistantMsg]);
         if (response.artifacts.length > 0) {
@@ -150,8 +173,15 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
             return Array.from(map.values());
           });
         }
-        // refresh sessions sidebar so updatedAt/title bump
-        void refreshSessions();
+        // Подтягиваем canonical state с сервера — citations/trace в metadata теперь там.
+        try {
+          const detail = await getChat(sessionId);
+          setMessages(detail.messages.map((m) => ({ ...m })));
+          setArtifacts(detail.artifacts);
+        } catch {
+          // если перезагрузка не удалась — оставляем оптимистичный state
+        }
+        void refreshSessions(true);
       } catch (e) {
         setError(toError(e));
         setMessages((prev) => prev.filter((m) => m.id !== userTmpId));

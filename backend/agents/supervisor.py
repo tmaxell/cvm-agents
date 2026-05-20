@@ -83,7 +83,7 @@ async def _handle_action(ctx: AgentContext) -> AgentResult:
 # ── Message classification + plan ─────────────────────────────────────────────
 
 async def _handle_message(ctx: AgentContext) -> AgentResult:
-    decision = await classify_intent(ctx.message)
+    decision = await classify_intent(ctx.message, history=ctx.history)
     await ctx.emit(
         "plan_created",
         detail=f"intent={decision.intent} confidence={decision.confidence:.2f} ({decision.reason})",

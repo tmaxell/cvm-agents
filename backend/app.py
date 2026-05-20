@@ -194,6 +194,8 @@ async def chat(request: ChatRequest) -> ChatResponse:
             "run_id": run_id,
             "actions": [a.model_dump() for a in result.actions],
             "artifact_ids": [a.get("id") for a in result.artifacts if isinstance(a, dict)],
+            "citations": result.metadata.get("citations", []) if isinstance(result.metadata, dict) else [],
+            "agent_meta": {k: v for k, v in (result.metadata or {}).items() if k != "citations"},
         },
     )
 

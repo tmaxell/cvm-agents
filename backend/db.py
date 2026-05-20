@@ -124,8 +124,35 @@ class ChatStore:
                 .where(SavedArtifactModel.session_id == session_id)
                 .order_by(SavedArtifactModel.created_at)
             )
+            # Соберём trace для всех run_id, упомянутых в сообщениях.
+            messages_list = list(messages)
+            run_ids = {
+                (m.metadata_json or {}).get("run_id")
+                for m in messages_list
+                if isinstance(m.metadata_json, dict)
+            }
+            run_ids = {rid for rid in run_ids if isinstance(rid, str)}
+            events_by_run: dict[str, list[dict[str, Any]]] = {}
+            if run_ids:
+                rows = await db.scalars(
+                    select(ChatRunEventModel)
+                    .where(ChatRunEventModel.run_id.in_(run_ids))
+                    .order_by(ChatRunEventModel.created_at)
+                )
+                for ev in rows:
+                    events_by_run.setdefault(ev.run_id, []).append({
+                        "event": ev.event,
+                        "status": ev.status,
+                        "detail": ev.detail,
+                        "ts": ev.created_at.isoformat() if ev.created_at else None,
+                        "metadata": ev.metadata_json or {},
+                    })
+
             payload = self._session_dict(session)
-            payload["messages"] = [self._message_dict(m) for m in messages]
+            payload["messages"] = [
+                self._message_dict(m, trace=events_by_run.get((m.metadata_json or {}).get("run_id", "") if isinstance(m.metadata_json, dict) else "", []))
+                for m in messages_list
+            ]
             payload["artifacts"] = [self._artifact_dict(a) for a in artifacts]
             return payload
 
@@ -343,13 +370,14 @@ class ChatStore:
         }
 
     @staticmethod
-    def _message_dict(m: ChatMessageModel) -> dict[str, Any]:
+    def _message_dict(m: ChatMessageModel, trace: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         return {
             "id": m.id,
             "session_id": m.session_id,
             "role": m.role,
             "content": m.content,
             "metadata": m.metadata_json or {},
+            "trace": trace or [],
             "created_at": m.created_at.isoformat() if m.created_at else None,
         }
 

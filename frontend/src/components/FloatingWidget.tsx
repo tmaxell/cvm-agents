@@ -5,17 +5,30 @@ import {
 } from "../chat-workspace/store/chatWorkspaceStore";
 import type { ChatAction, ChatTraceEvent, ChatSession } from "../api/chatApi";
 import { MarkdownText } from "./MarkdownText";
+import { Sources } from "./Sources";
 
 type WidgetMode = "fab" | "panel";
 type HistoryMode = "closed" | "open";
 
 const SUGGESTIONS: { label: string; prompt: string }[] = [
-  { label: "Кампании, требующие внимания", prompt: "Какие кампании сейчас требуют внимания? Дай рекомендации." },
-  { label: "Собери сегмент", prompt: "Помоги собрать сегмент для нового продукта." },
-  { label: "Создать кампанию", prompt: "Создай кампанию по описанию: продвижение нового тарифа для активной аудитории." },
-  { label: "Доработать флоу", prompt: "Проанализируй текущий черновик флоу и предложи доработки." },
-  { label: "Вопрос по документации", prompt: "Как настроить контрольную группу для пилотной кампании?" },
+  { label: "Кампании, требующие внимания", prompt: "Какие кампании сейчас требуют внимания?" },
+  { label: "Собери сегмент", prompt: "Собери сегмент активных клиентов." },
+  { label: "Создай кампанию", prompt: "Создай кампанию по продвижению нового тарифа для активной аудитории." },
+  { label: "Доработать флоу", prompt: "Доработай текущий черновик кампании." },
+  { label: "Вопрос по документации", prompt: "Как настроить контрольную группу в AdTarget?" },
 ];
+
+const ACTION_LABELS: Record<string, string> = {
+  save_campaign: "Сохранить кампанию",
+  save_segment: "Сохранить сегмент",
+  save_target_group: "Сохранить таргет-группу",
+  apply_segment: "Применить сегмент",
+  build_campaign_from_segment: "Создать кампанию из сегмента",
+  refine_campaign: "Доработать",
+  open_artifact: "Открыть артефакт",
+  start_campaign: "Запустить кампанию",
+  pause_campaign: "Поставить на паузу",
+};
 
 function formatTime(value: string | null | undefined): string {
   if (!value) return "";
@@ -44,13 +57,51 @@ function groupSessions(sessions: ChatSession[]): { label: string; items: ChatSes
   return Object.entries(groups).filter(([, v]) => v.length > 0).map(([label, items]) => ({ label, items }));
 }
 
-function PlanCard({ trace }: { trace: ChatTraceEvent[] }) {
+// ── SVG icons ────────────────────────────────────────────────────────────────
+
+const ChatIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M4 6.5C4 5.119 5.119 4 6.5 4h11C18.881 4 20 5.119 20 6.5v8C20 15.881 18.881 17 17.5 17H10l-4 4v-4h-.5C4.119 17 3 15.881 3 14.5v-8z" stroke="#fff" strokeWidth="1.8" strokeLinejoin="round"/>
+    <circle cx="8" cy="10.5" r="1.1" fill="#fff"/>
+    <circle cx="11.5" cy="10.5" r="1.1" fill="#fff"/>
+    <circle cx="15" cy="10.5" r="1.1" fill="#fff"/>
+  </svg>
+);
+const HistoryIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+  </svg>
+);
+const PlusIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/>
+  </svg>
+);
+const MinimizeIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path d="M3 12h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+  </svg>
+);
+const CloseIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/>
+  </svg>
+);
+const SendIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path d="M2 8l12-5-5 12-2-5z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" fill="none"/>
+  </svg>
+);
+
+// ── Plan / trace ─────────────────────────────────────────────────────────────
+
+function PlanCard({ trace }: { trace: ChatTraceEvent[] | undefined }) {
   if (!trace || trace.length === 0) return null;
   const visible = trace.filter((t) => ["plan_created", "step_started", "tool_called", "step_completed", "run_completed", "run_failed"].includes(t.event));
   if (visible.length === 0) return null;
   return (
     <details className="fw-plan">
-      <summary>План вызова агентов · {visible.length} шагов</summary>
+      <summary>🧭 План вызова агентов · {visible.length} шагов</summary>
       <div className="fw-plan-steps">
         {visible.map((e, i) => (
           <div key={i} className={`fw-plan-step ${e.status}`}>
@@ -65,14 +116,7 @@ function PlanCard({ trace }: { trace: ChatTraceEvent[] }) {
   );
 }
 
-const ACTION_TITLES: Record<string, string> = {
-  save_campaign: "Сохранить кампанию",
-  save_segment: "Сохранить сегмент",
-  save_target_group: "Сохранить таргет-группу",
-  apply_segment: "Применить сегмент",
-  open_artifact: "Открыть артефакт",
-  builder: "Открыть Builder",
-};
+// ── Action cards ─────────────────────────────────────────────────────────────
 
 function ActionCards({
   actions,
@@ -84,8 +128,8 @@ function ActionCards({
   pending: boolean;
 }) {
   if (!actions || actions.length === 0) return null;
-  const saveActions = actions.filter((a) => a.id.startsWith("save_") || a.id === "apply_segment");
-  const navActions = actions.filter((a) => !saveActions.includes(a));
+  const saveActions = actions.filter((a) => a.id === "save_campaign" || a.id === "save_segment" || a.id === "save_target_group");
+  const otherActions = actions.filter((a) => !saveActions.includes(a));
 
   return (
     <>
@@ -97,23 +141,18 @@ function ActionCards({
           </div>
           <div className="fw-action-card-buttons">
             {saveActions.map((a) => (
-              <button
-                key={a.id}
-                className="primary"
-                disabled={pending}
-                onClick={() => onAct(a)}
-              >
-                {ACTION_TITLES[a.id] ?? a.label}
+              <button key={a.id} className="primary" disabled={pending} onClick={() => onAct(a)}>
+                {ACTION_LABELS[a.id] ?? a.label}
               </button>
             ))}
           </div>
         </div>
       )}
-      {navActions.length > 0 && (
-        <div className="fw-action-card-buttons" style={{ alignSelf: "flex-start", marginTop: 4 }}>
-          {navActions.map((a) => (
-            <button key={a.id} disabled={pending} onClick={() => onAct(a)}>
-              {ACTION_TITLES[a.id] ?? a.label}
+      {otherActions.length > 0 && (
+        <div className="fw-quick-actions">
+          {otherActions.map((a) => (
+            <button key={`${a.id}-${a.label}`} disabled={pending} onClick={() => onAct(a)} className="fw-quick-action">
+              {a.label || ACTION_LABELS[a.id] || a.id}
             </button>
           ))}
         </div>
@@ -122,16 +161,19 @@ function ActionCards({
   );
 }
 
-function MessageBubble({ msg, onAction, pending }: { msg: ChatEntry; onAction: (a: ChatAction) => void; pending: boolean }) {
+function MessageBubble({ msg, onAction, pending, isLast }: { msg: ChatEntry; onAction: (a: ChatAction) => void; pending: boolean; isLast: boolean; }) {
   return (
     <>
       <div className={`fw-msg ${msg.role}`}>
         {msg.role === "user" ? msg.content : <MarkdownText content={msg.content} />}
         <div className="fw-msg-time">{formatTime(msg.createdAt)}</div>
       </div>
-      {msg.role === "assistant" && msg.trace && <PlanCard trace={msg.trace} />}
-      {msg.role === "assistant" && msg.actions_available && (
-        <ActionCards actions={msg.actions_available} onAct={onAction} pending={pending} />
+      {msg.role === "assistant" && msg.citations && msg.citations.length > 0 && (
+        <Sources citations={msg.citations} />
+      )}
+      {msg.role === "assistant" && <PlanCard trace={msg.trace} />}
+      {msg.role === "assistant" && msg.actions && isLast && (
+        <ActionCards actions={msg.actions} onAct={onAction} pending={pending} />
       )}
     </>
   );
@@ -186,7 +228,7 @@ function HistoryPanel({
           placeholder="Поиск по диалогам"
         />
         <button className="fw-btn-primary" onClick={onNew}>+ Новый</button>
-        <button className="fw-icon-btn" title="Закрыть историю" onClick={onClose}>✕</button>
+        <button className="fw-icon-btn" title="Закрыть историю" onClick={onClose}><CloseIcon /></button>
       </div>
       <div className="fw-history-list">
         {loading && sessions.length === 0 && (
@@ -221,6 +263,49 @@ function HistoryPanel({
   );
 }
 
+// ── Auto-grow textarea ───────────────────────────────────────────────────────
+
+function AutoGrowTextarea({
+  value,
+  onChange,
+  onSubmit,
+  disabled,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onSubmit: () => void;
+  disabled?: boolean;
+  placeholder?: string;
+}) {
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+  }, [value]);
+
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          onSubmit();
+        }
+      }}
+      placeholder={placeholder}
+      disabled={disabled}
+      rows={1}
+    />
+  );
+}
+
+// ── Main component ───────────────────────────────────────────────────────────
+
 export function FloatingWidget() {
   const {
     sessions,
@@ -251,7 +336,8 @@ export function FloatingWidget() {
   };
 
   const handleAction = (action: ChatAction) => {
-    void sendMessage(ACTION_TITLES[action.id] ?? action.label, action);
+    const label = ACTION_LABELS[action.id] ?? action.label;
+    void sendMessage(label, action);
   };
 
   const handleSelectSession = async (id: string) => {
@@ -279,9 +365,8 @@ export function FloatingWidget() {
           onClick={() => setMode("panel")}
           aria-label="Открыть AI-ассистент"
           title="AI Assistant"
-          style={{ position: "relative" }}
         >
-          <span className="fw-fab-icon">💬</span>
+          <ChatIcon />
         </button>
       </div>
     );
@@ -296,14 +381,18 @@ export function FloatingWidget() {
             title="История диалогов"
             onClick={() => setHistory(history === "open" ? "closed" : "open")}
           >
-            ☰
+            <HistoryIcon />
           </button>
           <div className="fw-header-title">
             <span className="fw-header-dot" />
             AI Assistant
           </div>
-          <button className="fw-icon-btn" title="Новый диалог" onClick={() => void handleNewChat()}>＋</button>
-          <button className="fw-icon-btn" title="Свернуть" onClick={() => setMode("fab")}>＿</button>
+          <button className="fw-icon-btn" title="Новый диалог" onClick={() => void handleNewChat()}>
+            <PlusIcon />
+          </button>
+          <button className="fw-icon-btn" title="Свернуть" onClick={() => setMode("fab")}>
+            <MinimizeIcon />
+          </button>
         </header>
 
         <div className="fw-thread" ref={threadRef}>
@@ -312,8 +401,14 @@ export function FloatingWidget() {
           ) : messages.length === 0 ? (
             <ThreadEmpty onPick={handlePickSuggestion} />
           ) : (
-            messages.map((m) => (
-              <MessageBubble key={m.id} msg={m} onAction={handleAction} pending={sending} />
+            messages.map((m, i) => (
+              <MessageBubble
+                key={m.id}
+                msg={m}
+                onAction={handleAction}
+                pending={sending}
+                isLast={i === messages.length - 1}
+              />
             ))
           )}
           {sending && <div className="fw-typing">Ассистент думает…</div>}
@@ -322,20 +417,15 @@ export function FloatingWidget() {
         {error && <div className="fw-error">{error}</div>}
 
         <div className="fw-composer">
-          <textarea
+          <AutoGrowTextarea
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void handleSend();
-              }
-            }}
+            onChange={setInput}
+            onSubmit={() => void handleSend()}
+            disabled={false}
             placeholder="Спросите про кампании, сегменты или документацию…"
-            rows={1}
           />
           <button onClick={() => void handleSend()} disabled={sending || !input.trim()} title="Отправить">
-            ➤
+            <SendIcon />
           </button>
         </div>
 

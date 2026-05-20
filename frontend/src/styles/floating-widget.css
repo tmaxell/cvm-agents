@@ -70,20 +70,22 @@
 .fw-header-title { font-weight: 700; font-size: 14px; color: #1e293b; flex: 1; display: flex; align-items: center; gap: 6px; }
 .fw-header-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18); }
 .fw-icon-btn {
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 8px;
   background: transparent;
   color: #64748b;
-  display: grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   transition: background 0.12s, color 0.12s;
-  font-size: 14px;
+  padding: 0;
 }
 .fw-icon-btn:hover { background: #f1f5f9; color: #1e293b; }
 .fw-icon-btn.active { background: #eef2ff; color: #5257ff; }
+.fw-icon-btn svg { display: block; }
 
 /* History overlay panel inside widget */
 .fw-history {
@@ -283,7 +285,7 @@
 }
 .fw-action-card-title { font-weight: 700; font-size: 13px; color: #4f46e5; display: flex; align-items: center; gap: 6px; }
 .fw-action-card-body { font-size: 12.5px; color: #1e293b; line-height: 1.4; }
-.fw-action-card-buttons { display: flex; gap: 6px; flex-wrap: wrap; }
+.fw-action-card-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
 .fw-action-card-buttons button {
   height: 30px;
   padding: 0 12px;
@@ -305,28 +307,51 @@
 .fw-action-card-result { font-size: 12px; color: #15803d; padding: 6px 8px; background: #ecfdf5; border-radius: 6px; }
 .fw-action-card-error  { font-size: 12px; color: #b91c1c; padding: 6px 8px; background: #fef2f2; border-radius: 6px; }
 
+/* Quick actions row (без save_* — refine, build_from_segment, start, и т.п.) */
+.fw-quick-actions { display: flex; flex-wrap: wrap; gap: 6px; align-self: flex-start; max-width: 100%; }
+.fw-quick-action {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid #c7d2fe;
+  border-radius: 8px;
+  background: #fff;
+  color: #4f46e5;
+  font-weight: 600;
+  font-size: 12.5px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, border-color 0.12s;
+}
+.fw-quick-action:hover:not(:disabled) { background: #eef2ff; border-color: #5257ff; }
+.fw-quick-action:disabled { opacity: 0.55; cursor: not-allowed; }
+
 /* Composer */
 .fw-composer {
-  display: grid;
-  grid-template-columns: 1fr auto;
+  display: flex;
+  align-items: flex-end;
   gap: 8px;
   padding: 10px 12px;
   border-top: 1px solid #e2e8f0;
   background: #fff;
 }
 .fw-composer textarea {
+  flex: 1;
   resize: none;
   min-height: 38px;
-  max-height: 120px;
-  padding: 8px 10px;
+  max-height: 140px;
+  padding: 9px 12px;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
   font-size: 13.5px;
+  line-height: 1.4;
   outline: none;
   font-family: inherit;
+  overflow-y: auto;
+  word-break: break-word;
 }
 .fw-composer textarea:focus { border-color: #5257ff; box-shadow: 0 0 0 3px rgba(82, 87, 255, 0.12); }
 .fw-composer button {
+  flex: 0 0 38px;
   width: 38px;
   height: 38px;
   border: 0;
@@ -382,3 +407,59 @@
   background: #fef2f2;
   color: #b91c1c;
 }
+
+/* Sources block — карточки документов из RAG */
+.fw-sources {
+  align-self: flex-start;
+  max-width: 100%;
+  margin-top: 4px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 12.5px;
+}
+.fw-sources summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #5257ff;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.fw-sources summary::-webkit-details-marker { display: none; }
+.fw-sources summary::before {
+  content: "▶";
+  font-size: 9px;
+  transition: transform 0.15s;
+}
+.fw-sources[open] summary::before { transform: rotate(90deg); }
+.fw-sources-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+.fw-source-card {
+  display: grid;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  color: #1e293b;
+  text-decoration: none;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.fw-source-card:hover { border-color: #c7d2fe; box-shadow: 0 1px 4px rgba(82, 87, 255, 0.12); }
+.fw-source-title { font-weight: 700; font-size: 12.5px; color: #1e293b; }
+.fw-source-heading { color: #4f46e5; font-size: 11.5px; }
+.fw-source-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: #94a3b8;
+  font-size: 11px;
+}
+.fw-source-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; }
+.fw-source-score { color: #94a3b8; font-variant-numeric: tabular-nums; }

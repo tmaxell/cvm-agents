@@ -11,12 +11,23 @@ export interface ChatSession {
   lastMessagePreview: string;
 }
 
+export interface SourceCitation {
+  id: string;
+  title: string;
+  source: string;
+  heading_path: string[];
+  score: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
   createdAt: string | null;
   metadata?: Record<string, unknown>;
+  trace?: ChatTraceEvent[];
+  actions?: ChatAction[];
+  citations?: SourceCitation[];
 }
 
 export interface ChatArtifact {
@@ -117,15 +128,37 @@ function normalizeSession(raw: unknown): ChatSession {
   };
 }
 
+function normalizeCitations(raw: unknown): SourceCitation[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item, i) => {
+    const o = isObject(item) ? item : {};
+    return {
+      id: asString(o.id, `cite-${i}`),
+      title: asString(o.title, asString(o.source, "Источник")),
+      source: asString(o.source),
+      heading_path: Array.isArray(o.heading_path) ? o.heading_path.map((v) => asString(v)) : [],
+      score: typeof o.score === "number" ? o.score : 0,
+    };
+  });
+}
+
 function normalizeMessage(raw: unknown, idx: number): ChatMessage {
   const o = isObject(raw) ? raw : {};
   const role = o.role === "assistant" || o.role === "system" ? o.role : "user";
+  const metadata = isObject(o.metadata) ? o.metadata : {};
+  const trace = normalizeTrace(o.trace);
+  const actionsRaw = Array.isArray(metadata.actions) ? metadata.actions : (Array.isArray(o.actions_available) ? o.actions_available : []);
+  const actions = normalizeActions(actionsRaw);
+  const citations = normalizeCitations(metadata.citations);
   return {
     id: asString(o.id, `m-${idx}`),
     role,
     content: asString(o.content),
     createdAt: asNullableString(o.created_at ?? o.createdAt),
-    metadata: isObject(o.metadata) ? o.metadata : undefined,
+    metadata,
+    trace: trace.length > 0 ? trace : undefined,
+    actions: actions.length > 0 ? actions : undefined,
+    citations: citations.length > 0 ? citations : undefined,
   };
 }
 

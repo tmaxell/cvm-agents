@@ -21,7 +21,7 @@ async def execute(ctx: AgentContext) -> AgentResult:
         if m.get("role") in {"user", "assistant"}
     ]
 
-    await ctx.emit("step_started", detail="DocsAgent: RAG + LLM ответ")
+    await ctx.emit("step_started", detail="DocsAgent: RAG retrieval")
     started = time.perf_counter()
     try:
         response = await copilot_answer(CopilotRequest(question=ctx.message, history=history_pairs))
@@ -34,13 +34,21 @@ async def execute(ctx: AgentContext) -> AgentResult:
     latency = int((time.perf_counter() - started) * 1000)
     await ctx.emit(
         "step_completed",
-        detail=f"Источников: {len(response.citations)}",
+        detail=f"DocsAgent: цитат {len(response.citations)}",
         metadata={"latency_ms": latency, "citations": len(response.citations)},
     )
 
-    text = response.answer
-    if response.citations:
-        text += "\n\n**Источники:**\n"
-        for c in response.citations[:5]:
-            text += f"- {c.title or c.source}\n"
-    return AgentResult(assistant_message=text.strip(), metadata={"citations": len(response.citations)})
+    citations = [
+        {
+            "id": c.id,
+            "title": c.title,
+            "source": c.source,
+            "heading_path": list(c.heading_path or []),
+            "score": float(c.score or 0.0),
+        }
+        for c in response.citations[:6]
+    ]
+    return AgentResult(
+        assistant_message=response.answer.strip(),
+        metadata={"citations": citations},
+    )

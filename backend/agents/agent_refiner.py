@@ -19,6 +19,7 @@ from sqlalchemy.orm import selectinload
 
 from agents.base import AgentContext, AgentResult
 from agents.builder.modify import append_activity_to_flow, detect_add_intent
+from agents.builder.modify_llm import apply_modifications, plan_modifications_with_llm
 from db import AsyncSessionLocal
 from models import CampaignHealthModel, DemoCampaignModel
 from schemas import ChatAction
@@ -44,11 +45,7 @@ async def execute(ctx: AgentContext) -> AgentResult:
         if not draft_flow and latest:
             draft_flow = latest.get("content")
 
-        # Если пользователь явно просит ДОБАВИТЬ активность — модифицируем flow.
-        add_step = detect_add_intent(ctx.message)
-        if add_step and draft_flow:
-            result = await _append_activity(ctx, draft_flow, add_step)
-        elif not draft_flow:
+        if not draft_flow:
             await ctx.emit("step_completed", status="warning", detail="Нет campaign_id и draft_flow в сессии")
             return AgentResult(
                 assistant_message=(
@@ -58,8 +55,19 @@ async def execute(ctx: AgentContext) -> AgentResult:
                 actions=[ChatAction(id="build_campaign", label="Создать новую кампанию", kind="navigate", payload={})],
                 status="needs_input",
             )
-        else:
-            result = await _refine_draft(ctx, draft_flow)
+
+        # Стратегия (LLM-as-planner + deterministic fallback):
+        # 1) LLM-модификатор пытается разобрать запрос и построить план операций.
+        # 2) Если LLM вернул ≥1 валидную операцию — применяем и возвращаем updated flow.
+        # 3) Иначе пробуем простой deterministic detect_add_intent (на случай «добавь SMS»).
+        # 4) В крайнем случае — выдаём аналитические рекомендации без модификации.
+        result = await _try_llm_modify(ctx, draft_flow)
+        if result is None:
+            add_step = detect_add_intent(ctx.message)
+            if add_step:
+                result = await _append_activity(ctx, draft_flow, add_step)
+            else:
+                result = await _refine_draft(ctx, draft_flow)
 
     latency = int((time.perf_counter() - started) * 1000)
     await ctx.emit("step_completed", detail=f"RefinerAgent готов", metadata={"latency_ms": latency})
@@ -189,7 +197,69 @@ async def _refine_draft(ctx: AgentContext, draft_flow: dict[str, Any]) -> AgentR
     )
 
 
-# ── Режим 3: добавление активности в существующий draft_flow ──────────────────
+# ── Режим 3a: LLM-driven модификация (многошаговая, контекстная) ──────────────
+
+async def _try_llm_modify(ctx: AgentContext, draft_flow: dict[str, Any]) -> AgentResult | None:
+    """Пытается через LLM построить план операций и применить его к flow.
+
+    Возвращает AgentResult при успехе или None если LLM не дал валидных операций —
+    тогда вызывающий код упадёт на deterministic-фолбэк.
+    """
+    await ctx.emit("step_started", detail="RefinerAgent: LLM-modify planner")
+    plan = await plan_modifications_with_llm(
+        message=ctx.message,
+        flow=draft_flow,
+        history=ctx.history,
+    )
+    if not plan or not plan.get("operations"):
+        await ctx.emit("step_completed", status="info", detail="LLM-modify: операций не предложено")
+        return None
+
+    new_flow, applied = apply_modifications(draft_flow, plan)
+    if new_flow is None or not applied:
+        await ctx.emit("step_completed", status="warning", detail="LLM-modify: не удалось применить ни одну операцию")
+        return None
+
+    activities_count = len(new_flow.get("activities") or [])
+    await ctx.emit(
+        "step_completed",
+        detail=f"LLM-modify: применено {len(applied)} операций",
+        metadata={"ops_count": len(applied), "activities_after": activities_count},
+    )
+
+    artifact_id = await ctx.store.save_artifact(
+        session_id=ctx.session_id,
+        artifact_type="draft_flow",
+        content_json=new_flow,
+        metadata_json={"mode": "llm_modify", "ops": applied, "activities_count": activities_count},
+        source_run_id=ctx.run_id,
+    )
+    artifact = await ctx.store.get_artifact(artifact_id)
+
+    summary = (plan.get("summary") or "").strip()
+    lines: list[str] = []
+    if summary:
+        lines.append(summary)
+        lines.append("")
+    lines.append(f"**Изменения** ({len(applied)}):")
+    for descr in applied:
+        lines.append(f"- {descr}")
+    lines.append("")
+    lines.append(f"_Активностей в потоке: {activities_count}._")
+
+    actions = [
+        ChatAction(id="save_campaign", label="Сохранить кампанию в AdTarget", kind="save", payload={"draft_flow": new_flow}),
+        ChatAction(id="refine_campaign", label="Доработать дальше", kind="refine", payload={"draft_flow": new_flow}),
+    ]
+    return AgentResult(
+        assistant_message="\n".join(lines),
+        artifacts=[artifact] if artifact else [],
+        actions=actions,
+        metadata={"mode": "llm_modify", "ops_count": len(applied), "activities_count": activities_count},
+    )
+
+
+# ── Режим 3b: добавление активности (deterministic fallback) ──────────────────
 
 async def _append_activity(ctx: AgentContext, draft_flow: dict[str, Any], step: dict[str, Any]) -> AgentResult:
     await ctx.emit("step_started", detail=f"RefinerAgent: добавляю {step.get('type')}")

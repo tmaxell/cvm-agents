@@ -35,6 +35,9 @@ _ACTION_DISPATCH: dict[str, tuple[str, dict[str, str] | None]] = {
     "build_campaign":          ("builder",  {"message": "goal"}),
     "build_campaign_from_segment": ("builder", {"segment": "segment"}),
     "apply_segment":           ("builder",  {"segment": "segment"}),
+    # clarify_reply — frontend особый: фронт превращает payload.message в обычное сообщение.
+    # Если всё-таки прилетит сюда — передадим payload.message как goal в builder.
+    "clarify_reply":           ("builder",  {"message": "goal"}),
 }
 
 
@@ -83,6 +86,20 @@ async def _handle_action(ctx: AgentContext) -> AgentResult:
 # ── Message classification + plan ─────────────────────────────────────────────
 
 async def _handle_message(ctx: AgentContext) -> AgentResult:
+    # Sticky-context: если последний ассистент-ответ просил уточнения (stage=collect_brief),
+    # продолжаем разговор в Builder, не запуская intent classifier на «короткий ответ».
+    sticky_agent = _detect_sticky_agent(ctx.history)
+    if sticky_agent:
+        await ctx.emit(
+            "plan_created",
+            detail=f"sticky-context: продолжаем в {sticky_agent}",
+            metadata={"sticky": sticky_agent},
+        )
+        agent = get_agent(sticky_agent)
+        if agent is not None:
+            ctx.inputs.setdefault("goal", ctx.message)
+            return await agent.execute(ctx)
+
     decision = await classify_intent(ctx.message, history=ctx.history)
     await ctx.emit(
         "plan_created",
@@ -110,6 +127,21 @@ async def _handle_message(ctx: AgentContext) -> AgentResult:
             ctx.artifacts.append(artifact)
 
     return last_result or AgentResult(assistant_message="Шагов не выполнено.", status="error")
+
+
+def _detect_sticky_agent(history: list[dict[str, Any]]) -> str | None:
+    """Если последний ассистент ждёт уточнений — возвращает имя агента для продолжения."""
+    for msg in reversed(history):
+        if msg.get("role") != "assistant":
+            continue
+        meta = msg.get("metadata") or {}
+        agent_meta = meta.get("agent_meta") or {}
+        if isinstance(agent_meta, dict) and agent_meta.get("stage") == "collect_brief":
+            return "builder"
+        # Если последний ответ был от builder/refiner и status был needs_input — sticky.
+        # Сохраняем как простой эвристический сигнал: первый assistant идёт.
+        break
+    return None
 
 
 def _build_plan(decision: IntentDecision) -> Plan:

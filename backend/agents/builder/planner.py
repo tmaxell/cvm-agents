@@ -38,34 +38,51 @@ from tools.flow_builder import (
 logger = logging.getLogger(__name__)
 
 
-_PLANNER_SYSTEM = """Ты — планировщик AdTarget CVM кампаний. По бизнес-цели верни JSON-план шагов flow.
+_PLANNER_SYSTEM = """Ты — планировщик AdTarget CVM кампаний. По бизнес-брифу пользователя верни JSON-план шагов flow.
 
 Доступные ноды (используй только эти типы):
 {catalog}
 
-Правила:
+Правила сборки:
 - Первая нода ВСЕГДА CommonActivity (название кампании), вторая — TargetGroupActivity.
 - После Push/Pull-коммуникации обычно идёт ResponseActivity или WaitActivity или BusinessTransactionActivity.
-- BusinessTransaction нужен когда речь про активацию/начисление/отключение продукта.
-- WaitActivity — пауза между касаниями (в днях/часах).
-- Не более 8 шагов в плане для типовых сценариев.
+- BusinessTransaction нужен когда продвигаем активацию / начисление / отключение продукта.
+- WaitActivity — пауза между касаниями.
+- Не более 10 шагов в плане для типовых сценариев.
+
+Сценарий ⇒ структура (используй scenario из брифа):
+- single_touch              → Common → TG → Push (один SMS/Email/Push).
+- trigger_with_activation   → Common → TG → Push (приглашение) → Event (триггер: Charge/TopUp/Activation) → BusinessTransaction (addBusinessProduct).
+- two_step_with_response    → Common → TG → Push → Response → BusinessTransaction → Push (подтверждение).
+- multi_touch_with_wait     → Common → TG → Push → Wait → Push (повторное касание) → Wait → Push (финал).
+- lifecycle_with_transfer   → Common → TG → Push → Event → BT → Push → Wait → BT (откл) → TransferToCampaign → Wait → ExcludeFromCampaign.
+- unknown                   → выбери оптимальный 4-6 шаговый сценарий, опираясь на product/goal/channels.
+
+Channel → content_type mapping:
+- sms   → "SmsContent"
+- email → "EmailContent"
+- push  → "PushContent"
+- ussd  → "UssdContent"
+
+Для каждой ноды используй понятное имя на русском в name (не «SMS push», а «Приглашение Тариф Семейный»).
 
 Верни строго JSON одной строкой:
 {{
-  "campaign_name": "<человеческое название>",
+  "campaign_name": "<человеческое название кампании>",
+  "summary": "<1 предложение: почему такой сценарий выбран>",
   "steps": [
     {{"type":"CommonActivity", "name":"<...>"}},
-    {{"type":"TargetGroupActivity", "name":"Target group"}},
-    {{"type":"PushCommunicationActivity", "name":"SMS приглашение", "content_type":"SmsContent", "text":"<смс-текст>"}},
+    {{"type":"TargetGroupActivity", "name":"<описание аудитории>"}},
+    {{"type":"PushCommunicationActivity", "name":"SMS приглашение", "content_type":"SmsContent", "text":"<смс-текст с подстановкой продукта>"}},
     {{"type":"EventActivity", "name":"<eventCode>", "event_code":"Charge", "wait_days":4}},
-    {{"type":"BusinessTransactionActivity", "name":"<операция>", "operation":"addBusinessProduct", "amount":1000}},
-    {{"type":"WaitActivity", "name":"Wait", "wait_days":7}}
+    {{"type":"BusinessTransactionActivity", "name":"Активация ...", "operation":"addBusinessProduct", "amount":1000}},
+    {{"type":"WaitActivity", "name":"Wait 7d", "wait_days":7}}
   ]
 }}
 
-Для PushCommunicationActivity всегда указывай content_type (SmsContent/EmailContent/UssdContent/PushContent) и text.
+Для PushCommunicationActivity всегда указывай content_type и text (1-2 предложения с упоминанием продукта).
 Для BusinessTransactionActivity указывай operation: addBusinessProduct / removeBusinessProduct / charge.
-Для EventActivity указывай event_code (Charge, TopUp, Activation и пр.) и опц. wait_days (timeout).
+Для EventActivity указывай event_code (Charge, TopUp, Activation, Deactivation) и опц. wait_days (timeout).
 Для WaitActivity указывай wait_days или wait_hours.
 """
 
@@ -74,8 +91,16 @@ def _system_prompt() -> str:
     return _PLANNER_SYSTEM.replace("{catalog}", catalog_for_llm())
 
 
-async def plan_flow_with_llm(goal: str, *, history: list[dict] | None = None) -> dict[str, Any] | None:
-    """Запрашивает у LLM план кампании. Возвращает {campaign_name, steps} или None."""
+async def plan_flow_with_llm(
+    goal: str,
+    *,
+    history: list[dict] | None = None,
+    brief: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Запрашивает у LLM план кампании. Возвращает {campaign_name, summary, steps} или None.
+
+    brief — структурированный бриф из brief.analyze_brief() (опционально).
+    """
     try:
         llm = get_llm(temperature=0.1)
         messages: list[Any] = [SystemMessage(content=_system_prompt())]
@@ -83,7 +108,10 @@ async def plan_flow_with_llm(goal: str, *, history: list[dict] | None = None) ->
             for h in history[-4:]:
                 if h.get("role") == "user":
                     messages.append(HumanMessage(content=str(h.get("content", ""))[:300]))
-        messages.append(HumanMessage(content=f"GOAL: {goal}"))
+        payload: dict[str, Any] = {"goal": goal}
+        if brief:
+            payload["brief"] = brief
+        messages.append(HumanMessage(content=json.dumps(payload, ensure_ascii=False)))
         result = await llm.ainvoke(messages)
         raw = getattr(result, "content", str(result))
         text = raw if isinstance(raw, str) else json.dumps(raw)
@@ -123,6 +151,7 @@ def _parse_plan(text: str) -> dict[str, Any] | None:
         return None
     return {
         "campaign_name": str(payload.get("campaign_name") or "Новая кампания")[:120],
+        "summary": str(payload.get("summary") or "")[:300],
         "steps": sanitized,
     }
 

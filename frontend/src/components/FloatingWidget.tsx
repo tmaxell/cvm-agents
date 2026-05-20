@@ -345,6 +345,12 @@ export function FloatingWidget() {
   };
 
   const handleAction = (action: ChatAction) => {
+    // clarify_reply — отправляем payload.message как обычное user-сообщение, без action.
+    if (action.id === "clarify_reply") {
+      const text = String((action.payload || {}).message || action.label || "");
+      if (text) void sendMessage(text);
+      return;
+    }
     const label = ACTION_LABELS[action.id] ?? action.label;
     void sendMessage(label, action);
   };

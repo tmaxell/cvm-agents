@@ -103,6 +103,7 @@
 
 /* Header */
 .fw-header {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -200,6 +201,7 @@
 
 /* Thread */
 .fw-thread {
+  flex: 1 1 auto;
   overflow-y: auto;
   padding: 14px;
   background: linear-gradient(180deg, #ffffff 0%, #fafbff 100%);
@@ -210,14 +212,18 @@
 }
 
 .fw-thread-empty {
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   height: 100%;
   color: #94a3b8;
   font-size: 13px;
   text-align: center;
   padding: 20px;
+  gap: 12px;
 }
+.fw-thread-empty-hint { color: #64748b; font-size: 13.5px; }
 .fw-suggestion-grid {
   display: grid;
   gap: 6px;
@@ -369,6 +375,7 @@
 
 /* Composer */
 .fw-composer {
+  flex: 0 0 auto;
   display: flex;
   align-items: flex-end;
   gap: 8px;

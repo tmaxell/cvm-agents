@@ -46,11 +46,11 @@ async def execute(ctx: AgentContext) -> AgentResult:
         desc = h.audience_description or h.description
         reason = h.relevance_reason or h.rationale
         if desc:
-            lines.append(f"- 👥 {desc}")
+            lines.append(f"- **Аудитория:** {desc}")
         if reason:
-            lines.append(f"- 🎯 {reason}")
+            lines.append(f"- **Зачем:** {reason}")
         if h.risk_or_limitation:
-            lines.append(f"- ⚠️ {h.risk_or_limitation}")
+            lines.append(f"- **Ограничения:** {h.risk_or_limitation}")
         lines.append("")
     message_text = "\n".join(lines).rstrip()
 

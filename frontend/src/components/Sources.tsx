@@ -6,7 +6,7 @@ export function Sources({ citations }: { citations: SourceCitation[] }) {
   if (!citations || citations.length === 0) return null;
   return (
     <details className="fw-sources">
-      <summary>📚 Источники · {citations.length}</summary>
+      <summary>Источники · {citations.length}</summary>
       <div className="fw-sources-list">
         {citations.map((c) => {
           const href = c.source ? `${API_BASE}/${c.source.replace(/^\//, "")}` : undefined;

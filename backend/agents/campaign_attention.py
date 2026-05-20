@@ -18,7 +18,7 @@ from db import AsyncSessionLocal
 from models import CampaignHealthModel, DemoCampaignModel
 
 _SEVERITY_WEIGHT = {"critical": 100, "high": 70, "medium": 40, "low": 10}
-_SEVERITY_LABEL = {"critical": "🔴 critical", "high": "🟠 high", "medium": "🟡 medium", "low": "🟢 low"}
+_SEVERITY_LABEL = {"critical": "critical", "high": "high", "medium": "medium", "low": "low"}
 
 # Человечные тайтлы и эталонные KPI для каждой известной категории проблем.
 _ISSUE_CATALOG: dict[str, dict[str, str]] = {

@@ -111,7 +111,7 @@ function PlanCard({ trace }: { trace: ChatTraceEvent[] | undefined }) {
   if (visible.length === 0) return null;
   return (
     <details className="fw-plan">
-      <summary>🧭 План вызова агентов · {visible.length} шагов</summary>
+      <summary>План вызова агентов · {visible.length} шагов</summary>
       <div className="fw-plan-steps">
         {visible.map((e, i) => (
           <div key={i} className={`fw-plan-step ${e.status}`}>
@@ -145,7 +145,7 @@ function ActionCards({
     <>
       {saveActions.length > 0 && (
         <div className="fw-action-card">
-          <div className="fw-action-card-title">💾 Предлагаемые сохранения</div>
+          <div className="fw-action-card-title">Предлагаемые сохранения</div>
           <div className="fw-action-card-body">
             Агент подготовил артефакт. Сохраните его, чтобы переиспользовать в следующих шагах.
           </div>
@@ -192,8 +192,7 @@ function MessageBubble({ msg, onAction, pending, isLast }: { msg: ChatEntry; onA
 function ThreadEmpty({ onPick }: { onPick: (prompt: string) => void }) {
   return (
     <div className="fw-thread-empty">
-      <div style={{ fontSize: 16, color: "#1e293b", fontWeight: 700 }}>CVM Assistant</div>
-      <div>Спросите про кампании, сегменты, документацию.</div>
+      <div className="fw-thread-empty-hint">Спросите про кампании, сегменты, документацию.</div>
       <div className="fw-suggestion-grid">
         {SUGGESTIONS.map((s) => (
           <button key={s.label} className="fw-suggestion" onClick={() => onPick(s.prompt)}>

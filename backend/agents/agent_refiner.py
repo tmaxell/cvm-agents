@@ -106,7 +106,7 @@ async def _refine_existing(ctx: AgentContext, campaign_id: int) -> AgentResult:
         lines.append("")
         lines.append("**Проблемы:**")
         for issue in issues_text[:3]:
-            lines.append(f"- ⚠️ {issue}")
+            lines.append(f"- {issue}")
     lines.append("")
     lines.append("**Рекомендации:**")
     for i, fix in enumerate(fixes[:5], start=1):

@@ -68,7 +68,7 @@ async def _save_campaign(ctx: AgentContext, payload: dict[str, Any]) -> AgentRes
     if campaign_id:
         actions.append(ChatAction(id="start_campaign", label="Запустить кампанию", kind="runtime", payload={"campaign_id": campaign_id}))
     return AgentResult(
-        assistant_message=f"✅ Кампания создана в AdTarget" + (f". ID: **{campaign_id}**" if campaign_id else "."),
+        assistant_message="Кампания создана в AdTarget" + (f". ID: **{campaign_id}**" if campaign_id else "."),
         artifacts=[artifact] if artifact else [],
         actions=actions,
     )
@@ -85,7 +85,7 @@ async def _save_segment(ctx: AgentContext, payload: dict[str, Any]) -> AgentResu
     artifact = await ctx.store.get_artifact(artifact_id)
     await ctx.emit("step_completed", detail="segment saved")
     return AgentResult(
-        assistant_message="✅ Сегмент сохранён.",
+        assistant_message="Сегмент сохранён.",
         artifacts=[artifact] if artifact else [],
         actions=[ChatAction(id="build_campaign_from_segment", label="Создать кампанию из сегмента", kind="build", payload={"segment": content})],
     )
@@ -100,7 +100,7 @@ async def _save_target_group(ctx: AgentContext, payload: dict[str, Any]) -> Agen
     )
     artifact = await ctx.store.get_artifact(artifact_id)
     await ctx.emit("step_completed", detail="target group saved")
-    return AgentResult(assistant_message="✅ Таргет-группа сохранена.", artifacts=[artifact] if artifact else [])
+    return AgentResult(assistant_message="Таргет-группа сохранена.", artifacts=[artifact] if artifact else [])
 
 
 async def _start_campaign(ctx: AgentContext, payload: dict[str, Any]) -> AgentResult:
@@ -114,7 +114,7 @@ async def _start_campaign(ctx: AgentContext, payload: dict[str, Any]) -> AgentRe
         await ctx.emit("step_completed", status="error", detail=str(exc)[:200])
         return AgentResult(assistant_message=f"Не удалось запустить кампанию: {str(exc)[:200]}", status="error")
     await ctx.emit("step_completed", detail=f"campaign {campaign_id} started")
-    return AgentResult(assistant_message=f"▶ Кампания **{campaign_id}** запущена.")
+    return AgentResult(assistant_message=f"Кампания **{campaign_id}** запущена.")
 
 
 async def _pause_campaign(ctx: AgentContext, payload: dict[str, Any]) -> AgentResult:
@@ -128,7 +128,7 @@ async def _pause_campaign(ctx: AgentContext, payload: dict[str, Any]) -> AgentRe
         await ctx.emit("step_completed", status="error", detail=str(exc)[:200])
         return AgentResult(assistant_message=f"Не удалось поставить на паузу: {str(exc)[:200]}", status="error")
     await ctx.emit("step_completed", detail=f"campaign {campaign_id} paused")
-    return AgentResult(assistant_message=f"⏸ Кампания **{campaign_id}** на паузе.")
+    return AgentResult(assistant_message=f"Кампания **{campaign_id}** на паузе.")
 
 
 _DISPATCH = {

@@ -106,7 +106,7 @@ def _render_markdown(*, summary: dict[str, Any], top: list[dict[str, Any]], cate
 
     # Executive summary
     by_sev = summary["by_severity"]
-    out.append("## 📊 Обзор портфеля")
+    out.append("## Обзор портфеля")
     out.append("")
     out.append(
         f"Всего кампаний: **{summary['total']}** · "
@@ -115,7 +115,7 @@ def _render_markdown(*, summary: dict[str, Any], top: list[dict[str, Any]], cate
     )
     out.append("")
     out.append("**По severity:**")
-    for sev_key, label in [("critical", "🔴 critical"), ("high", "🟠 high"), ("medium", "🟡 medium"), ("low", "🟢 low")]:
+    for sev_key, label in [("critical", "critical"), ("high", "high"), ("medium", "medium"), ("low", "low")]:
         out.append(f"- {label}: **{by_sev.get(sev_key, 0)}**")
     out.append("")
 
@@ -138,7 +138,7 @@ def _render_markdown(*, summary: dict[str, Any], top: list[dict[str, Any]], cate
     out.append("")
 
     # Топ-N
-    out.append(f"## 🔥 Топ-{len(top)} требуют действий сейчас")
+    out.append(f"## Топ-{len(top)} требуют действий сейчас")
     out.append("")
     for idx, item in enumerate(top, start=1):
         plan = plans.get(item["campaign_id"], {})
@@ -157,9 +157,9 @@ def _render_markdown(*, summary: dict[str, Any], top: list[dict[str, Any]], cate
                 title = issue.get("title") or issue.get("code") or "issue"
                 message = issue.get("message") or ""
                 if message:
-                    out.append(f"- ⚠️ **{title}** — {message}")
+                    out.append(f"- **{title}** — {message}")
                 else:
-                    out.append(f"- ⚠️ **{title}**")
+                    out.append(f"- **{title}**")
             out.append("")
         # План фикса (LLM или fallback)
         analysis = plan.get("analysis") or _fallback_analysis(item)
@@ -175,7 +175,7 @@ def _render_markdown(*, summary: dict[str, Any], top: list[dict[str, Any]], cate
 
     # Issue breakdown
     if categories:
-        out.append("## 🧩 Разрез по проблемам")
+        out.append("## Разрез по проблемам")
         out.append("")
         for cat in categories[:6]:
             channels_str = ", ".join(

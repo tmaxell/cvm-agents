@@ -1,10 +1,10 @@
-"""Async database setup and repository helpers for Campaign Builder state."""
+"""Async DB setup + единый репозиторий для unified chat (sessions, messages, runs, artifacts)."""
 
 from __future__ import annotations
 
-import os
 import hashlib
 import json
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -12,29 +12,26 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import inspect, select, text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import selectinload
-from sqlalchemy.orm.attributes import NO_VALUE
 
 from models import (
     Base,
-    BuilderMessageModel,
-    BuilderSessionModel,
-    CampaignStateModel,
     ChatMessageModel,
     ChatRunEventModel,
     ChatRunModel,
     ChatSessionModel,
     SavedArtifactModel,
 )
-from schemas import ChatTraceEvent, Message, Session, SessionDetail
+from schemas import ChatTraceEvent
 
 _DEFAULT_SQLITE_PATH = Path(__file__).parent / "data" / "cvm_agents.sqlite3"
 
+# Все легаси-таблицы Builder-сессий + старая chat_sessions с FK на sessions — дропаем при init.
+_LEGACY_TABLES = ("messages", "campaign_states", "sessions")
+
 
 def get_database_url() -> str:
-    """Return configured database URL, falling back to local SQLite for demo mode."""
     database_url = os.getenv("DATABASE_URL")
     if database_url:
         return database_url
@@ -48,7 +45,6 @@ AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 @asynccontextmanager
 async def session_scope() -> AsyncIterator[AsyncSession]:
-    """Provide a transactional async SQLAlchemy session."""
     async with AsyncSessionLocal() as session:
         try:
             yield session
@@ -59,140 +55,114 @@ async def session_scope() -> AsyncIterator[AsyncSession]:
 
 
 async def init_db() -> None:
-    """Create tables if migrations have not been run yet."""
+    """Создаёт таблицы и дропает легаси, если они есть."""
     async with engine.begin() as connection:
+        # Drop legacy tables first (chat_sessions FK might reference sessions, drop in dep order).
+        for table in ("chat_sessions",):
+            await connection.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE"))
+        for table in _LEGACY_TABLES:
+            await connection.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE"))
+        # Drop chat_messages/runs/events/artifacts too — they referenced the old chat_sessions FK.
+        for table in ("chat_run_events", "chat_runs", "saved_artifacts", "chat_messages"):
+            await connection.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE"))
+
         await connection.run_sync(Base.metadata.create_all)
 
-        def _campaign_state_columns(sync_connection) -> set[str]:
-            inspector = inspect(sync_connection)
-            if not inspector.has_table("campaign_states"):
-                return set()
-            return {column["name"] for column in inspector.get_columns("campaign_states")}
 
-        columns = await connection.run_sync(_campaign_state_columns)
-        column_migrations = {
-            "draft_flow_version": "ALTER TABLE campaign_states ADD COLUMN draft_flow_version INTEGER",
-            "campaign_brief_json": "ALTER TABLE campaign_states ADD COLUMN campaign_brief_json JSON",
-            "brief_completeness_json": "ALTER TABLE campaign_states ADD COLUMN brief_completeness_json JSON",
-            "review_checklist_json": "ALTER TABLE campaign_states ADD COLUMN review_checklist_json JSON",
-            "review_status": "ALTER TABLE campaign_states ADD COLUMN review_status VARCHAR(32)",
-            "review_checklist_acknowledged": (
-                "ALTER TABLE campaign_states ADD COLUMN review_checklist_acknowledged BOOLEAN NOT NULL DEFAULT FALSE"
-            ),
-            "runtime_status": (
-                "ALTER TABLE campaign_states ADD COLUMN runtime_status VARCHAR(32) NOT NULL DEFAULT 'editing'"
-            ),
-        }
-        for column_name, statement in column_migrations.items():
-            if columns and column_name not in columns:
-                await connection.execute(text(statement))
+# ── Repository ────────────────────────────────────────────────────────────────
 
-        def _chat_runs_columns(sync_connection) -> set[str]:
-            inspector = inspect(sync_connection)
-            if not inspector.has_table("chat_runs"):
-                return set()
-            return {column["name"] for column in inspector.get_columns("chat_runs")}
-
-        chat_runs_columns = await connection.run_sync(_chat_runs_columns)
-        if chat_runs_columns and "session_id" in chat_runs_columns:
-            if connection.dialect.name == "sqlite":
-                migrate_chat_sessions_statement = (
-                    "INSERT OR IGNORE INTO chat_sessions (id, builder_session_id, title, created_at, updated_at) "
-                    "SELECT DISTINCT cr.session_id, cr.session_id, 'Builder chat', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP "
-                    "FROM chat_runs cr"
-                )
-            else:
-                migrate_chat_sessions_statement = (
-                    "INSERT INTO chat_sessions (id, builder_session_id, title, created_at, updated_at) "
-                    "SELECT DISTINCT cr.session_id, cr.session_id, 'Builder chat', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP "
-                    "FROM chat_runs cr "
-                    "ON CONFLICT (id) DO NOTHING"
-                )
-            await connection.execute(text(migrate_chat_sessions_statement))
-        def _saved_artifacts_columns(sync_connection) -> set[str]:
-            inspector = inspect(sync_connection)
-            if not inspector.has_table("saved_artifacts"):
-                return set()
-            return {column["name"] for column in inspector.get_columns("saved_artifacts")}
-
-        saved_artifact_columns = await connection.run_sync(_saved_artifacts_columns)
-        saved_artifact_migrations = {
-            "source_run_id": "ALTER TABLE saved_artifacts ADD COLUMN source_run_id VARCHAR(64)",
-            "schema_version": "ALTER TABLE saved_artifacts ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1",
-            "content_json": "ALTER TABLE saved_artifacts ADD COLUMN content_json JSON",
-            "metadata_json": "ALTER TABLE saved_artifacts ADD COLUMN metadata_json JSON",
-            "artifact_hash": "ALTER TABLE saved_artifacts ADD COLUMN artifact_hash VARCHAR(64)",
-        }
-        for column_name, statement in saved_artifact_migrations.items():
-            if saved_artifact_columns and column_name not in saved_artifact_columns:
-                await connection.execute(text(statement))
+def _now() -> datetime:
+    return datetime.now(UTC)
 
 
-class DatabaseSessionStore:
-    """SQL-backed repository for builder sessions, messages, and campaign state."""
-    _SUPPORTED_ARTIFACT_TYPES = {"campaign_draft", "segment_draft", "monitor_report", "recommendation_bundle"}
+def _preview(text_content: str, limit: int = 200) -> str:
+    cleaned = " ".join(text_content.split())
+    return cleaned[:limit]
 
-    async def list_sessions(self) -> list[Session]:
+
+class ChatStore:
+    """Единый репозиторий для unified chat виджета."""
+
+    _SUPPORTED_ARTIFACT_TYPES = {
+        "draft_flow",
+        "campaign_draft",
+        "segment_draft",
+        "target_group_draft",
+        "monitor_report",
+        "recommendation_bundle",
+        "attention_report",
+    }
+
+    # ── Sessions ──────────────────────────────────────────────────────────────
+
+    async def list_sessions(self) -> list[dict[str, Any]]:
         async with session_scope() as db:
             result = await db.scalars(
-                select(BuilderSessionModel)
-                .options(selectinload(BuilderSessionModel.campaign_state))
-                .order_by(BuilderSessionModel.updated_at.desc())
+                select(ChatSessionModel).order_by(ChatSessionModel.updated_at.desc())
             )
-            return [self._to_session(item) for item in result]
+            return [self._session_dict(s) for s in result]
 
-    async def get_session(self, session_id: str) -> SessionDetail | None:
+    async def get_session(self, session_id: str) -> dict[str, Any] | None:
         async with session_scope() as db:
-            result = await db.scalars(
-                select(BuilderSessionModel)
-                .where(BuilderSessionModel.id == session_id)
-                .options(selectinload(BuilderSessionModel.messages), selectinload(BuilderSessionModel.campaign_state))
-            )
-            session = result.first()
+            session = await db.get(ChatSessionModel, session_id)
             if session is None:
                 return None
-            messages = [self._to_message(message) for message in sorted(session.messages, key=lambda item: item.created_at)]
-            return SessionDetail(**self._to_session(session).model_dump(), messages=messages)
+            return self._session_dict(session)
 
-    async def create_session(
-        self,
-        *,
-        title: str,
-        campaign_id: int | None = None,
-        status: str = "collect_brief",
-        session_id: str | None = None,
-    ) -> Session:
+    async def get_session_with_messages(self, session_id: str) -> dict[str, Any] | None:
         async with session_scope() as db:
-            if session_id:
-                existing = await db.get(BuilderSessionModel, session_id)
-                if existing is not None:
-                    return self._to_session(existing)
-            now = self._now()
-            session = BuilderSessionModel(
-                id=session_id or str(uuid4()),
-                campaign_id=campaign_id,
-                title=title,
-                status=status,
-                created_at=now,
-                updated_at=now,
+            session = await db.get(ChatSessionModel, session_id)
+            if session is None:
+                return None
+            messages = await db.scalars(
+                select(ChatMessageModel)
+                .where(ChatMessageModel.session_id == session_id)
+                .order_by(ChatMessageModel.created_at)
             )
-            db.add(session)
-            await db.flush()
-            return self._to_session(session)
+            artifacts = await db.scalars(
+                select(SavedArtifactModel)
+                .where(SavedArtifactModel.session_id == session_id)
+                .order_by(SavedArtifactModel.created_at)
+            )
+            payload = self._session_dict(session)
+            payload["messages"] = [self._message_dict(m) for m in messages]
+            payload["artifacts"] = [self._artifact_dict(a) for a in artifacts]
+            return payload
+
+    async def list_messages(self, session_id: str) -> list[dict[str, Any]]:
+        async with session_scope() as db:
+            result = await db.scalars(
+                select(ChatMessageModel)
+                .where(ChatMessageModel.session_id == session_id)
+                .order_by(ChatMessageModel.created_at)
+            )
+            return [self._message_dict(m) for m in result]
 
     async def ensure_session(
         self,
         *,
-        session_id: str | None,
-        title: str,
-        campaign_id: int | None = None,
-        status: str = "collect_brief",
-    ) -> Session:
-        if session_id:
-            existing = await self.get_session(session_id)
-            if existing is not None:
-                return Session(**existing.model_dump(exclude={"messages"}))
-        return await self.create_session(title=title, campaign_id=campaign_id, status=status, session_id=session_id)
+        session_id: str | None = None,
+        title: str | None = None,
+    ) -> dict[str, Any]:
+        async with session_scope() as db:
+            sid = session_id or str(uuid4())
+            session = await db.get(ChatSessionModel, sid)
+            if session is None:
+                session = ChatSessionModel(
+                    id=sid,
+                    title=title or "Новый диалог",
+                )
+                db.add(session)
+                await db.flush()
+            elif title and session.title in (None, "", "Новый диалог"):
+                session.title = title
+            return self._session_dict(session)
+
+    async def update_session_title(self, session_id: str, title: str) -> None:
+        async with session_scope() as db:
+            session = await db.get(ChatSessionModel, session_id)
+            if session is not None and session.title != title:
+                session.title = title
 
     async def add_message(
         self,
@@ -201,200 +171,46 @@ class DatabaseSessionStore:
         role: str,
         content: str,
         metadata: dict[str, Any] | None = None,
-    ) -> Message:
+    ) -> str:
         async with session_scope() as db:
-            session = await db.get(BuilderSessionModel, session_id)
+            session = await db.get(ChatSessionModel, session_id)
             if session is None:
                 raise KeyError(session_id)
-            now = self._now()
-            message = BuilderMessageModel(
-                id=str(uuid4()),
+            msg_id = str(uuid4())
+            msg = ChatMessageModel(
+                id=msg_id,
                 session_id=session_id,
                 role=role,
                 content=content,
-                created_at=now,
                 metadata_json=metadata,
+                created_at=_now(),
             )
-            session.updated_at = now
-            if metadata:
-                campaign_id = metadata.get("campaign_id")
-                status = metadata.get("status")
-                if campaign_id is not None:
-                    session.campaign_id = campaign_id
-                if status:
-                    session.status = status
-            db.add(message)
+            session.updated_at = _now()
+            session.last_message_preview = _preview(content)
+            # Авто-генерация title из первого user-сообщения, если стандартное.
+            if role == "user" and session.title in (None, "", "Новый диалог"):
+                session.title = _preview(content, limit=60)
+            db.add(msg)
             await db.flush()
-            return self._to_message(message)
+            return msg_id
 
-    async def update_session(
-        self,
-        session_id: str,
-        *,
-        campaign_id: int | None = None,
-        status: str | None = None,
-        title: str | None = None,
-    ) -> Session | None:
+    # ── Runs / trace ──────────────────────────────────────────────────────────
+
+    async def create_run(self, *, session_id: str, user_message: str | None = None) -> str:
         async with session_scope() as db:
-            session = await db.get(BuilderSessionModel, session_id)
-            if session is None:
-                return None
-            if campaign_id is not None:
-                session.campaign_id = campaign_id
-            if status is not None:
-                session.status = status
-            if title:
-                session.title = title
-            session.updated_at = self._now()
-            await db.flush()
-            return self._to_session(session)
-
-    async def upsert_campaign_state(
-        self,
-        *,
-        session_id: str,
-        campaign_id: int | None = None,
-        draft_flow_json: dict[str, Any] | None = None,
-        runtime_status: str = "editing",
-        draft_flow_version: int | None = None,
-        campaign_brief_json: dict[str, Any] | None = None,
-        brief_completeness_json: dict[str, Any] | None = None,
-        review_checklist_json: dict[str, Any] | None = None,
-        review_status: str | None = None,
-        review_checklist_acknowledged: bool = False,
-    ) -> None:
-        async with session_scope() as db:
-            session = await db.get(BuilderSessionModel, session_id)
-            if session is None:
-                raise KeyError(session_id)
-            state = await db.get(CampaignStateModel, session_id)
-            now = self._now()
-            if state is None:
-                state = CampaignStateModel(
-                    session_id=session_id,
-                    campaign_id=campaign_id,
-                    draft_flow_json=draft_flow_json,
-                    draft_flow_version=draft_flow_version,
-                    campaign_brief_json=campaign_brief_json,
-                    brief_completeness_json=brief_completeness_json,
-                    review_checklist_json=review_checklist_json,
-                    review_status=review_status,
-                    review_checklist_acknowledged=review_checklist_acknowledged,
-                    runtime_status=runtime_status,
-                    created_at=now,
-                    updated_at=now,
-                )
-                db.add(state)
-            else:
-                state.campaign_id = campaign_id
-                state.draft_flow_json = draft_flow_json
-                state.draft_flow_version = draft_flow_version
-                state.campaign_brief_json = campaign_brief_json
-                state.brief_completeness_json = brief_completeness_json
-                state.review_checklist_json = review_checklist_json
-                state.review_status = review_status
-                state.review_checklist_acknowledged = review_checklist_acknowledged
-                state.runtime_status = runtime_status
-                state.updated_at = now
-            if campaign_id is not None:
-                session.campaign_id = campaign_id
-            session.updated_at = now
-
-    @staticmethod
-    def _to_session(session: BuilderSessionModel) -> Session:
-        state_value = inspect(session).attrs.campaign_state.loaded_value
-        state = None if state_value is NO_VALUE else state_value
-        return Session(
-            id=session.id,
-            campaign_id=session.campaign_id,
-            title=session.title,
-            created_at=session.created_at,
-            updated_at=session.updated_at,
-            status=session.status,
-            campaign_brief=state.campaign_brief_json if state is not None else None,
-            draft_flow=state.draft_flow_json if state is not None else None,
-            draft_flow_version=state.draft_flow_version if state is not None else None,
-            brief_completeness=state.brief_completeness_json if state is not None else None,
-            review_checklist=state.review_checklist_json if state is not None else None,
-            review_status=(state.review_status if state is not None and state.review_status else "blocked"),
-            review_checklist_acknowledged=(state.review_checklist_acknowledged if state is not None else False),
-        )
-
-    @staticmethod
-    def _to_message(message: BuilderMessageModel) -> Message:
-        return Message(
-            id=message.id,
-            session_id=message.session_id,
-            role=message.role,
-            content=message.content,
-            created_at=message.created_at,
-            metadata=message.metadata_json,
-        )
-
-    @staticmethod
-    def _now() -> datetime:
-        return datetime.now(UTC)
-
-    async def create_chat_run(self, *, session_id: str, user_message: str | None = None) -> str:
-        async with session_scope() as db:
-            await self._ensure_chat_session_entity(db, session_id)
-            now = self._now()
-            run = ChatRunModel(
-                id=str(uuid4()),
+            run_id = str(uuid4())
+            db.add(ChatRunModel(
+                id=run_id,
                 session_id=session_id,
                 user_message=user_message,
                 status="running",
-                created_at=now,
-                updated_at=now,
-            )
-            db.add(run)
+                created_at=_now(),
+                updated_at=_now(),
+            ))
             await db.flush()
-            return run.id
+            return run_id
 
-    async def ensure_chat_session(
-        self, *, session_id: str, title: str | None = None, builder_session_id: str | None = None
-    ) -> str:
-        async with session_scope() as db:
-            chat_session = await self._ensure_chat_session_entity(
-                db, session_id=session_id, title=title, builder_session_id=builder_session_id
-            )
-            return chat_session.id
-
-    async def add_chat_message(
-        self, *, session_id: str, role: str, content: str, metadata: dict[str, Any] | None = None
-    ) -> None:
-        async with session_scope() as db:
-            session = await self._ensure_chat_session_entity(db, session_id=session_id)
-            session.updated_at = self._now()
-            db.add(
-                ChatMessageModel(
-                    id=str(uuid4()),
-                    session_id=session_id,
-                    role=role,
-                    content=content,
-                    metadata_json=metadata,
-                    created_at=self._now(),
-                )
-            )
-
-    async def get_chat_history(self, *, session_id: str) -> list[Message]:
-        async with session_scope() as db:
-            result = await db.scalars(
-                select(ChatMessageModel).where(ChatMessageModel.session_id == session_id).order_by(ChatMessageModel.created_at)
-            )
-            return [
-                Message(
-                    id=item.id,
-                    session_id=item.session_id,
-                    role=item.role,
-                    content=item.content,
-                    created_at=item.created_at,
-                    metadata=item.metadata_json,
-                )
-                for item in result
-            ]
-
-    async def add_chat_run_event(
+    async def add_event(
         self,
         *,
         run_id: str,
@@ -406,32 +222,34 @@ class DatabaseSessionStore:
         async with session_scope() as db:
             run = await db.get(ChatRunModel, run_id)
             if run is None:
-                raise KeyError(run_id)
-            run.updated_at = self._now()
-            db.add(
-                ChatRunEventModel(
-                    id=str(uuid4()),
-                    run_id=run_id,
-                    event=event,
-                    status=status,
-                    detail=detail,
-                    metadata_json=metadata,
-                    created_at=self._now(),
-                )
-            )
+                return
+            run.updated_at = _now()
+            db.add(ChatRunEventModel(
+                id=str(uuid4()),
+                run_id=run_id,
+                event=event,
+                status=status,
+                detail=detail,
+                metadata_json=metadata,
+                created_at=_now(),
+            ))
 
-    async def complete_chat_run(self, *, run_id: str, status: str) -> None:
+    async def complete_run(self, *, run_id: str, status: str, intent: str | None = None) -> None:
         async with session_scope() as db:
             run = await db.get(ChatRunModel, run_id)
             if run is None:
-                raise KeyError(run_id)
+                return
             run.status = status
-            run.updated_at = self._now()
+            if intent:
+                run.intent = intent
+            run.updated_at = _now()
 
-    async def list_chat_run_events(self, *, run_id: str) -> list[ChatTraceEvent]:
+    async def list_events(self, *, run_id: str) -> list[ChatTraceEvent]:
         async with session_scope() as db:
             result = await db.scalars(
-                select(ChatRunEventModel).where(ChatRunEventModel.run_id == run_id).order_by(ChatRunEventModel.created_at)
+                select(ChatRunEventModel)
+                .where(ChatRunEventModel.run_id == run_id)
+                .order_by(ChatRunEventModel.created_at)
             )
             return [
                 ChatTraceEvent(
@@ -444,73 +262,105 @@ class DatabaseSessionStore:
                 for item in result
             ]
 
-    async def _ensure_chat_session_entity(
-        self,
-        db: AsyncSession,
-        session_id: str,
-        title: str | None = None,
-        builder_session_id: str | None = None,
-    ) -> ChatSessionModel:
-        chat_session = await db.get(ChatSessionModel, session_id)
-        now = self._now()
-        if chat_session is not None:
-            if builder_session_id is not None and not chat_session.builder_session_id:
-                chat_session.builder_session_id = builder_session_id
-            chat_session.updated_at = now
-            return chat_session
-        linked_builder_id = builder_session_id if builder_session_id is not None else session_id
-        if linked_builder_id is not None:
-            maybe_builder = await db.get(BuilderSessionModel, linked_builder_id)
-            if maybe_builder is None:
-                linked_builder_id = None
-        chat_session = ChatSessionModel(
-            id=session_id,
-            builder_session_id=linked_builder_id,
-            title=title or "Builder chat",
-            created_at=now,
-            updated_at=now,
-        )
-        db.add(chat_session)
-        await db.flush()
-        return chat_session
+    # ── Artifacts ─────────────────────────────────────────────────────────────
 
     async def save_artifact(
         self,
         *,
         session_id: str,
         artifact_type: str,
-        schema_version: int,
         content_json: dict[str, Any] | None,
-        metadata_json: dict[str, Any] | None,
-        source_run_id: str | None,
+        metadata_json: dict[str, Any] | None = None,
+        schema_version: int = 1,
+        source_run_id: str | None = None,
     ) -> str:
         if artifact_type not in self._SUPPORTED_ARTIFACT_TYPES:
             raise ValueError(f"Unsupported artifact_type: {artifact_type}")
-        artifact_hash = hashlib.sha256(
+        h = hashlib.sha256(
             json.dumps(content_json or {}, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
         async with session_scope() as db:
-            await self._ensure_chat_session_entity(db, session_id=session_id)
+            session = await db.get(ChatSessionModel, session_id)
+            if session is None:
+                raise KeyError(session_id)
             if source_run_id:
                 existing = await db.scalar(
                     select(SavedArtifactModel).where(
                         SavedArtifactModel.source_run_id == source_run_id,
-                        SavedArtifactModel.artifact_hash == artifact_hash,
+                        SavedArtifactModel.artifact_hash == h,
                     )
                 )
                 if existing is not None:
                     return existing.id
-            artifact = SavedArtifactModel(
-                id=str(uuid4()),
+            art_id = str(uuid4())
+            db.add(SavedArtifactModel(
+                id=art_id,
                 session_id=session_id,
                 source_run_id=source_run_id,
                 artifact_type=artifact_type,
                 schema_version=schema_version,
                 content_json=content_json,
                 metadata_json=metadata_json,
-                artifact_hash=artifact_hash,
-                created_at=self._now(),
-            )
-            db.add(artifact)
+                artifact_hash=h,
+                created_at=_now(),
+            ))
             await db.flush()
-            return artifact.id
+            return art_id
+
+    async def list_artifacts(self, *, session_id: str) -> list[dict[str, Any]]:
+        async with session_scope() as db:
+            result = await db.scalars(
+                select(SavedArtifactModel)
+                .where(SavedArtifactModel.session_id == session_id)
+                .order_by(SavedArtifactModel.created_at)
+            )
+            return [self._artifact_dict(a) for a in result]
+
+    async def get_artifact(self, artifact_id: str) -> dict[str, Any] | None:
+        async with session_scope() as db:
+            artifact = await db.get(SavedArtifactModel, artifact_id)
+            return self._artifact_dict(artifact) if artifact else None
+
+    async def set_campaign_id(self, *, session_id: str, campaign_id: int | None) -> None:
+        async with session_scope() as db:
+            session = await db.get(ChatSessionModel, session_id)
+            if session is not None:
+                session.campaign_id = campaign_id
+                session.updated_at = _now()
+
+    # ── Serializers ───────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _session_dict(s: ChatSessionModel) -> dict[str, Any]:
+        return {
+            "id": s.id,
+            "title": s.title or "Новый диалог",
+            "status": s.status or "active",
+            "campaign_id": s.campaign_id,
+            "last_message_preview": s.last_message_preview or "",
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+            "updated_at": s.updated_at.isoformat() if s.updated_at else None,
+        }
+
+    @staticmethod
+    def _message_dict(m: ChatMessageModel) -> dict[str, Any]:
+        return {
+            "id": m.id,
+            "session_id": m.session_id,
+            "role": m.role,
+            "content": m.content,
+            "metadata": m.metadata_json or {},
+            "created_at": m.created_at.isoformat() if m.created_at else None,
+        }
+
+    @staticmethod
+    def _artifact_dict(a: SavedArtifactModel) -> dict[str, Any]:
+        return {
+            "id": a.id,
+            "session_id": a.session_id,
+            "type": a.artifact_type,
+            "schema_version": a.schema_version,
+            "content": a.content_json,
+            "metadata": a.metadata_json or {},
+            "created_at": a.created_at.isoformat() if a.created_at else None,
+        }

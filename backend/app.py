@@ -1,77 +1,63 @@
-"""
-cvm-agents — FastAPI backend
+"""cvm-agents — единый FastAPI backend для unified chat виджета.
 
 Endpoints:
-  POST /api/copilot    — F1 CVM Copilot (RAG + LLM)
-  POST /api/builder    — F2 Campaign Builder (LangGraph agentic loop)
-  POST /api/builder/create — explicit Builder create action
-  POST /api/segments/suggest — segment hypotheses for Builder
-  POST /api/monitor    — F3 Monitoring UI entry point with optimization recommendations
-  GET  /api/health     — health check
+  GET  /api/health
+  GET  /api/sessions                       — список сессий чата
+  POST /api/sessions                       — создать новую сессию
+  GET  /api/sessions/{id}                  — сессия + сообщения + артефакты
+  GET  /api/sessions/{id}/messages         — только сообщения
+  POST /api/chat                           — отправить сообщение, маршрутизировать к агенту
+  POST /api/campaigns/{id}/start           — запустить кампанию в AdTarget
+  POST /api/campaigns/{id}/pause           — поставить кампанию на паузу
+
+Внутри /api/chat работает intent classifier → запускает один из агентов:
+  campaign_attention, build_campaign, suggest_segments, refine_campaign, documentation_qa.
 """
 
-# Загружаем .env до импортов агентов (они читают os.getenv при инициализации)
+from __future__ import annotations
+
 from dotenv import load_dotenv
 load_dotenv()
 
-import json
+import asyncio
 import logging
 import os
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import ValidationError
+from pydantic import BaseModel, Field
 
-from schemas import (
-    CopilotRequest,
-    CopilotResponse,
-    ChatRequest,
-    ChatResponse,
-    ChatTraceEvent,
-    ChatAction,
-    BuilderRequest,
-    BuilderResponse,
-    BuilderOptimizeRequest,
-    BuilderCreateRequest,
-    SegmentSuggestRequest,
-    SegmentSuggestResponse,
-    MonitorRequest,
-    MonitorResponse,
-    Session,
-    SessionCreate,
-    SessionDetail,
-    Message,
-    MessageCreate,
-    CampaignActionRequest,
-    CampaignActionResponse,
-)
-from agents.adapters.copilot_adapter import CopilotAdapter, to_unified_payload as copilot_to_unified, from_unified_payload as copilot_from_unified
-from agents.adapters.builder_adapter import BuilderAdapter, to_unified_payload as builder_to_unified, from_unified_payload as builder_from_unified
-from agents.flow_optimizer import optimize_draft_flow
-from agents.adapters.segment_adapter import SegmentAdapter, to_unified_payload as segment_to_unified, from_unified_payload as segment_from_unified
-from agents.adapters.monitor_adapter import MonitorAdapter, to_unified_payload as monitor_to_unified, from_unified_payload as monitor_from_unified
-from agents.orchestrator import AgentTask, Orchestrator
-from db import DatabaseSessionStore, init_db
-from scripts.seed_demo_campaigns import seed_demo_campaigns
+from db import ChatStore, init_db
+from schemas import ChatAction, ChatArtifact, ChatTraceEvent
+from agents.chat_orchestrator import classify_intent
 from tools import adtarget
-from agents.safety_review import build_review_checklist, is_review_allowed_for_runtime
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
-app = FastAPI(title="CVM Agents API", version="0.1.0")
-session_store = DatabaseSessionStore()
+store = ChatStore()
 
-agent_orchestrator = Orchestrator({
-    "copilot": CopilotAdapter(),
-    "builder": BuilderAdapter(),
-    "segment": SegmentAdapter(),
-    "monitor": MonitorAdapter(),
-})
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db()
+    if os.getenv("SEED_DEMO_CAMPAIGNS_ON_STARTUP", "true").lower() in {"1", "true", "yes", "on"}:
+        try:
+            from scripts.seed_demo_campaigns import seed_demo_campaigns
+            await seed_demo_campaigns()
+            logger.info("demo campaigns seeded")
+        except Exception as exc:
+            logger.warning("demo seed failed: %s", exc)
+    yield
+
+
+app = FastAPI(title="CVM Agents API", version="0.2.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"],
@@ -80,918 +66,557 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# Отдаём документы для просмотра источников из UI
-# Маунтим папки docs/ из обоих проектов под /docs/
+# Документация для просмотра источников из UI (если папки существуют).
 _backend_root = Path(__file__).parent
 _project_root = _backend_root.parent
 for _docs_dir, _mount_name in [
-    (_project_root / "docs", "source-docs"),                     # label prefix: docs/ → served at /source-docs/
-    (_project_root.parent / "cvmCopilot" / "docs", "cvmCopilot-docs"),  # label prefix: cvmCopilot-docs/
+    (_project_root / "docs", "source-docs"),
+    (_project_root.parent / "cvmCopilot" / "docs", "cvmCopilot-docs"),
 ]:
     if _docs_dir.exists():
         app.mount(f"/{_mount_name}", StaticFiles(directory=str(_docs_dir), follow_symlink=True), name=_mount_name)
 
 
-@app.on_event("startup")
-async def startup() -> None:
-    await init_db()
-    if os.getenv("SEED_DEMO_CAMPAIGNS_ON_STARTUP", "false").lower() in {"1", "true", "yes", "on"}:
-        await seed_demo_campaigns()
+# ── Request / response schemas ────────────────────────────────────────────────
 
+class SessionCreateRequest(BaseModel):
+    title: str | None = None
+
+
+class ChatRequest(BaseModel):
+    session_id: str
+    message: str
+    action: ChatAction | None = None
+
+
+class ChatResponse(BaseModel):
+    assistant_message: str
+    trace: list[ChatTraceEvent] = Field(default_factory=list)
+    artifacts: list[ChatArtifact] = Field(default_factory=list)
+    actions_available: list[ChatAction] = Field(default_factory=list)
+    session_id: str
+
+
+class CampaignActionRequest(BaseModel):
+    campaign_id: int
+
+
+class CampaignActionResponse(BaseModel):
+    campaign_id: int
+    status: str
+    result: Any = None
+
+
+# ── Health & sessions ─────────────────────────────────────────────────────────
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "version": "0.1.0"}
+    return {"status": "ok", "version": "0.2.0"}
 
 
-@app.post("/api/copilot", response_model=CopilotResponse)
-async def copilot(request: CopilotRequest) -> CopilotResponse:
-    """F1 CVM Copilot — отвечает на вопросы по платформе и текущей кампании."""
-    try:
-        result = await agent_orchestrator.execute(AgentTask(agent="copilot", payload=copilot_to_unified(request)))
-        return copilot_from_unified(result.payload)
-    except Exception as e:
-        _handle_llm_error(e)
+@app.get("/api/sessions")
+async def list_sessions():
+    return await store.list_sessions()
 
+
+@app.post("/api/sessions")
+async def create_session(request: SessionCreateRequest):
+    return await store.ensure_session(title=request.title)
+
+
+@app.get("/api/sessions/{session_id}")
+async def get_session(session_id: str):
+    detail = await store.get_session_with_messages(session_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return detail
+
+
+@app.get("/api/sessions/{session_id}/messages")
+async def list_session_messages(session_id: str):
+    detail = await store.get_session(session_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    messages = await store.list_messages(session_id)
+    return {"messages": messages, "next_cursor": None, "has_more": False}
+
+
+# ── Unified chat ──────────────────────────────────────────────────────────────
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest) -> ChatResponse:
-    """Единая точка входа для виджета: классифицирует intent и маршрутизирует к нужному агенту.
-
-    Поддерживаемые интенты:
-      - campaign_attention_report → campaign_monitor
-      - build_campaign            → campaign_builder
-      - suggest_segments          → segment_agent
-      - save_campaign / save_segment → персистирует артефакт и предлагает next actions
-      - clarify / по умолчанию    → qa_copilot (документация + screen context)
-    """
-    from agents.chat_orchestrator import IntentClassifier
-
-    await session_store.ensure_chat_session(session_id=request.session_id)
-    await session_store.add_chat_message(session_id=request.session_id, role="user", content=request.message)
-    run_id = await session_store.create_chat_run(session_id=request.session_id, user_message=request.message)
+    """Единая точка входа: маршрутизирует к агентам, возвращает trace + artifacts + actions."""
+    session = await store.ensure_session(session_id=request.session_id or None)
+    session_id = session["id"]
+    await store.add_message(session_id=session_id, role="user", content=request.message)
+    run_id = await store.create_run(session_id=session_id, user_message=request.message)
 
     artifacts: list[dict[str, Any]] = []
     next_actions: list[ChatAction] = []
-    assistant_message: str = ""
+    assistant_message = ""
+    intent_name: str = "documentation_qa"
 
     try:
-        await session_store.add_chat_run_event(
-            run_id=run_id, event="route_selected",
-            detail="Request accepted by /api/chat", metadata={"route": "/api/chat"},
-        )
+        await store.add_event(run_id=run_id, event="route_selected", detail="POST /api/chat")
 
-        # 1. Если пришло explicit action (save_campaign/save_segment) — сохраняем артефакт сразу.
-        if request.action and request.action.id in {"save_campaign", "save_segment", "save_target_group"}:
-            artifact_type = {
-                "save_campaign": "campaign_draft",
-                "save_segment": "segment_draft",
-                "save_target_group": "target_group_draft",
-            }[request.action.id]
-            payload = request.action.payload or {}
-            content_json = payload.get("content_json") if isinstance(payload.get("content_json"), dict) else payload
-            metadata_json = payload.get("metadata_json") if isinstance(payload.get("metadata_json"), dict) else {}
-            await session_store.add_chat_run_event(run_id=run_id, event="step_started", detail=f"Persisting {artifact_type}")
-            artifact_id = await session_store.save_artifact(
-                session_id=request.session_id,
-                artifact_type=artifact_type,
-                schema_version=int(payload.get("schema_version", 1)),
-                content_json=content_json if isinstance(content_json, dict) else {},
-                metadata_json=metadata_json,
-                source_run_id=run_id,
+        # 1) Explicit action — сохранения / runtime.
+        if request.action is not None:
+            assistant_message, artifacts, next_actions = await _handle_action(
+                session_id=session_id, run_id=run_id, action=request.action,
             )
-            artifacts.append({"id": artifact_id, "type": artifact_type, "content": content_json, "metadata": metadata_json})
-            await session_store.add_chat_run_event(run_id=run_id, event="step_completed", detail=f"Saved {artifact_type} {artifact_id}")
-            assistant_message = {
-                "save_campaign": "✅ Кампания сохранена. Хотите открыть её в AdTarget или продолжить доработку?",
-                "save_segment": "✅ Сегмент сохранён. Можно применить его в кампании или создать новый.",
-                "save_target_group": "✅ Таргет-группа сохранена.",
-            }[request.action.id]
-            next_actions = [ChatAction(id="open_artifact", label="Открыть артефакт", kind="artifact", payload={"artifact_id": artifact_id})]
+            intent_name = f"action:{request.action.id}"
         else:
-            # 2. Классифицируем intent.
-            classifier = IntentClassifier()
-            decision = await classifier.classify(request.message)
-            await session_store.add_chat_run_event(
+            # 2) Classify intent.
+            history = await store.list_messages(session_id)
+            decision = await classify_intent(request.message)
+            intent_name = decision.intent
+            await store.add_event(
                 run_id=run_id, event="plan_created",
-                detail=f"Intent: {decision.intent} (confidence={decision.confidence:.2f})",
-                metadata={"intent": decision.intent, "reason": decision.reason},
+                detail=f"intent={decision.intent} confidence={decision.confidence:.2f} ({decision.reason})",
+                metadata={"intent": decision.intent, "confidence": decision.confidence},
             )
 
-            # 3. Маршрутизация.
-            if decision.intent == "campaign_attention_report":
-                from agents.campaign_attention import build_campaign_attention_report
-                await session_store.add_chat_run_event(run_id=run_id, event="step_started", detail="Анализ кампаний")
-                started = time.perf_counter()
-                report = await build_campaign_attention_report()
-                assistant_message = _format_attention_report(report)
-                next_actions = [ChatAction(id="builder", label="Открыть Builder", kind="navigate", payload={"route": "/builder"})]
-                await session_store.add_chat_run_event(
-                    run_id=run_id, event="step_completed",
-                    detail="Отчёт по вниманию готов",
-                    metadata={"latency_ms": int((time.perf_counter() - started) * 1000)},
-                )
-
-            elif decision.intent == "suggest_segments":
-                from agents.segment_agent import suggest_segments
-                from schemas import SegmentSuggestRequest
-                await session_store.add_chat_run_event(run_id=run_id, event="step_started", detail="Сегмент-агент: генерация гипотез")
-                started = time.perf_counter()
-                seg_request = SegmentSuggestRequest(
-                    product=_extract_keyword(request.message, "продукт") or "general",
-                    campaign_goal=request.message,
-                )
-                seg_response = await suggest_segments(seg_request)
-                assistant_message = _format_segments(seg_response)
-                if seg_response.hypotheses:
-                    next_actions.append(ChatAction(
-                        id="save_segment",
-                        label="Сохранить сегмент",
-                        kind="save",
-                        payload={"content_json": _model_dump(seg_response.hypotheses[0]) or {}},
-                    ))
-                    next_actions.append(ChatAction(
-                        id="apply_segment",
-                        label="Применить в кампании",
-                        kind="apply",
-                        payload={"hypothesis": _model_dump(seg_response.hypotheses[0]) or {}},
-                    ))
-                await session_store.add_chat_run_event(
-                    run_id=run_id, event="step_completed", detail=f"Сгенерировано {len(seg_response.hypotheses)} гипотез",
-                    metadata={"latency_ms": int((time.perf_counter() - started) * 1000)},
-                )
-
+            # 3) Dispatch.
+            if decision.intent == "campaign_attention":
+                assistant_message, artifacts, next_actions = await _run_attention(session_id, run_id)
             elif decision.intent == "build_campaign":
-                from schemas import BuilderRequest
-                await session_store.add_chat_run_event(run_id=run_id, event="step_started", detail="Campaign Builder: сборка флоу")
-                started = time.perf_counter()
-                builder_request = BuilderRequest(goal=request.message, session_id=request.session_id)
-                builder_payload = builder_to_unified(builder_request)
-                builder_result = await agent_orchestrator.execute(AgentTask(agent="builder", payload=builder_payload))
-                builder_response = builder_from_unified(builder_result.payload)
-                assistant_message = builder_response.message
-                if builder_response.draft_flow:
-                    artifact_id = await session_store.save_artifact(
-                        session_id=request.session_id,
-                        artifact_type="draft_flow",
-                        schema_version=builder_response.draft_flow_version or 1,
-                        content_json=_model_dump(builder_response.draft_flow) or {},
-                        metadata_json={"campaign_id": builder_response.campaign_id},
-                        source_run_id=run_id,
-                    )
-                    artifacts.append({
-                        "id": artifact_id,
-                        "type": "draft_flow",
-                        "content": _model_dump(builder_response.draft_flow) or {},
-                        "metadata": {"campaign_id": builder_response.campaign_id},
-                    })
-                    next_actions.append(ChatAction(
-                        id="save_campaign",
-                        label="Сохранить кампанию",
-                        kind="save",
-                        payload={"content_json": _model_dump(builder_response.draft_flow) or {}, "metadata_json": {"campaign_id": builder_response.campaign_id}},
-                    ))
-                await session_store.add_chat_run_event(
-                    run_id=run_id, event="step_completed", detail=f"Builder статус: {builder_response.status}",
-                    metadata={"latency_ms": int((time.perf_counter() - started) * 1000)},
+                assistant_message, artifacts, next_actions = await _run_builder(
+                    session_id=session_id, run_id=run_id, goal=request.message, history=history,
                 )
-
+            elif decision.intent == "suggest_segments":
+                assistant_message, artifacts, next_actions = await _run_segments(
+                    session_id=session_id, run_id=run_id, message=request.message,
+                )
+            elif decision.intent == "refine_campaign":
+                assistant_message, artifacts, next_actions = await _run_refine(
+                    session_id=session_id, run_id=run_id, message=request.message,
+                )
             else:
-                # default → copilot (документация + screen context)
-                from agents.qa_copilot import answer as copilot_answer
-                from schemas import CopilotRequest
-                await session_store.add_chat_run_event(run_id=run_id, event="step_started", detail="QA Copilot: RAG ответ")
-                started = time.perf_counter()
-                copilot_response = await copilot_answer(CopilotRequest(question=request.message, context=request.context))
-                assistant_message = copilot_response.answer
-                if copilot_response.citations:
-                    citation_lines = "\n".join(f"- {c.title} ({c.source})" for c in copilot_response.citations[:5])
-                    assistant_message = f"{assistant_message}\n\n**Источники:**\n{citation_lines}"
-                await session_store.add_chat_run_event(
-                    run_id=run_id, event="step_completed", detail=f"Найдено источников: {len(copilot_response.citations)}",
-                    metadata={"latency_ms": int((time.perf_counter() - started) * 1000)},
+                assistant_message, artifacts, next_actions = await _run_qa(
+                    session_id=session_id, run_id=run_id, message=request.message, history=history,
                 )
 
-        await session_store.add_chat_run_event(run_id=run_id, event="run_completed", detail="Chat run completed.")
-        await session_store.complete_chat_run(run_id=run_id, status="completed")
-
-        trace = _safe_chat_trace(await session_store.list_chat_run_events(run_id=run_id))
-        response = ChatResponse(
-            assistant_message=assistant_message or "Я не смог обработать запрос.",
-            trace=trace,
-            artifacts=artifacts,
-            actions_available=next_actions,
-            session_id=request.session_id,
-        )
-        await session_store.add_chat_message(
-            session_id=request.session_id,
-            role="assistant",
-            content=response.assistant_message,
-            metadata={"run_id": run_id, "intent": "auto"},
-        )
-        return response
+        await store.add_event(run_id=run_id, event="run_completed", detail="ok")
+        await store.complete_run(run_id=run_id, status="completed", intent=intent_name)
     except Exception as exc:
         logger.exception("/api/chat failed")
-        await session_store.add_chat_run_event(run_id=run_id, event="run_failed", status="error", detail=str(exc)[:300])
-        await session_store.complete_chat_run(run_id=run_id, status="failed")
-        trace = _safe_chat_trace(await session_store.list_chat_run_events(run_id=run_id))
-        fallback = f"Не удалось обработать запрос: {str(exc)[:200]}"
-        await session_store.add_chat_message(session_id=request.session_id, role="assistant", content=fallback)
-        return ChatResponse(
-            assistant_message=fallback,
-            trace=trace,
-            artifacts=[],
-            actions_available=[],
-            session_id=request.session_id,
-        )
+        await store.add_event(run_id=run_id, event="run_failed", status="error", detail=str(exc)[:300])
+        await store.complete_run(run_id=run_id, status="failed", intent=intent_name)
+        assistant_message = f"Не удалось обработать запрос: {str(exc)[:200]}"
 
+    trace = await store.list_events(run_id=run_id)
+    await store.add_message(
+        session_id=session_id,
+        role="assistant",
+        content=assistant_message,
+        metadata={"run_id": run_id, "intent": intent_name, "actions": [a.model_dump() for a in next_actions]},
+    )
 
-def _format_attention_report(report: dict[str, Any]) -> str:
-    """Форматирует attention report в читаемое markdown-сообщение."""
-    summary = report.get("summary", "")
-    items = report.get("items") or report.get("campaigns") or []
-    if not items:
-        return summary or "Кампаний, требующих внимания, не найдено."
-    lines = [summary] if summary else []
-    lines.append("**Топ кампаний, требующих внимания:**")
-    for item in items[:5]:
-        name = item.get("campaign_name") or item.get("name") or f"Кампания #{item.get('campaign_id', '?')}"
-        what = item.get("what_is_wrong", "")
-        fix = item.get("suggested_fix", "")
-        score = item.get("priority_score")
-        line = f"- **{name}**"
-        if score is not None:
-            line += f" (priority: {score})"
-        if what:
-            line += f"\n  - Что не так: {what}"
-        if fix:
-            line += f"\n  - Рекомендация: {fix}"
-        lines.append(line)
-    return "\n".join(lines)
-
-
-def _format_segments(seg_response: Any) -> str:
-    summary = getattr(seg_response, "summary", "") or ""
-    hypotheses = getattr(seg_response, "hypotheses", []) or []
-    if not hypotheses:
-        return summary or "Не удалось предложить сегменты для этого запроса."
-    lines = [summary] if summary else []
-    lines.append(f"**Гипотезы сегментов ({len(hypotheses)}):**")
-    for h in hypotheses[:3]:
-        name = getattr(h, "name", None) or getattr(h, "title", "Без названия")
-        desc = getattr(h, "audience_description", None) or getattr(h, "description", "")
-        reason = getattr(h, "relevance_reason", None) or getattr(h, "rationale", "")
-        lines.append(f"- **{name}**" + (f": {desc}" if desc else "") + (f"\n  - Почему: {reason}" if reason else ""))
-    return "\n".join(lines)
-
-
-def _extract_keyword(message: str, marker: str) -> str | None:
-    """Достаёт значение после маркера (`продукт: X`) из сообщения."""
-    lower = message.lower()
-    if marker not in lower:
-        return None
-    idx = lower.index(marker) + len(marker)
-    tail = message[idx:].lstrip(": ").strip()
-    return tail.split(".")[0].split(",")[0].strip() or None
-
-
-@app.get("/api/sessions", response_model=list[Session])
-async def list_sessions() -> list[Session]:
-    """Список backend-сессий Campaign Builder."""
-    return await session_store.list_sessions()
-
-
-@app.get("/api/sessions/{session_id}", response_model=SessionDetail)
-async def get_session(session_id: str) -> SessionDetail:
-    """Полная история одного диалога Campaign Builder."""
-    session = await session_store.get_session(session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
-    return session
-
-
-@app.post("/api/sessions", response_model=Session)
-async def create_or_continue_session(request: SessionCreate) -> Session:
-    """Создаёт новую или возвращает существующую Builder-сессию."""
-    return await session_store.ensure_session(
-        session_id=request.session_id,
-        title=request.title or "Новый диалог Builder",
-        campaign_id=request.campaign_id,
-        status=request.status,
+    return ChatResponse(
+        assistant_message=assistant_message,
+        trace=trace,
+        artifacts=[ChatArtifact(**_artifact_to_response(a)) for a in artifacts],
+        actions_available=next_actions,
+        session_id=session_id,
     )
 
 
-@app.post("/api/sessions/{session_id}/messages", response_model=Message)
-async def add_session_message(session_id: str, request: MessageCreate) -> Message:
-    """Добавляет сообщение в Builder-сессию без запуска агента."""
-    try:
-        return await session_store.add_message(
-            session_id=session_id,
-            role=request.role,
-            content=request.content,
-            metadata=request.metadata,
-        )
-    except KeyError:
-        raise HTTPException(status_code=404, detail="Session not found")
+# ── Intent handlers ───────────────────────────────────────────────────────────
 
+async def _run_attention(session_id: str, run_id: str) -> tuple[str, list[dict[str, Any]], list[ChatAction]]:
+    """Анализ кампаний, требующих внимания."""
+    from agents.campaign_attention import build_campaign_attention_report
 
-@app.post("/api/builder", response_model=BuilderResponse)
-async def builder(request: BuilderRequest) -> BuilderResponse:
-    """F2 Campaign Builder — автономно создаёт кампанию из описания цели."""
-    session = await session_store.ensure_session(
-        session_id=request.session_id,
-        title=_make_session_title(request.goal),
-        campaign_id=request.session_campaign_id,
+    await store.add_event(run_id=run_id, event="step_started", detail="Анализ demo_campaigns + campaign_health")
+    started = time.perf_counter()
+    report = await build_campaign_attention_report()
+    latency = int((time.perf_counter() - started) * 1000)
+    await store.add_event(
+        run_id=run_id, event="step_completed", detail=f"Получено кампаний: {len(report.get('campaigns', []))}",
+        metadata={"latency_ms": latency},
     )
-    stored_session = await session_store.get_session(session.id)
-    stored_history = [
-        {"role": message.role, "content": message.content}
-        for message in (stored_session.messages if stored_session else [])
-        if message.role in {"user", "assistant"}
+
+    campaigns = report.get("campaigns") or []
+    if not campaigns:
+        reason = report.get("reason", "")
+        hints = report.get("suggested_next_steps") or []
+        message = "Кампаний, требующих внимания, не найдено."
+        if reason:
+            message += f"\n\n_{reason}_"
+        if hints:
+            message += "\n\nЧто можно сделать:\n" + "\n".join(f"- {h}" for h in hints)
+        return message, [], []
+
+    lines = [f"**Топ кампаний, требующих внимания** ({len(campaigns)}):", ""]
+    top = campaigns[:5]
+    for item in top:
+        lines.append(f"### {item['campaign_name']} (id {item['campaign_id']})")
+        lines.append(f"- ⚠️ {item['what_is_wrong']}")
+        lines.append(f"- 💰 {item['why_it_matters']}")
+        lines.append(f"- 🔧 {item['suggested_fix']}")
+        lines.append("")
+    message = "\n".join(lines).strip()
+
+    # Сохраняем артефакт-отчёт.
+    artifact_id = await store.save_artifact(
+        session_id=session_id,
+        artifact_type="attention_report",
+        content_json={"campaigns": campaigns, "formula": report.get("ranking_formula")},
+        metadata_json={"top_n": len(top)},
+        source_run_id=run_id,
+    )
+    artifact = await store.get_artifact(artifact_id)
+
+    # Готовим actions — открыть конкретные кампании.
+    actions: list[ChatAction] = []
+    for item in top[:3]:
+        actions.append(ChatAction(
+            id="refine_campaign",
+            label=f"Доработать «{item['campaign_name'][:30]}»",
+            kind="refine",
+            payload={"campaign_id": item["campaign_id"], "campaign_name": item["campaign_name"]},
+        ))
+
+    return message, [artifact] if artifact else [], actions
+
+
+async def _run_builder(
+    *, session_id: str, run_id: str, goal: str, history: list[dict[str, Any]],
+) -> tuple[str, list[dict[str, Any]], list[ChatAction]]:
+    """Создание кампании через campaign_builder.run()."""
+    from agents.campaign_builder import run as builder_run
+    from schemas import BuilderRequest
+
+    await store.add_event(run_id=run_id, event="step_started", detail="Campaign Builder: сборка флоу")
+    history_pairs = [
+        {"role": m["role"], "content": m["content"]}
+        for m in history[-10:]
+        if m["role"] in {"user", "assistant"}
     ]
-    stored_version = _stored_draft_flow_version(stored_session)
-    request_flow_json = _parse_flow_json(request.session_flow_json)
-    canonical_flow_json = stored_session.draft_flow if stored_session and stored_session.draft_flow else request_flow_json
-    effective_version = stored_version or request.draft_flow_version
-    effective_brief = request.campaign_brief or (stored_session.campaign_brief if stored_session else None)
-    effective_request = request.model_copy(update={
-        "session_id": session.id,
-        "history": stored_history,
-        "session_flow_json": json.dumps(canonical_flow_json, ensure_ascii=False) if canonical_flow_json else None,
-        "draft_flow_version": effective_version,
-        "campaign_brief": effective_brief,
-        "builder_preferences": (
-            effective_brief.to_builder_preferences()
-            if effective_brief is not None
-            else request.builder_preferences
-        ),
-    })
-
-    await session_store.add_message(
-        session_id=session.id,
-        role="user",
-        content=request.goal,
-        metadata={
-            "builder_preferences": effective_request.builder_preferences,
-            "campaign_brief": _model_dump(effective_request.campaign_brief),
-            "campaign_id": request.session_campaign_id,
-            "draft_flow_json": canonical_flow_json,
-            "draft_flow_version": effective_version,
-            "status": "collect_brief",
-        },
+    request = BuilderRequest(goal=goal, history=history_pairs)
+    started = time.perf_counter()
+    response = await builder_run(request)
+    latency = int((time.perf_counter() - started) * 1000)
+    await store.add_event(
+        run_id=run_id, event="step_completed",
+        detail=f"Builder статус: {response.status}", metadata={"latency_ms": latency},
     )
 
-    try:
-        result = await agent_orchestrator.execute(AgentTask(agent="builder", payload=builder_to_unified(effective_request)))
-        response = builder_from_unified(result.payload)
-    except Exception as e:
-        await session_store.update_session(session.id, status="error")
-        await session_store.upsert_campaign_state(
-            session_id=session.id,
-            campaign_id=request.session_campaign_id,
-            draft_flow_json=canonical_flow_json,
-            runtime_status="editing",
-            draft_flow_version=effective_version,
-            campaign_brief_json=_model_dump(effective_request.campaign_brief),
-        )
-        _handle_llm_error(e)
+    artifacts: list[dict[str, Any]] = []
+    actions: list[ChatAction] = []
 
-    response.session_id = session.id
-    persisted_campaign_id = response.campaign_id or request.session_campaign_id or session.campaign_id
-    persisted_flow_json = response.draft_flow or canonical_flow_json
-    persisted_draft_flow_version = _resolve_response_draft_flow_version(
-        response=response,
-        request_flow_json=canonical_flow_json,
-        current_version=effective_version,
-    )
-    response.campaign_id = persisted_campaign_id
-    response.draft_flow = persisted_flow_json
-    response.draft_flow_version = persisted_draft_flow_version
-    await session_store.add_message(
-        session_id=session.id,
-        role="assistant",
-        content=response.message,
-        metadata={
-            "campaign_id": persisted_campaign_id,
-            "status": response.status,
-            "builder_preferences": response.builder_preferences,
-            "preference_patch": response.preference_patch,
-            "campaign_brief": _model_dump(effective_request.campaign_brief),
-            "draft_flow_json": persisted_flow_json,
-            "draft_flow_version": persisted_draft_flow_version,
-            "validation_errors": response.validation_errors,
-            "brief_completeness": (
-                response.brief_completeness.model_dump()
-                if response.brief_completeness
-                else None
-            ),
-            "review_checklist": (
-                response.review_checklist.model_dump()
-                if response.review_checklist
-                else None
-            ),
-            "review_status": response.review_status,
-            "review_checklist_acknowledged": response.review_checklist_acknowledged,
-        },
-    )
-    await session_store.upsert_campaign_state(
-        session_id=session.id,
-        campaign_id=persisted_campaign_id,
-        draft_flow_json=persisted_flow_json,
-        runtime_status="editing",
-        draft_flow_version=persisted_draft_flow_version,
-        campaign_brief_json=_model_dump(effective_request.campaign_brief),
-        brief_completeness_json=_model_dump(response.brief_completeness),
-        review_checklist_json=_model_dump(response.review_checklist),
-        review_status=response.review_status,
-        review_checklist_acknowledged=response.review_checklist_acknowledged,
-    )
-    return response
-
-
-@app.post("/api/builder/optimize", response_model=BuilderResponse)
-async def builder_optimize(request: BuilderOptimizeRequest) -> BuilderResponse:
-    """Deterministically improves a canonical Builder draft flow before launch."""
-    session = await session_store.get_session(request.session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    stored_version = _stored_draft_flow_version(session)
-    if stored_version is not None and request.draft_flow_version != stored_version:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "message": "Draft flow version is stale",
-                "expected_draft_flow_version": stored_version,
-                "received_draft_flow_version": request.draft_flow_version,
+    if response.draft_flow:
+        artifact_id = await store.save_artifact(
+            session_id=session_id,
+            artifact_type="draft_flow",
+            content_json=response.draft_flow,
+            metadata_json={
+                "draft_flow_version": response.draft_flow_version,
+                "campaign_id": response.campaign_id,
+                "review_status": response.review_status,
             },
+            source_run_id=run_id,
         )
+        a = await store.get_artifact(artifact_id)
+        if a:
+            artifacts.append(a)
 
-    canonical_flow = session.draft_flow or request.draft_flow
-    if not canonical_flow:
-        raise HTTPException(status_code=400, detail="Draft flow is required for optimization")
-    canonical_brief = session.campaign_brief or request.campaign_brief
-    current_version = stored_version or request.draft_flow_version
-
-    try:
-        optimized_flow, optimized_version, checklist, additions, remaining = await optimize_draft_flow(
-            draft_flow=canonical_flow,
-            campaign_brief=canonical_brief,
-            draft_flow_version=current_version,
-            validation_errors=request.validation_errors,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.exception("Unexpected /api/builder/optimize failure")
-        raise HTTPException(status_code=502, detail=f"Builder optimize failed: {str(e)[:300]}")
-
-    if optimized_flow == canonical_flow:
-        optimized_version = current_version
-    added_text = "; ".join(additions) if additions else "ничего — не хватило безопасных данных для автодоработки"
-    remaining_text = "; ".join(remaining[:5]) if remaining else "критичных рекомендаций не осталось"
-    message = (
-        "Доработал draft flow агентом. "
-        f"Добавлено: {added_text}. "
-        f"Осталось проверить: {remaining_text}."
-    )
-    response = BuilderResponse(
-        message=message,
-        builder_preferences=canonical_brief.to_builder_preferences() if canonical_brief is not None else None,
-        session_id=session.id,
-        campaign_id=session.campaign_id,
-        draft_flow=optimized_flow,
-        draft_flow_version=optimized_version,
-        validation_errors=request.validation_errors,
-        brief_completeness=check_campaign_brief_completeness(BuilderRequest(
-            goal=canonical_brief.goal if canonical_brief and canonical_brief.goal else "Оптимизация draft flow",
-            session_id=session.id,
-            campaign_brief=canonical_brief,
-            draft_flow_version=optimized_version,
-            review_checklist_acknowledged=request.review_checklist_acknowledged,
-        )),
-        review_checklist=checklist,
-        review_status=checklist.status,
-        review_checklist_acknowledged=request.review_checklist_acknowledged,
-        status=_status_for_flow_context(session.campaign_id, optimized_flow),
-    )
-
-    await session_store.add_message(
-        session_id=session.id,
-        role="user",
-        content="Доработать флоу агентом",
-        metadata={
-            "campaign_brief": _model_dump(canonical_brief),
-            "draft_flow_json": canonical_flow,
-            "draft_flow_version": current_version,
-            "status": "draft_ready",
-        },
-    )
-    await session_store.add_message(
-        session_id=session.id,
-        role="assistant",
-        content=response.message,
-        metadata={
-            "campaign_id": response.campaign_id,
-            "status": response.status,
-            "builder_preferences": response.builder_preferences,
-            "campaign_brief": _model_dump(canonical_brief),
-            "draft_flow_json": optimized_flow,
-            "draft_flow_version": optimized_version,
-            "validation_errors": response.validation_errors,
-            "brief_completeness": _model_dump(response.brief_completeness),
-            "review_checklist": checklist.model_dump(),
-            "review_status": checklist.status,
-            "review_checklist_acknowledged": request.review_checklist_acknowledged,
-            "optimizer_added": additions,
-            "optimizer_remaining": remaining,
-        },
-    )
-    await session_store.upsert_campaign_state(
-        session_id=session.id,
-        campaign_id=response.campaign_id,
-        draft_flow_json=optimized_flow,
-        runtime_status="editing",
-        draft_flow_version=optimized_version,
-        campaign_brief_json=_model_dump(canonical_brief),
-        brief_completeness_json=_model_dump(response.brief_completeness),
-        review_checklist_json=checklist.model_dump(),
-        review_status=checklist.status,
-        review_checklist_acknowledged=request.review_checklist_acknowledged,
-    )
-    return response
-
-
-@app.post("/api/builder/create", response_model=BuilderResponse)
-async def builder_create(request: BuilderCreateRequest) -> BuilderResponse:
-    """Explicit Builder create action — the only path that persists a draft in AdTarget."""
-    session = await session_store.get_session(request.session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    stored_version = _stored_draft_flow_version(session)
-    if stored_version is not None and request.draft_flow_version != stored_version:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "message": "Draft flow version is stale",
-                "expected_draft_flow_version": stored_version,
-                "received_draft_flow_version": request.draft_flow_version,
+        actions.append(ChatAction(
+            id="save_campaign",
+            label="Сохранить кампанию в AdTarget",
+            kind="save",
+            payload={
+                "draft_flow": response.draft_flow,
+                "draft_flow_version": response.draft_flow_version,
+                "campaign_brief": response.builder_preferences,
             },
-        )
+        ))
+        actions.append(ChatAction(
+            id="refine_campaign",
+            label="Доработать флоу",
+            kind="refine",
+            payload={"draft_flow": response.draft_flow, "draft_flow_version": response.draft_flow_version},
+        ))
 
-    canonical_create_flow = session.draft_flow or request.draft_flow
-    canonical_create_brief = session.campaign_brief or request.campaign_brief
-    checklist = build_review_checklist(
-        canonical_create_brief,
-        canonical_create_flow,
-        request.validation_errors,
+    if response.campaign_id:
+        await store.set_campaign_id(session_id=session_id, campaign_id=response.campaign_id)
+
+    return response.message, artifacts, actions
+
+
+async def _run_segments(
+    *, session_id: str, run_id: str, message: str,
+) -> tuple[str, list[dict[str, Any]], list[ChatAction]]:
+    """Гипотезы сегментов через segment_agent.suggest_segments()."""
+    from agents.segment_agent import suggest_segments
+    from schemas import SegmentSuggestRequest
+
+    await store.add_event(run_id=run_id, event="step_started", detail="Segment Agent: генерация гипотез")
+    request = SegmentSuggestRequest(
+        product=_extract_marker(message, ("продукт", "product")) or "general",
+        campaign_goal=message,
+    )
+    started = time.perf_counter()
+    response = await suggest_segments(request)
+    latency = int((time.perf_counter() - started) * 1000)
+    await store.add_event(
+        run_id=run_id, event="step_completed",
+        detail=f"Гипотез: {len(response.hypotheses)}", metadata={"latency_ms": latency},
     )
 
+    lines = [response.summary or "Сформировал гипотезы сегментов:", ""]
+    for h in response.hypotheses[:3]:
+        name = h.name or h.title or "Без названия"
+        desc = h.audience_description or h.description or ""
+        reason = h.relevance_reason or h.rationale or ""
+        lines.append(f"### {name}")
+        if desc:
+            lines.append(f"- 👥 {desc}")
+        if reason:
+            lines.append(f"- 🎯 {reason}")
+        if h.risk_or_limitation:
+            lines.append(f"- ⚠️ {h.risk_or_limitation}")
+        lines.append("")
+    text = "\n".join(lines).strip()
+
+    artifacts: list[dict[str, Any]] = []
+    actions: list[ChatAction] = []
+    if response.hypotheses:
+        primary = response.hypotheses[0]
+        artifact_id = await store.save_artifact(
+            session_id=session_id,
+            artifact_type="segment_draft",
+            content_json=primary.model_dump(),
+            metadata_json={"hypotheses_count": len(response.hypotheses)},
+            source_run_id=run_id,
+        )
+        a = await store.get_artifact(artifact_id)
+        if a:
+            artifacts.append(a)
+        actions.append(ChatAction(
+            id="save_segment",
+            label="Сохранить сегмент",
+            kind="save",
+            payload={"segment": primary.model_dump()},
+        ))
+        actions.append(ChatAction(
+            id="build_campaign_from_segment",
+            label="Создать кампанию из сегмента",
+            kind="navigate",
+            payload={"segment": primary.model_dump()},
+        ))
+
+    return text, artifacts, actions
+
+
+async def _run_refine(
+    *, session_id: str, run_id: str, message: str,
+) -> tuple[str, list[dict[str, Any]], list[ChatAction]]:
+    """Доработка существующей кампании / черновика."""
+    await store.add_event(run_id=run_id, event="step_started", detail="Поиск последнего draft_flow в артефактах")
+    artifacts = await store.list_artifacts(session_id=session_id)
+    draft_flows = [a for a in artifacts if a["type"] in ("draft_flow", "campaign_draft")]
+    if not draft_flows:
+        await store.add_event(run_id=run_id, event="step_completed", detail="Нет draft flow в сессии")
+        return (
+            "В этой сессии ещё нет draft flow для доработки. Сначала попросите создать кампанию.",
+            [],
+            [ChatAction(id="build_campaign", label="Создать кампанию", kind="navigate", payload={"message": message})],
+        )
+
+    latest = draft_flows[-1]
+    flow_content = latest["content"] or {}
+    activities_count = len((flow_content or {}).get("activities", []))
+
+    # Простой эвристический разбор: предложим, что улучшить.
+    recommendations = []
+    if activities_count < 3:
+        recommendations.append("Добавить EventActivity для срабатывания по триггеру или WaitActivity для контроля частоты.")
+    if not any(act.get("type") == "ResponseActivity" for act in (flow_content.get("activities") or [])):
+        recommendations.append("Добавить ResponseActivity для измерения целевого действия.")
+    if not recommendations:
+        recommendations.append("Флоу выглядит сбалансированно. Рассмотрите A/B-тест с альтернативным каналом.")
+
+    text = (
+        f"**Анализ текущего draft flow** (activities: {activities_count})\n\n"
+        + "Рекомендации:\n" + "\n".join(f"- {r}" for r in recommendations)
+    )
+    await store.add_event(run_id=run_id, event="step_completed", detail=f"Рекомендаций: {len(recommendations)}")
+
+    actions = [
+        ChatAction(id="save_campaign", label="Сохранить кампанию в AdTarget", kind="save",
+                   payload={"draft_flow": flow_content, "draft_flow_version": (latest.get("metadata") or {}).get("draft_flow_version", 1)}),
+    ]
+    return text, [latest], actions
+
+
+async def _run_qa(
+    *, session_id: str, run_id: str, message: str, history: list[dict[str, Any]],
+) -> tuple[str, list[dict[str, Any]], list[ChatAction]]:
+    """Документация / общий вопрос через qa_copilot."""
+    from agents.qa_copilot import answer as copilot_answer
+    from schemas import CopilotRequest
+
+    await store.add_event(run_id=run_id, event="step_started", detail="QA Copilot: RAG + LLM")
+    started = time.perf_counter()
+    history_pairs = [
+        {"role": m["role"], "content": m["content"]}
+        for m in history[-6:]
+        if m["role"] in {"user", "assistant"}
+    ]
     try:
-        result = await adtarget.create_campaign(canonical_create_flow)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"AdTarget create failed: {str(e)[:300]}")
+        response = await copilot_answer(CopilotRequest(question=message, history=history_pairs))
+    except Exception as exc:
+        await store.add_event(run_id=run_id, event="step_completed", status="error", detail=str(exc)[:200])
+        return f"Ошибка copilot: {str(exc)[:200]}", [], []
 
-    campaign_id = _extract_created_campaign_id(result)
-    if campaign_id is None:
-        raise HTTPException(
-            status_code=502,
-            detail={"message": "AdTarget create response did not include campaignId", "result": result},
+    latency = int((time.perf_counter() - started) * 1000)
+    await store.add_event(
+        run_id=run_id, event="step_completed",
+        detail=f"Источников: {len(response.citations)}", metadata={"latency_ms": latency},
+    )
+
+    text = response.answer
+    if response.citations:
+        text += "\n\n**Источники:**\n" + "\n".join(
+            f"- {c.title or c.source}" for c in response.citations[:5]
+        )
+    return text, [], []
+
+
+# ── Action handlers (save_campaign / save_segment / refine_campaign) ──────────
+
+async def _handle_action(
+    *, session_id: str, run_id: str, action: ChatAction,
+) -> tuple[str, list[dict[str, Any]], list[ChatAction]]:
+    await store.add_event(run_id=run_id, event="step_started", detail=f"action:{action.id}")
+    payload = action.payload or {}
+
+    if action.id == "save_campaign":
+        draft_flow = payload.get("draft_flow")
+        if not isinstance(draft_flow, dict):
+            return "Не получил draft_flow для сохранения.", [], []
+        try:
+            result = await adtarget.create_campaign(draft_flow)
+        except Exception as exc:
+            await store.add_event(run_id=run_id, event="step_completed", status="error", detail=str(exc)[:200])
+            return f"Не удалось создать кампанию в AdTarget: {str(exc)[:200]}", [], []
+        campaign_id = _extract_campaign_id(result)
+        if campaign_id:
+            await store.set_campaign_id(session_id=session_id, campaign_id=campaign_id)
+        artifact_id = await store.save_artifact(
+            session_id=session_id,
+            artifact_type="campaign_draft",
+            content_json=draft_flow,
+            metadata_json={"campaign_id": campaign_id, "adtarget_result": result if isinstance(result, dict) else {"raw": str(result)}},
+            source_run_id=run_id,
+        )
+        artifact = await store.get_artifact(artifact_id)
+        await store.add_event(run_id=run_id, event="step_completed", detail=f"campaign_id={campaign_id}")
+        actions = []
+        if campaign_id:
+            actions.append(ChatAction(id="start_campaign", label="Запустить", kind="runtime", payload={"campaign_id": campaign_id}))
+        return (
+            f"✅ Кампания создана в AdTarget" + (f". ID: **{campaign_id}**" if campaign_id else "."),
+            [artifact] if artifact else [],
+            actions,
         )
 
-    await session_store.add_message(
-        session_id=session.id,
-        role="user",
-        content="Создать кампанию в AdTarget",
-        metadata={
-            "campaign_brief": _model_dump(canonical_create_brief),
-            "draft_flow_json": canonical_create_flow,
-            "draft_flow_version": request.draft_flow_version,
-            "review_status": checklist.status,
-            "review_checklist_acknowledged": request.review_checklist_acknowledged,
-            "status": "draft_ready",
-        },
-    )
-    response = BuilderResponse(
-        message=f"Кампания создана в AdTarget. ID: **{campaign_id}**",
-        session_id=session.id,
-        campaign_id=campaign_id,
-        draft_flow=canonical_create_flow,
-        draft_flow_version=request.draft_flow_version,
-        validation_errors=request.validation_errors,
-        review_checklist=checklist,
-        review_status=checklist.status,
-        review_checklist_acknowledged=request.review_checklist_acknowledged,
-        status="created_in_adtarget",
-    )
-    await session_store.add_message(
-        session_id=session.id,
-        role="assistant",
-        content=response.message,
-        metadata={
-            "campaign_id": campaign_id,
-            "status": response.status,
-            "campaign_brief": _model_dump(canonical_create_brief),
-            "draft_flow_json": canonical_create_flow,
-            "draft_flow_version": request.draft_flow_version,
-            "validation_errors": request.validation_errors,
-            "review_checklist": checklist.model_dump(),
-            "review_status": checklist.status,
-            "review_checklist_acknowledged": request.review_checklist_acknowledged,
-        },
-    )
-    await session_store.upsert_campaign_state(
-        session_id=session.id,
-        campaign_id=campaign_id,
-        draft_flow_json=canonical_create_flow,
-        runtime_status="editing",
-        draft_flow_version=request.draft_flow_version,
-        campaign_brief_json=_model_dump(canonical_create_brief),
-        review_checklist_json=checklist.model_dump(),
-        review_status=checklist.status,
-        review_checklist_acknowledged=request.review_checklist_acknowledged,
-    )
-    return response
-
-
-@app.post("/api/segments/suggest", response_model=SegmentSuggestResponse)
-async def suggest_segments(request: SegmentSuggestRequest) -> SegmentSuggestResponse:
-    """Suggests 2-3 structured audience segment hypotheses for a campaign."""
-    try:
-        result = await agent_orchestrator.execute(AgentTask(agent="segment", payload=segment_to_unified(request)))
-        return segment_from_unified(result.payload)
-    except HTTPException:
-        raise
-    except ValidationError as e:
-        raise _segment_suggestion_validation_error(e)
-    except (json.JSONDecodeError, TypeError, ValueError) as e:
-        if _is_likely_llm_error(e):
-            _handle_llm_error(e)
-        raise _segment_suggestion_validation_error(e)
-    except Exception as e:
-        if _is_likely_llm_error(e):
-            _handle_llm_error(e)
-        logger.exception("Unexpected /api/segments/suggest failure")
-        raise HTTPException(
-            status_code=500,
-            detail="Segment suggestion failed due to an unexpected backend error. Please try again later.",
+    if action.id == "save_segment":
+        segment = payload.get("segment") or payload.get("content_json") or payload
+        artifact_id = await store.save_artifact(
+            session_id=session_id,
+            artifact_type="segment_draft",
+            content_json=segment if isinstance(segment, dict) else {"value": segment},
+            metadata_json={},
+            source_run_id=run_id,
         )
+        artifact = await store.get_artifact(artifact_id)
+        await store.add_event(run_id=run_id, event="step_completed", detail=f"segment saved")
+        return "✅ Сегмент сохранён.", [artifact] if artifact else [], []
 
+    if action.id == "save_target_group":
+        artifact_id = await store.save_artifact(
+            session_id=session_id,
+            artifact_type="target_group_draft",
+            content_json=payload if isinstance(payload, dict) else {"value": payload},
+            metadata_json={},
+            source_run_id=run_id,
+        )
+        artifact = await store.get_artifact(artifact_id)
+        await store.add_event(run_id=run_id, event="step_completed", detail=f"target group saved")
+        return "✅ Таргет-группа сохранена.", [artifact] if artifact else [], []
+
+    if action.id == "start_campaign":
+        campaign_id = payload.get("campaign_id")
+        if not campaign_id:
+            return "Не указан campaign_id для запуска.", [], []
+        try:
+            await adtarget.start_campaign(int(campaign_id))
+        except Exception as exc:
+            return f"Не удалось запустить кампанию: {str(exc)[:200]}", [], []
+        await store.add_event(run_id=run_id, event="step_completed", detail=f"started {campaign_id}")
+        return f"▶ Кампания **{campaign_id}** запущена.", [], []
+
+    await store.add_event(run_id=run_id, event="step_completed", detail=f"unknown action: {action.id}")
+    return f"Неизвестное действие: {action.id}", [], []
+
+
+# ── Runtime campaign actions ──────────────────────────────────────────────────
 
 @app.post("/api/campaigns/{campaign_id}/start", response_model=CampaignActionResponse)
-async def start_campaign(
-    campaign_id: int,
-    request: CampaignActionRequest | None = Body(default=None),
-) -> CampaignActionResponse:
-    """Запускает кампанию в AdTarget и возвращает результат runtime-действия."""
-    _validate_campaign_action_request(campaign_id, request)
+async def start_campaign(campaign_id: int, request: CampaignActionRequest | None = Body(default=None)):
+    if request is not None and request.campaign_id != campaign_id:
+        raise HTTPException(status_code=400, detail="campaign_id mismatch")
     try:
         result = await adtarget.start_campaign(campaign_id)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"AdTarget start failed: {str(e)[:300]}")
-    _raise_for_failed_campaign_action(result, "start")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AdTarget start failed: {str(exc)[:300]}")
     return CampaignActionResponse(campaign_id=campaign_id, status="active", result=result)
 
 
 @app.post("/api/campaigns/{campaign_id}/pause", response_model=CampaignActionResponse)
-async def pause_campaign(
-    campaign_id: int,
-    request: CampaignActionRequest | None = Body(default=None),
-) -> CampaignActionResponse:
-    """Ставит кампанию на паузу/останавливает её в AdTarget."""
-    _validate_campaign_action_request(campaign_id, request, enforce_review=False)
+async def pause_campaign(campaign_id: int, request: CampaignActionRequest | None = Body(default=None)):
+    if request is not None and request.campaign_id != campaign_id:
+        raise HTTPException(status_code=400, detail="campaign_id mismatch")
     try:
         result = await adtarget.pause_campaign(campaign_id)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"AdTarget pause failed: {str(e)[:300]}")
-    _raise_for_failed_campaign_action(result, "pause")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AdTarget pause failed: {str(exc)[:300]}")
     return CampaignActionResponse(campaign_id=campaign_id, status="paused", result=result)
 
 
-def _extract_created_campaign_id(result: Any) -> int | None:
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _extract_campaign_id(result: Any) -> int | None:
     if isinstance(result, dict):
-        value = result.get("campaignId") or result.get("campaign_id") or result.get("id")
-        if isinstance(value, int):
-            return value
-        if isinstance(value, str) and value.isdigit():
-            return int(value)
+        for key in ("campaignId", "campaign_id", "id"):
+            value = result.get(key)
+            if isinstance(value, int):
+                return value
+            if isinstance(value, str) and value.isdigit():
+                return int(value)
     return None
 
 
-def _raise_for_failed_campaign_action(result: Any, action: str) -> None:
-    """Return an HTTP error if AdTarget reports a failed runtime action item."""
-    if not isinstance(result, list):
-        return
-
-    failed_items: list[dict[str, Any]] = []
-    for item in result:
-        if not isinstance(item, dict):
-            continue
-        errors = item.get("errors")
-        has_errors = bool(errors)
-        if item.get("isSuccess") is False or has_errors:
-            failed_items.append(item)
-
-    if failed_items:
-        raise HTTPException(
-            status_code=502,
-            detail={
-                "message": f"AdTarget {action} failed",
-                "errors": failed_items,
-            },
-        )
-
-def _validate_campaign_action_request(
-    campaign_id: int,
-    request: CampaignActionRequest | None,
-    *,
-    enforce_review: bool = True,
-) -> None:
-    if request is not None and request.campaign_id != campaign_id:
-        raise HTTPException(status_code=400, detail="campaign_id in path and body must match")
-    if not enforce_review:
-        return
-    review_status = request.review_status if request is not None else "blocked"
-    acknowledged = bool(request.review_checklist_acknowledged) if request is not None else False
-    if not is_review_allowed_for_runtime(review_status, acknowledged):
-        raise HTTPException(
-            status_code=400,
-            detail="Campaign action blocked until review checklist is green or warnings are explicitly acknowledged",
-        )
-
-
-@app.post("/api/monitor", response_model=MonitorResponse)
-async def monitor(request: MonitorRequest) -> MonitorResponse:
-    """F3 Campaign Monitor — анализ кампании и рекомендации по улучшению."""
-    try:
-        result = await agent_orchestrator.execute(AgentTask(agent="monitor", payload=monitor_to_unified(request)))
-        return monitor_from_unified(result.payload)
-    except Exception as e:
-        _handle_llm_error(e)
-
-
-def _model_dump(value: Any) -> dict[str, Any] | None:
-    if value is None:
-        return None
-    if isinstance(value, dict):
-        return value
-    if hasattr(value, "model_dump"):
-        return value.model_dump()
+def _extract_marker(message: str, markers: tuple[str, ...]) -> str | None:
+    lower = message.lower()
+    for marker in markers:
+        if marker in lower:
+            idx = lower.index(marker) + len(marker)
+            tail = message[idx:].lstrip(": ").strip()
+            value = tail.split(".")[0].split(",")[0].strip()
+            if value:
+                return value
     return None
 
 
-_SAFE_TRACE_METADATA_KEYS = {"tool_name", "status", "latency_ms", "route"}
-_REDACT_KEYS = {"token", "authorization", "password", "secret", "api_key", "key"}
-
-
-def _safe_chat_trace(events: list[ChatTraceEvent]) -> list[ChatTraceEvent]:
-    safe_events: list[ChatTraceEvent] = []
-    for event in events:
-        safe_metadata = {key: value for key, value in event.metadata.items() if key in _SAFE_TRACE_METADATA_KEYS}
-        safe_events.append(
-            ChatTraceEvent(
-                event=event.event,
-                status=event.status,
-                detail=event.detail,
-                ts=event.ts,
-                metadata=safe_metadata,
-            )
-        )
-    return safe_events
-
-
-def _redact_tool_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    redacted: dict[str, Any] = {}
-    for key, value in payload.items():
-        if any(sensitive in key.lower() for sensitive in _REDACT_KEYS):
-            redacted[key] = "***REDACTED***"
-        else:
-            redacted[key] = value
-    return redacted
-
-def _parse_flow_json(flow_json: str | None) -> dict[str, Any] | None:
-    """Parse a stored frontend flow JSON string for campaign state persistence."""
-    if not flow_json:
-        return None
-    try:
-        parsed = json.loads(flow_json)
-    except json.JSONDecodeError:
-        return {"raw": flow_json}
-    return parsed if isinstance(parsed, dict) else {"value": parsed}
-
-
-
-def _metadata_draft_flow_version(metadata: dict[str, Any] | None) -> int | None:
-    value = (metadata or {}).get("draft_flow_version")
-    return value if isinstance(value, int) and value > 0 else None
-
-
-def _stored_draft_flow_version(session: SessionDetail | None) -> int | None:
-    if session is None:
-        return None
-    if session.draft_flow_version is not None and session.draft_flow_version > 0:
-        return session.draft_flow_version
-    for message in reversed(session.messages):
-        version = _metadata_draft_flow_version(message.metadata)
-        if version is not None:
-            return version
-    return None
-
-
-def _resolve_response_draft_flow_version(
-    *,
-    response: BuilderResponse,
-    request_flow_json: dict[str, Any] | None,
-    current_version: int | None,
-) -> int | None:
-    if response.draft_flow_version is not None and response.draft_flow_version > 0:
-        return response.draft_flow_version
-    if response.draft_flow is None and request_flow_json is None:
-        return None
-    if response.draft_flow is not None and response.draft_flow != request_flow_json:
-        return (current_version or 0) + 1
-    return current_version or (1 if response.draft_flow is not None else None)
-
-def _make_session_title(goal: str) -> str:
-    """Builds a compact title from the first user prompt."""
-    title = " ".join(goal.strip().split())
-    if not title:
-        return "Новый диалог Builder"
-    return title[:77] + "..." if len(title) > 80 else title
-
-
-
-def _segment_suggestion_validation_error(e: Exception) -> HTTPException:
-    return HTTPException(
-        status_code=502,
-        detail={
-            "message": "Segment suggestion validation failed",
-            "error": str(e)[:500],
-        },
-    )
-
-
-def _is_likely_llm_error(e: Exception) -> bool:
-    err_str = str(e)
-    err_lower = err_str.lower()
-    llm_markers = (
-        "llm",
-        "gigachat",
-        "groq",
-        "anthropic",
-        "gemini",
-        "ollama",
-        "openai",
-        "api key",
-        "unauthorized",
-        "too many requests",
-        "payment required",
-        "request too large",
-    )
-    return (
-        any(marker in err_lower for marker in llm_markers)
-        or any(status in err_str for status in ("401", "402", "413", "429"))
-    )
-
-
-def _handle_llm_error(e: Exception) -> None:
-    """Преобразует ошибки LLM в читаемые HTTP-ответы."""
-    import os
-    err_str = str(e)
-    provider = os.getenv("LLM_PROVIDER", "gigachat")
-    if "402" in err_str or "Payment Required" in err_str:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                f"LLM API недоступен (402 Payment Required). "
-                f"Текущий провайдер: {provider.upper()}. "
-                "Пополните баланс аккаунта или добавьте ANTHROPIC_API_KEY в .env "
-                "и установите LLM_PROVIDER=anthropic."
-            ),
-        )
-    if "401" in err_str or "Unauthorized" in err_str:
-        raise HTTPException(
-            status_code=503,
-            detail=f"LLM API: ошибка авторизации (401). Проверьте ключ для провайдера {provider.upper()}.",
-        )
-    if "429" in err_str or "Too Many Requests" in err_str:
-        raise HTTPException(
-            status_code=429,
-            detail="LLM API: превышен лимит запросов (429). Подождите несколько секунд и повторите.",
-        )
-    if (
-        "413" in err_str
-        or "Request too large" in err_str
-        or "too large for model" in err_str.lower()
-    ):
-        raise HTTPException(
-            status_code=413,
-            detail=(
-                "Запрос к LLM слишком большой для текущей модели или тарифа Groq (413). "
-                "Очистите историю чата Builder, уменьшите BUILDER_MESSAGE_TOKEN_BUDGET / справочники "
-                "(BUILDER_MAX_*), или задайте другую модель, например GROQ_MODEL=llama-3.3-70b-versatile."
-            ),
-        )
-    raise HTTPException(status_code=500, detail=f"Ошибка LLM: {err_str[:300]}")
+def _artifact_to_response(artifact: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": artifact["id"],
+        "type": artifact["type"],
+        "title": None,
+        "content": artifact.get("content"),
+        "url": None,
+        "metadata": artifact.get("metadata") or {},
+    }

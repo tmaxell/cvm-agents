@@ -31,7 +31,6 @@ from llm import get_llm
 from schemas import BuilderRequest, BuilderResponse, CampaignBriefCompleteness, FlowPatch
 from agents.safety_review import build_review_checklist
 from agents.flow_composer import compose_campaign_flow_result
-from agents.legacy_compat import flow_from_legacy_steps
 from tools import adtarget
 from tools.flow_builder import (
     make_common_activity,
@@ -1837,7 +1836,7 @@ async def _flow_from_tool_args(tool_name: str, args: dict) -> dict | None:
             if isinstance(flow_data, dict):
                 if isinstance(flow_data.get("activities"), list):
                     return flow_data
-                return flow_from_legacy_steps(flow_data)
+                return None
     except (KeyError, TypeError, ValueError, json.JSONDecodeError):
         return None
     return None

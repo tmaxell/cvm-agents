@@ -59,17 +59,13 @@ def _provider_candidates() -> list[str]:
     return [provider for provider in candidates if _provider_is_installed(provider)]
 
 
-def get_llm(for_tools: bool = False) -> BaseChatModel:
+def get_llm(for_tools: bool = False, temperature: float | None = None) -> BaseChatModel:
     """Возвращает LLM согласно настройкам окружения.
 
-    Если выбранный в .env провайдер недоступен из-за неустановленной
-    LangChain-интеграции, автоматически используем следующий настроенный и
-    установленный провайдер. Это защищает API от 500 вида
-    ``No module named 'langchain_groq'`` в локальном прототипе.
+    temperature: опционально перекрывает температуру по умолчанию (0.05).
     """
     provider = os.getenv("LLM_PROVIDER", "").lower().strip()
 
-    # Auto-detect if not set
     if not provider:
         candidates = _provider_candidates()
         provider = candidates[0] if candidates else "ollama"
@@ -96,19 +92,23 @@ def get_llm(for_tools: bool = False) -> BaseChatModel:
                 f"[llm] Provider '{provider}' is configured, but its package is not installed; "
                 f"fallback → {fallback_provider}"
             )
-            return dispatch[fallback_provider](for_tools=for_tools)
+            return dispatch[fallback_provider](for_tools=for_tools, temperature=temperature)
         modules = ", ".join(PROVIDER_MODULES.get(provider, ()))
         raise RuntimeError(
             f"LLM provider '{provider}' is configured, but required package is not installed: {modules}. "
             "Install dependencies from backend/requirements.txt or choose another LLM_PROVIDER."
         )
 
-    return fn(for_tools=for_tools)
+    return fn(for_tools=for_tools, temperature=temperature)
+
+
+def _temperature(override: float | None) -> float:
+    return 0.05 if override is None else override
 
 
 # ── GigaChat ──────────────────────────────────────────────────────────────────
 
-def _gigachat(for_tools: bool = False) -> BaseChatModel:
+def _gigachat(for_tools: bool = False, temperature: float | None = None) -> BaseChatModel:
     try:
         from langchain_gigachat import GigaChat
     except ImportError:
@@ -129,18 +129,18 @@ def _gigachat(for_tools: bool = False) -> BaseChatModel:
         profanity_check=False,
         verify_ssl_certs=verify_ssl,
         timeout=120,
-        temperature=0.05,
+        temperature=_temperature(temperature),
     )
 
 
 # ── Groq (FREE tier, recommended) ─────────────────────────────────────────────
 
-def _groq(for_tools: bool = False) -> BaseChatModel:
-    # llama-3.3-70b-versatile has excellent tool use support on free tier
+def _groq(for_tools: bool = False, temperature: float | None = None) -> BaseChatModel:
     default_model = "llama-3.3-70b-versatile"
     model = os.getenv("GROQ_MODEL", default_model)
     api_key = os.getenv("GROQ_API_KEY", "")
     max_tokens = int(os.getenv("GROQ_MAX_TOKENS", "2048"))
+    temp = _temperature(temperature)
 
     try:
         from langchain_groq import ChatGroq
@@ -149,15 +149,12 @@ def _groq(for_tools: bool = False) -> BaseChatModel:
         return ChatGroq(
             model=model,
             api_key=api_key,
-            temperature=0.05,
+            temperature=temp,
             max_tokens=max_tokens,
         )
     except ImportError:
-        # The prototype environment may not have langchain_groq installed. Groq is
-        # OpenAI-compatible, so use a small native LangChain adapter over httpx
-        # instead of failing with HTTP 500.
         print(f"[llm] Groq → {model} (tools={for_tools}, native httpx adapter)")
-        return GroqNativeChatModel(model=model, api_key=api_key, max_tokens=max_tokens)
+        return GroqNativeChatModel(model=model, api_key=api_key, max_tokens=max_tokens, temperature=temp)
 
 
 # ── Native Groq fallback (OpenAI-compatible API via httpx) ────────────────────
@@ -168,18 +165,20 @@ class GroqNativeChatModel(BaseChatModel):
     _model: str = PrivateAttr(default="")
     _api_key: str = PrivateAttr(default="")
     _max_tokens: int = PrivateAttr(default=2048)
+    _temperature: float = PrivateAttr(default=0.05)
     _bound_tools: list[Any] = PrivateAttr(default_factory=list)
 
     model_config = {"arbitrary_types_allowed": True}
 
-    def __init__(self, *, model: str, api_key: str, max_tokens: int = 2048, **kwargs: Any):
+    def __init__(self, *, model: str, api_key: str, max_tokens: int = 2048, temperature: float = 0.05, **kwargs: Any):
         super().__init__(**kwargs)
         self._model = model
         self._api_key = api_key
         self._max_tokens = max_tokens
+        self._temperature = temperature
 
     def bind_tools(self, tools: Sequence[Any], **kwargs: Any) -> "GroqNativeChatModel":
-        new = GroqNativeChatModel(model=self._model, api_key=self._api_key, max_tokens=self._max_tokens)
+        new = GroqNativeChatModel(model=self._model, api_key=self._api_key, max_tokens=self._max_tokens, temperature=self._temperature)
         new._bound_tools = list(tools)
         return new
 
@@ -198,7 +197,7 @@ class GroqNativeChatModel(BaseChatModel):
         payload: dict[str, Any] = {
             "model": self._model,
             "messages": [_to_openai_message(message) for message in messages],
-            "temperature": 0.05,
+            "temperature": self._temperature,
             "max_tokens": self._max_tokens,
         }
         if stop:
@@ -302,10 +301,9 @@ def _from_openai_assistant_message(message: dict[str, Any]) -> AIMessage:
 
 # ── Google Gemini (FREE tier) ─────────────────────────────────────────────────
 
-def _gemini(for_tools: bool = False) -> BaseChatModel:
+def _gemini(for_tools: bool = False, temperature: float | None = None) -> BaseChatModel:
     from langchain_google_genai import ChatGoogleGenerativeAI
 
-    # gemini-1.5-flash: free tier, fast, good tool use
     default_model = "gemini-1.5-flash"
     model = os.getenv("GOOGLE_MODEL", default_model)
     api_key = os.getenv("GOOGLE_API_KEY", "")
@@ -314,16 +312,15 @@ def _gemini(for_tools: bool = False) -> BaseChatModel:
     return ChatGoogleGenerativeAI(
         model=model,
         google_api_key=api_key,
-        temperature=0.05,
+        temperature=_temperature(temperature),
     )
 
 
 # ── Ollama (local, completely free) ───────────────────────────────────────────
 
-def _ollama(for_tools: bool = False) -> BaseChatModel:
+def _ollama(for_tools: bool = False, temperature: float | None = None) -> BaseChatModel:
     from langchain_ollama import ChatOllama
 
-    # qwen2.5:7b has good tool use; llama3.2 is lighter; mistral-nemo is fast
     default_model = "qwen2.5:7b"
     model = os.getenv("OLLAMA_MODEL", default_model)
     base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
@@ -332,16 +329,16 @@ def _ollama(for_tools: bool = False) -> BaseChatModel:
     return ChatOllama(
         model=model,
         base_url=base_url,
-        temperature=0.05,
+        temperature=_temperature(temperature),
         num_predict=2048,
     )
 
 
 # ── Anthropic Claude ──────────────────────────────────────────────────────────
 
-def _anthropic(for_tools: bool = False) -> BaseChatModel:
+def _anthropic(for_tools: bool = False, temperature: float | None = None) -> BaseChatModel:
     from langchain_anthropic import ChatAnthropic
 
     model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5")
     print(f"[llm] Anthropic → {model} (tools={for_tools})")
-    return ChatAnthropic(model=model)
+    return ChatAnthropic(model=model, temperature=_temperature(temperature))

@@ -7,7 +7,7 @@ import type { ChatAction, ChatTraceEvent, ChatSession } from "../api/chatApi";
 import { MarkdownText } from "./MarkdownText";
 import { Sources } from "./Sources";
 
-type WidgetMode = "fab" | "panel";
+type WidgetMode = "fab" | "panel" | "expanded";
 type HistoryMode = "closed" | "open";
 
 const SUGGESTIONS: { label: string; prompt: string }[] = [
@@ -90,6 +90,16 @@ const CloseIcon = () => (
 const SendIcon = () => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
     <path d="M2 8l12-5-5 12-2-5z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" fill="none"/>
+  </svg>
+);
+const ExpandIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path d="M3 7V3h4M13 9v4h-4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+const CompressIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path d="M7 3v4H3M9 13v-4h4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
   </svg>
 );
 
@@ -363,8 +373,8 @@ export function FloatingWidget() {
         <button
           className="fw-fab"
           onClick={() => setMode("panel")}
-          aria-label="Открыть AI-ассистент"
-          title="AI Assistant"
+          aria-label="Открыть CVM Copilot"
+          title="CVM Copilot"
         >
           <ChatIcon />
         </button>
@@ -372,64 +382,91 @@ export function FloatingWidget() {
     );
   }
 
+  const isExpanded = mode === "expanded";
+  const showSideHistory = isExpanded;          // в расширенном режиме история — постоянная боковая колонка
+  const showOverlayHistory = !isExpanded && history === "open";
+
   return (
-    <div className="fw-root">
-      <div className="fw-panel">
-        <header className="fw-header">
-          <button
-            className={`fw-icon-btn ${history === "open" ? "active" : ""}`}
-            title="История диалогов"
-            onClick={() => setHistory(history === "open" ? "closed" : "open")}
-          >
-            <HistoryIcon />
-          </button>
-          <div className="fw-header-title">
-            <span className="fw-header-dot" />
-            AI Assistant
+    <div className={`fw-root ${isExpanded ? "fw-root-expanded" : ""}`}>
+      <div className={`fw-panel ${isExpanded ? "fw-panel-expanded" : ""}`}>
+        {showSideHistory && (
+          <aside className="fw-side-history">
+            <div className="fw-side-history-header">
+              <span>История</span>
+              <button className="fw-btn-primary" onClick={() => void handleNewChat()}>+ Новый</button>
+            </div>
+            <SideHistoryList
+              sessions={sessions}
+              activeId={activeSessionId}
+              loading={loadingSessions}
+              onSelect={(id) => void handleSelectSession(id)}
+            />
+          </aside>
+        )}
+
+        <div className="fw-main">
+          <header className="fw-header">
+            {!isExpanded && (
+              <button
+                className={`fw-icon-btn ${history === "open" ? "active" : ""}`}
+                title="История диалогов"
+                onClick={() => setHistory(history === "open" ? "closed" : "open")}
+              >
+                <HistoryIcon />
+              </button>
+            )}
+            <div className="fw-header-title">CVM Copilot</div>
+            <button className="fw-icon-btn" title="Новый диалог" onClick={() => void handleNewChat()}>
+              <PlusIcon />
+            </button>
+            <button
+              className="fw-icon-btn"
+              title={isExpanded ? "Свернуть до компактного режима" : "Развернуть"}
+              onClick={() => setMode(isExpanded ? "panel" : "expanded")}
+            >
+              {isExpanded ? <CompressIcon /> : <ExpandIcon />}
+            </button>
+            <button className="fw-icon-btn" title="Свернуть" onClick={() => setMode("fab")}>
+              <MinimizeIcon />
+            </button>
+          </header>
+
+          <div className="fw-thread" ref={threadRef}>
+            {loadingMessages && messages.length === 0 ? (
+              <div className="fw-thread-empty">Загрузка…</div>
+            ) : messages.length === 0 ? (
+              <ThreadEmpty onPick={handlePickSuggestion} />
+            ) : (
+              messages.map((m, i) => (
+                <MessageBubble
+                  key={m.id}
+                  msg={m}
+                  onAction={handleAction}
+                  pending={sending}
+                  isLast={i === messages.length - 1}
+                />
+              ))
+            )}
+            {sending && <div className="fw-typing">Ассистент думает…</div>}
           </div>
-          <button className="fw-icon-btn" title="Новый диалог" onClick={() => void handleNewChat()}>
-            <PlusIcon />
-          </button>
-          <button className="fw-icon-btn" title="Свернуть" onClick={() => setMode("fab")}>
-            <MinimizeIcon />
-          </button>
-        </header>
 
-        <div className="fw-thread" ref={threadRef}>
-          {loadingMessages && messages.length === 0 ? (
-            <div className="fw-thread-empty">Загрузка…</div>
-          ) : messages.length === 0 ? (
-            <ThreadEmpty onPick={handlePickSuggestion} />
-          ) : (
-            messages.map((m, i) => (
-              <MessageBubble
-                key={m.id}
-                msg={m}
-                onAction={handleAction}
-                pending={sending}
-                isLast={i === messages.length - 1}
-              />
-            ))
-          )}
-          {sending && <div className="fw-typing">Ассистент думает…</div>}
+          {error && <div className="fw-error">{error}</div>}
+
+          <div className="fw-composer">
+            <AutoGrowTextarea
+              value={input}
+              onChange={setInput}
+              onSubmit={() => void handleSend()}
+              disabled={false}
+              placeholder="Спросите про кампании, сегменты или документацию…"
+            />
+            <button onClick={() => void handleSend()} disabled={sending || !input.trim()} title="Отправить">
+              <SendIcon />
+            </button>
+          </div>
         </div>
 
-        {error && <div className="fw-error">{error}</div>}
-
-        <div className="fw-composer">
-          <AutoGrowTextarea
-            value={input}
-            onChange={setInput}
-            onSubmit={() => void handleSend()}
-            disabled={false}
-            placeholder="Спросите про кампании, сегменты или документацию…"
-          />
-          <button onClick={() => void handleSend()} disabled={sending || !input.trim()} title="Отправить">
-            <SendIcon />
-          </button>
-        </div>
-
-        {history === "open" && (
+        {showOverlayHistory && (
           <HistoryPanel
             sessions={sessions}
             activeId={activeSessionId}
@@ -439,6 +476,63 @@ export function FloatingWidget() {
             onClose={() => setHistory("closed")}
           />
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Side history list (для расширенного режима) ──────────────────────────────
+
+function SideHistoryList({
+  sessions,
+  activeId,
+  loading,
+  onSelect,
+}: {
+  sessions: ChatSession[];
+  activeId: string | null;
+  loading: boolean;
+  onSelect: (id: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return sessions;
+    return sessions.filter((s) => `${s.title} ${s.lastMessagePreview ?? ""}`.toLowerCase().includes(q));
+  }, [sessions, query]);
+  const groups = groupSessions(filtered);
+
+  return (
+    <div className="fw-side-history-body">
+      <input
+        className="fw-side-history-search"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Поиск по диалогам"
+      />
+      <div className="fw-side-history-list">
+        {loading && sessions.length === 0 && <div className="fw-history-empty">Загрузка…</div>}
+        {!loading && groups.length === 0 && <div className="fw-history-empty">Диалогов нет</div>}
+        {groups.map((g) => (
+          <div key={g.label}>
+            <div className="fw-history-group-title">{g.label}</div>
+            {g.items.map((s) => (
+              <button
+                key={s.id}
+                className={`fw-history-item ${s.id === activeId ? "active" : ""}`}
+                onClick={() => onSelect(s.id)}
+              >
+                <div className="fw-history-item-title">{s.title || "Без названия"}</div>
+                {s.lastMessagePreview && (
+                  <div className="fw-history-item-preview">{s.lastMessagePreview}</div>
+                )}
+                <div className="fw-history-item-meta">
+                  <span>{formatTime(s.updatedAt)}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        ))}
       </div>
     </div>
   );

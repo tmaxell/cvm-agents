@@ -169,14 +169,20 @@ async def _ask_clarifying(ctx: AgentContext, *, goal: str, brief: CampaignBriefA
 
     await ctx.emit("step_completed", detail=f"Задано {len(questions)} вопросов", metadata={"missing": brief.missing_critical})
 
-    # Quick-reply кнопки для самых частых ответов.
+    # Quick-reply кнопки строго под актуальные missing-поля.
     quick_actions: list[ChatAction] = []
     if "channels" in brief.missing_critical:
-        quick_actions.append(_quick_reply("SMS-канал", "Используем SMS как основной канал коммуникации."))
-        quick_actions.append(_quick_reply("Email-канал", "Используем Email как основной канал."))
-        quick_actions.append(_quick_reply("Push-канал", "Используем мобильные Push-уведомления."))
+        if "sms" not in brief.channels:
+            quick_actions.append(_quick_reply("SMS-канал", "Используем SMS как основной канал коммуникации."))
+        if "email" not in brief.channels:
+            quick_actions.append(_quick_reply("Email-канал", "Используем Email как основной канал."))
+        if "push" not in brief.channels:
+            quick_actions.append(_quick_reply("Push-канал", "Используем мобильные Push-уведомления."))
     if "audience" in brief.missing_critical:
         quick_actions.append(_quick_reply("Все активные клиенты", "Аудитория — все активные клиенты за последние 30 дней."))
+        quick_actions.append(_quick_reply("Отток за 30 дней", "Аудитория — клиенты, ушедшие в отток за последние 30 дней."))
+    if "product" in brief.missing_critical and brief.goal and "удержани" not in (brief.goal or "").lower():
+        quick_actions.append(_quick_reply("Тариф не важен", "Тариф не важен, главное — реализовать заявленную цель кампании."))
 
     return AgentResult(
         assistant_message="\n".join(parts),

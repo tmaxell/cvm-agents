@@ -27,11 +27,12 @@ _TEMPLATES_DIR = Path(__file__).parent / "templates"
 @dataclass(slots=True)
 class CampaignTemplate:
     """Описание одного шаблона."""
-    key: str                       # уникальный код: "data_package", "gift", "demo"
-    title: str                     # человекочитаемое название (для ответа)
-    description: str               # короткое описание сценария
-    keywords: tuple[str, ...]      # триггер-фразы из user message
-    file_name: str                 # имя файла в templates/
+    key: str                            # уникальный код: "data_package", "gift", "demo"
+    title: str                          # человекочитаемое название (для ответа)
+    description: str                    # короткое описание сценария
+    keywords: tuple[str, ...]           # обычные ключевые слова (нужно ≥2 совпадения)
+    strong_keywords: tuple[str, ...]    # signature-фразы (достаточно 1 совпадения)
+    file_name: str                      # имя файла в templates/
 
 
 TEMPLATES: dict[str, CampaignTemplate] = {
@@ -39,21 +40,25 @@ TEMPLATES: dict[str, CampaignTemplate] = {
         key="data_package",
         title="Продажа пакета Мб через ДСТК",
         description="Триггер по событию → RealTime-проверка баланса → ветвление на 3 цены → SMS/USSD касание → Interactive/Response → Business transaction начисления пакета.",
-        keywords=("пакет данн", "пакет мб", "пакеты мб", "data package", "дстк", "продажа пакет", "интернет пакет"),
+        # Просто «пакет» — не повод вытащить шаблон. Нужна связка «пакет Мб / данных / ДСТК».
+        keywords=("пакет", "данн", "мб", "интернет", "продаж"),
+        strong_keywords=("дстк", "пакет мб", "пакет данн", "пакеты мб", "data package", "интернет пакет"),
         file_name="test_1_data_package_campaign.json",
     ),
     "gift": CampaignTemplate(
         key="gift",
         title="Подарок соцсети при пополнении",
         description="SMS-приглашение → ждём событие пополнения → активируем подарочный пакет → SMS-уведомление → Wait → деактивация → Transfer/Exclude из этапа.",
-        keywords=("подарок", "gift", "соцсет", "социальн", "facebook", "vk ", "instagram", "успешн", "пополнен"),
+        keywords=("подарок", "соцсет", "социальн", "facebook", "vk", "instagram", "пополнен"),
+        strong_keywords=("подарок соцсет", "подарок социальн", "gift social", "при пополнен"),
         file_name="test_2_gift_campaign.json",
     ),
     "demo": CampaignTemplate(
         key="demo",
         title="Демонстрационная кампания (полная)",
         description="Многоэтапная сложная демо-кампания со множеством каналов и ветвлений.",
-        keywords=("демо", "demo", "сложн", "пример полн"),
+        keywords=("демо", "пример"),
+        strong_keywords=("demo campaign", "демо кампан", "пример полн", "сложн пример"),
         file_name="demo_campaign.json",
     ),
 }
@@ -63,16 +68,31 @@ def list_templates() -> list[CampaignTemplate]:
     return list(TEMPLATES.values())
 
 
+# Порог: для срабатывания template нужен либо strong-keyword, либо ≥2 обычных keyword.
+_MIN_REGULAR_HITS = 2
+
+
 def find_template(message: str) -> CampaignTemplate | None:
-    """Подбирает шаблон по ключевым словам пользовательского сообщения."""
+    """Подбирает шаблон по ключевым словам пользовательского сообщения.
+
+    Срабатывает только при ЯВНОМ совпадении — иначе кампания идёт через
+    LLM-планировщик с нуля. Это нужно чтобы «собери кампанию для апсейла»
+    или «кампания для Тарифа Семейный» не подтягивали случайный шаблон.
+    """
     if not message:
         return None
     lower = message.lower()
-    # Возвращаем первый шаблон, любое ключевое слово которого присутствует в сообщении.
     best: CampaignTemplate | None = None
-    best_score = 0
+    best_score = 0.0
     for tpl in TEMPLATES.values():
-        score = sum(1 for kw in tpl.keywords if kw in lower)
+        strong_hit = any(kw in lower for kw in tpl.strong_keywords)
+        regular_hits = sum(1 for kw in tpl.keywords if kw in lower)
+        if strong_hit:
+            score = 10.0 + regular_hits
+        elif regular_hits >= _MIN_REGULAR_HITS:
+            score = float(regular_hits)
+        else:
+            score = 0.0
         if score > best_score:
             best_score = score
             best = tpl

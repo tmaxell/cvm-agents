@@ -28,6 +28,13 @@ from typing import Any, Literal
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from agents.builder.terminology import (
+    GOAL_TERMS,
+    LLM_DICTIONARY_HINT,
+    is_goal_phrase,
+    looks_like_audience,
+    looks_like_product,
+)
 from llm import get_llm
 
 logger = logging.getLogger(__name__)
@@ -58,17 +65,29 @@ class CampaignBriefAnalysis:
 
 # ── Quick deterministic extraction (для уменьшения нагрузки на LLM) ───────────
 
+# Захватываем 1-4 слова после маркера продукта; стоп-точки — знаки препинания и переходные слова.
 _PRODUCT_PATTERNS = [
-    re.compile(r"(?:продукт[ауеа]?|тариф|услуг[аеу]|пакет[а-я]*)\s+[«\"']?([^.,;\n«\"']+?)[»\"']?(?:[.,;]|$)", re.IGNORECASE),
+    re.compile(r"(?:продукт[ауеа]?|тариф|услуг[аеу]|пакет)\s+[«\"']?([\w][\w\s\-]{1,40}?)[»\"']?(?=[.,;:!?\n]|\s+(?:для|канал|через|с|и|на)\b|$)", re.IGNORECASE),
 ]
+
+# Бизнес-цель: «для апсейла», «цель — удержание», «задача — реактивация».
+_GOAL_PATTERNS = [
+    re.compile(r"для\s+(апсейл\w*|апсэйл\w*|ап[- ]сейл\w*|upsell\w*|кросс[- ]сейл\w*|cross[- ]sell\w*|удержани\w*|retention|реактивац\w*|reactivat\w*|активаци\w*|activation|онбординг\w*|onboarding|лояльност\w*|монетизац\w*|churn|оттока?\w*|конверси\w*|стимулирован\w*)", re.IGNORECASE),
+    re.compile(r"(?:цель|задач[аи]|задача)\s*[—\-:]\s*([^.,;\n]{3,80})", re.IGNORECASE),
+]
+
 _CHANNEL_MARKERS = {
     "sms":   ("sms", "смс", "смска"),
-    "push":  ("mobile push", "пуш", "push-уведомлен", "push уведомлен"),
-    "email": ("email", "имейл", "почт"),
+    "push":  ("mobile push", "пуш", "push-уведомлен", "push уведомлен", " push "),
+    "email": ("email", "имейл", "почт", "e-mail"),
     "ussd":  ("ussd",),
 }
-_AUDIENCE_MARKERS = [
-    re.compile(r"(?:для|target group|таргет\s*групп[аыу]?|аудитори[яюей]|сегмент[ауе]?|клиент[ауов]*)\s+([^.,;\n]+)", re.IGNORECASE),
+
+# Аудитория — захват ограничен 1-5 словами и обязательно требует audience-hint
+# в захваченном фрагменте; иначе считаем что это не аудитория.
+_AUDIENCE_PATTERNS = [
+    re.compile(r"(?:target group|таргет\s*групп[аыу]?|аудитори[яюей]|сегмент[ауе]?)\s+([^.,;\n]{3,80})", re.IGNORECASE),
+    re.compile(r"для\s+((?:[\w-]+\s+){0,4}(?:клиент\w*|абонент\w*|пользоват\w*|сегмент\w*|групп\w*|семь\w*|молодёж\w*|молодеж\w*|подрост\w*|пенсион\w*|корпорат\w*|оттока?\w*))", re.IGNORECASE),
 ]
 
 
@@ -81,33 +100,52 @@ def _quick_extract(message: str, history: list[dict]) -> CampaignBriefAnalysis:
     combined = " ".join(text_parts)
     lower = combined.lower()
 
+    # 1. Goal — выделяется ПЕРВЫМ, чтобы потом отфильтровать его из audience.
+    goal: str | None = None
+    for pattern in _GOAL_PATTERNS:
+        m = pattern.search(combined)
+        if m:
+            goal_text = m.group(1).strip().rstrip(".,;")
+            if len(goal_text) >= 3:
+                goal = goal_text[:80]
+                break
+
+    # 2. Product — только если захваченный текст не выглядит как goal.
     product: str | None = None
     for pattern in _PRODUCT_PATTERNS:
         m = pattern.search(combined)
         if m:
-            product = m.group(1).strip().rstrip("»\"")
-            break
+            cand = m.group(1).strip().rstrip("»\"")
+            if cand and not is_goal_phrase(cand):
+                product = cand[:80]
+                break
 
+    # 3. Channels.
     channels: list[str] = []
     for ch, markers in _CHANNEL_MARKERS.items():
         if any(marker in lower for marker in markers):
             channels.append(ch)
-    # Уникализируем сохраняя порядок.
-    seen = set()
+    seen: set[str] = set()
     channels = [c for c in channels if not (c in seen or seen.add(c))]
 
+    # 4. Audience — только если в захваченной фразе есть audience-hint И это не goal.
     audience: dict[str, Any] = {}
-    for pattern in _AUDIENCE_MARKERS:
+    for pattern in _AUDIENCE_PATTERNS:
         m = pattern.search(combined)
         if m:
             desc = m.group(1).strip().rstrip(".,;")
-            # Отфильтровываем явно технические слова.
-            if len(desc) >= 3 and not desc.lower().startswith(("кампан", "продукт", "тариф", "канал")):
+            if (
+                len(desc) >= 3
+                and not is_goal_phrase(desc)
+                and not desc.lower().startswith(("кампан", "продукт", "тариф", "канал"))
+                and looks_like_audience(desc)
+            ):
                 audience = {"description": desc[:120]}
                 break
 
     return CampaignBriefAnalysis(
         product=product,
+        goal=goal,
         audience=audience,
         channels=channels,
     )
@@ -117,25 +155,33 @@ def _quick_extract(message: str, history: list[dict]) -> CampaignBriefAnalysis:
 
 _SYSTEM_PROMPT = """Ты — аналитик CVM-кампаний. По диалогу с пользователем извлеки структурированный бриф кампании.
 
+""" + LLM_DICTIONARY_HINT + """
+
 Извлеки:
-- product: какой продукт/тариф/услугу продвигаем (например, "Тариф Семейный", "Пакет 5GB").
-- goal: бизнес-цель ("увеличение продаж", "удержание клиентов", "активация подарка").
-- audience: {description, target_groups[]} — описание ЦА.
-- channels: массив каналов (sms / push / email / ussd) — какие нужно использовать.
+- product: какой продукт/тариф/услугу продвигаем (например, "Тариф Семейный", "Пакет 5GB"). Если пользователь сказал «тариф не важен» или явно упомянул только цель — оставь null.
+- goal: бизнес-цель в нормализованном виде (например "апсейл", "удержание", "реактивация"). Опирайся на словарь GOAL выше — слова из него ВСЕГДА идут в goal, не в audience.
+- audience: {description, target_groups[]} — описание ЦА. Опирайся на словарь AUDIENCE.
+- channels: массив каналов (sms / push / email / ussd).
 - scenario: одно из значений ниже:
     * "single_touch" — простое разовое касание (Push один раз).
-    * "trigger_with_activation" — реакция на бизнес-событие + активация продукта (Event → BT).
-    * "two_step_with_response" — касание + ожидание отклика + действие (Push → Response → BT).
+    * "trigger_with_activation" — реакция на бизнес-событие + активация продукта.
+    * "two_step_with_response" — касание + ожидание отклика + действие.
     * "lifecycle_with_transfer" — многоэтапная с переводом в следующую кампанию.
     * "multi_touch_with_wait" — серия касаний с паузами между ними.
     * "unknown" — пока непонятно.
 
 Определи missing_critical — поля, без которых нельзя качественно собрать кампанию. Включай в этот список ТОЛЬКО реально отсутствующие критичные поля. Минимум:
-- "product" — если непонятно ЧТО продвигаем.
 - "channels" — если канал не упомянут вообще.
-- "audience" — если нет ни одной зацепки про аудиторию и контекст ничего не подсказывает.
+- "audience" — если нет ни одной зацепки про аудиторию.
+ВАЖНО: product НЕ ВСЕГДА обязателен. Если goal содержит retention/churn/реактивацию или пользователь сказал «тариф не важен» — НЕ добавляй product в missing_critical. Для апсейла продукт нужен (что апсейлим?), для удержания — нет.
 
 Для каждого недостающего поля сгенерируй 1 короткий вопрос на русском в clarifying_questions.
+
+Few-shot примеры:
+- «Кампания для апсейла» → goal="апсейл", missing_critical=["product","channels","audience"], product/audience пустые.
+- «Кампания для семей с детьми» → audience={"description":"семьи с детьми"}, missing=["product","channels"].
+- «Хочу удержание VIP клиентов через SMS» → goal="удержание", audience="VIP клиенты", channels=["sms"], missing=[] (для retention продукт не нужен).
+- «Тариф Семейный, SMS» → product="Тариф Семейный", channels=["sms"], missing=["audience"].
 
 Верни строго JSON одной строкой:
 {"product":"...","goal":"...","audience":{"description":"...","target_groups":[]},"channels":["sms"],"scenario":"...","missing_critical":["..."],"clarifying_questions":["..."],"notes":["..."],"confidence":0.7}
@@ -176,18 +222,55 @@ async def analyze_brief(message: str, history: list[dict]) -> CampaignBriefAnaly
             # Сливаем — отдаём приоритет LLM, но не теряем quick если LLM что-то упустил.
             if not parsed.product and quick.product:
                 parsed.product = quick.product
+            if not parsed.goal and quick.goal:
+                parsed.goal = quick.goal
             if not parsed.channels and quick.channels:
                 parsed.channels = quick.channels
             if not parsed.audience and quick.audience:
                 parsed.audience = quick.audience
+            _post_process(parsed)
             _recompute_missing(parsed)
             return parsed
     except Exception as exc:
         logger.warning("brief analyzer LLM failed: %s", exc)
 
     # Fallback на quick + минимальная проверка missing.
+    _post_process(quick)
     _recompute_missing(quick)
     return quick
+
+
+def _post_process(brief: CampaignBriefAnalysis) -> None:
+    """Перекладывает мисс-классифицированные поля.
+
+    - Если audience.description выглядит как goal — переносим в goal, чистим audience.
+    - Если product выглядит как goal — переносим в goal, чистим product.
+    - Если product выглядит как audience-hint — оставляем product только если он также
+      выглядит как product-hint; иначе чистим (пусть LLM/пользователь уточнит).
+    """
+    if brief.audience and brief.audience.get("description"):
+        desc = str(brief.audience["description"]).strip()
+        if is_goal_phrase(desc) and not looks_like_audience(desc):
+            # Это была цель, маскирующаяся под аудиторию.
+            if not brief.goal:
+                # Нормализуем: оставим первый goal-term из текста.
+                brief.goal = _normalize_goal(desc)
+            brief.audience = {}
+    if brief.product and is_goal_phrase(brief.product) and not looks_like_product(brief.product):
+        if not brief.goal:
+            brief.goal = _normalize_goal(brief.product)
+        brief.product = None
+
+
+def _normalize_goal(text: str) -> str:
+    """Возвращает нормализованную форму goal-фразы (например, «апсейл»)."""
+    lower = text.lower()
+    for term in GOAL_TERMS:
+        if term in lower:
+            # Берём 1-2 слова от term — обычно достаточно.
+            words = term.split()
+            return " ".join(words)[:40]
+    return text[:80]
 
 
 def _parse_brief(text: str) -> CampaignBriefAnalysis | None:
@@ -257,41 +340,102 @@ def _clean_str(value: Any) -> str | None:
     return cleaned or None
 
 
+_FIELD_QUESTIONS: dict[str, str] = {
+    "product": "Какой продукт / тариф / услугу продвигаем?",
+    "goal": "Какая бизнес-цель: апсейл, удержание, реактивация, активация?",
+    "channels": "Через какой канал отправляем коммуникацию: SMS, Push, Email или USSD?",
+    "audience": "На какую аудиторию? Например: «активные клиенты», «семьи с детьми», «отток за 30 дней».",
+}
+
+
+def _has_field(brief: CampaignBriefAnalysis, field_name: str) -> bool:
+    if field_name == "product":
+        return bool(brief.product)
+    if field_name == "goal":
+        return bool(brief.goal)
+    if field_name == "channels":
+        return bool(brief.channels)
+    if field_name == "audience":
+        return bool(brief.audience and brief.audience.get("description"))
+    return False
+
+
 def _recompute_missing(brief: CampaignBriefAnalysis) -> None:
-    """Пересчитывает missing_critical если LLM не справился или его не вызывали.
+    """Финальная сверка missing_critical с реальным состоянием полей брифа.
 
-    Правило: для качественной сборки нужны product + (channels или audience).
-    Если у нас есть хотя бы один из (channels, audience), product становится критичным;
-    если нет ни того ни другого — спрашиваем оба.
+    Правила:
+    - Если у нас есть goal вроде retention/churn — product необязателен.
+    - Если у нас уже заполнен поле — убираем его из missing (даже если LLM по ошибке оставил).
+    - Если у нас нет канала или аудитории — обязательно спрашиваем.
     """
-    missing: list[str] = []
-    questions: list[str] = []
-    if not brief.product:
-        missing.append("product")
-        questions.append("Какой продукт / тариф / услугу продвигаем?")
-    if not brief.channels:
-        missing.append("channels")
-        questions.append("Через какой канал отправляем коммуникацию: SMS, Push, Email или USSD?")
-    if not brief.audience or not brief.audience.get("description"):
-        missing.append("audience")
-        questions.append("На какую аудиторию (целевая группа или критерий)? Например: «активные клиенты», «семьи с детьми», «отток за 30 дней».")
+    retention_like = bool(brief.goal and any(
+        term in brief.goal.lower() for term in ("удержани", "retention", "churn", "отток", "реактивац", "reactivat")
+    ))
 
-    # Если LLM уже указал какие-то поля — не дублируем.
-    if brief.missing_critical:
-        existing = set(brief.missing_critical)
-        for m in missing:
-            if m not in existing:
-                brief.missing_critical.append(m)
-        if not brief.clarifying_questions:
-            brief.clarifying_questions = questions
-    else:
-        brief.missing_critical = missing
-        brief.clarifying_questions = questions
+    must_have: list[str] = []
+    if not retention_like and not brief.product:
+        must_have.append("product")
+    if not brief.channels:
+        must_have.append("channels")
+    if not (brief.audience and brief.audience.get("description")):
+        must_have.append("audience")
+
+    # Берём union LLM-missing и наших, но УБИРАЕМ те, что уже заполнены.
+    combined: list[str] = []
+    for field_name in (list(brief.missing_critical or []) + must_have):
+        if field_name in combined:
+            continue
+        if _has_field(brief, field_name):
+            continue
+        combined.append(field_name)
+
+    brief.missing_critical = combined
+
+    # Перегенерируем вопросы под актуальный missing — LLM-вопросы могут содержать уже отвеченные.
+    questions: list[str] = []
+    used_keywords: set[str] = set()
+    # Сначала пробуем переиспользовать LLM-вопросы для полей, которые ещё missing.
+    for q in list(brief.clarifying_questions or []):
+        ql = q.lower()
+        matched_field: str | None = None
+        for field_name in combined:
+            if field_name in used_keywords:
+                continue
+            keywords = _QUESTION_KEYWORDS.get(field_name, ())
+            if any(kw in ql for kw in keywords):
+                matched_field = field_name
+                break
+        if matched_field:
+            questions.append(q)
+            used_keywords.add(matched_field)
+    # Добавляем стандартные вопросы для непокрытых полей.
+    for field_name in combined:
+        if field_name in used_keywords:
+            continue
+        if field_name in _FIELD_QUESTIONS:
+            questions.append(_FIELD_QUESTIONS[field_name])
+    brief.clarifying_questions = questions
+
+
+_QUESTION_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "product": ("продукт", "тариф", "услуг", "пакет", "product"),
+    "channels": ("канал", "channel", "sms", "email", "push", "ussd"),
+    "audience": ("аудитор", "клиент", "сегмент", "таргет", "audience", "group"),
+    "goal": ("цель", "задач", "goal"),
+}
 
 
 def is_ready_to_build(brief: CampaignBriefAnalysis) -> bool:
-    """Готов ли бриф к сборке. Допускаем сборку если product + (channels OR audience)."""
-    has_product = bool(brief.product)
+    """Готов ли бриф к сборке.
+
+    Сборка допустима, если у нас есть:
+    - канал И аудитория И (продукт ИЛИ goal вида retention/churn).
+    """
     has_channel = bool(brief.channels)
     has_audience = bool(brief.audience and brief.audience.get("description"))
-    return has_product and (has_channel or has_audience)
+    has_product = bool(brief.product)
+    retention_like = bool(brief.goal and any(
+        term in brief.goal.lower() for term in ("удержани", "retention", "churn", "отток", "реактивац", "reactivat")
+    ))
+    has_subject = has_product or retention_like
+    return has_channel and has_audience and has_subject

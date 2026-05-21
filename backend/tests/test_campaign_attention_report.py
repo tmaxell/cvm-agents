@@ -36,6 +36,10 @@ def test_campaign_attention_report_is_deterministic_with_seeded_campaigns(seeded
     report = asyncio.run(campaign_attention.build_campaign_attention_report())
 
     assert report["status"] == "ok"
+    # Кампания #201 — severity=critical, должна быть в топе priority_score
     assert report["campaigns"][0]["campaign_id"] == 201
-    assert "priority_score" in report["ranking_formula"]
-    assert "CTR drop" in report["campaigns"][0]["what_is_wrong"]
+    # Формула приоритета описана текстом — проверяем что есть упоминание priority + слагаемые
+    assert "priority" in report["ranking_formula"]
+    assert "severity_weight" in report["ranking_formula"]
+    # Текст проблемы из health.issues_json должен оказаться в issues кампании
+    assert any("CTR drop" in issue.get("message", "") for issue in report["campaigns"][0]["issues"])

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -7,6 +8,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
+# Тесты юнит-уровневые и не должны зависеть от живого Postgres —
+# заставляем `db` использовать SQLite-fallback (нужно до любого import db).
+os.environ.setdefault("USE_SQLITE_FALLBACK", "true")
 
 # Сделать `backend/` доступным для `from agents.* import ...` и т. п.
 BACKEND_DIR = Path(__file__).resolve().parents[1]

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from models import (
@@ -27,16 +27,34 @@ from schemas import ChatTraceEvent
 
 _DEFAULT_SQLITE_PATH = Path(__file__).parent / "data" / "cvm_agents.sqlite3"
 
-# Все легаси-таблицы Builder-сессий + старая chat_sessions с FK на sessions — дропаем при init.
-_LEGACY_TABLES = ("messages", "campaign_states", "sessions")
-
 
 def get_database_url() -> str:
+    """Возвращает SQLAlchemy URL для основного хранилища.
+
+    Порядок выбора:
+    1. Явный `DATABASE_URL` в окружении — приоритет (так задаётся Postgres
+       в docker-compose и в проде).
+    2. Если выставлен `USE_SQLITE_FALLBACK=true` — локальный SQLite в
+       `backend/data/cvm_agents.sqlite3`. Этот режим осознанно opt-in:
+       нужен для случаев, когда нет Docker/Postgres под рукой
+       (например, юнит-тесты вне контейнера).
+    3. Иначе — Postgres по умолчанию (`localhost:5432`, креды из
+       docker-compose). Если он не поднят, бэкенд упадёт при старте —
+       это даёт быстрый сигнал, что окружение настроено криво, вместо
+       тихого ухода в SQLite, где данные потом «теряются» из view docker.
+    """
     database_url = os.getenv("DATABASE_URL")
     if database_url:
         return database_url
-    _DEFAULT_SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    return f"sqlite+aiosqlite:///{_DEFAULT_SQLITE_PATH}"
+    if os.getenv("USE_SQLITE_FALLBACK", "false").lower() in {"1", "true", "yes", "on"}:
+        _DEFAULT_SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        return f"sqlite+aiosqlite:///{_DEFAULT_SQLITE_PATH}"
+    user = os.getenv("POSTGRES_USER", "cvm_agents")
+    password = os.getenv("POSTGRES_PASSWORD", "cvm_agents")
+    db_name = os.getenv("POSTGRES_DB", "cvm_agents")
+    host = os.getenv("POSTGRES_HOST", "localhost")
+    port = os.getenv("POSTGRES_PORT", "5432")
+    return f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{db_name}"
 
 
 engine = create_async_engine(get_database_url(), pool_pre_ping=True)
@@ -55,17 +73,15 @@ async def session_scope() -> AsyncIterator[AsyncSession]:
 
 
 async def init_db() -> None:
-    """Создаёт таблицы и дропает легаси, если они есть."""
-    async with engine.begin() as connection:
-        # Drop legacy tables first (chat_sessions FK might reference sessions, drop in dep order).
-        for table in ("chat_sessions",):
-            await connection.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE"))
-        for table in _LEGACY_TABLES:
-            await connection.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE"))
-        # Drop chat_messages/runs/events/artifacts too — they referenced the old chat_sessions FK.
-        for table in ("chat_run_events", "chat_runs", "saved_artifacts", "chat_messages"):
-            await connection.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE"))
+    """Создаёт схему БД, если её ещё нет (идемпотентно).
 
+    Раньше здесь были `DROP TABLE … CASCADE` для миграции со старой
+    легаси-схемы (sessions/messages/campaign_states из прошлой версии
+    Builder). Они работали только на Postgres и ломали SQLite, плюс
+    давно неактуальны. Снёс. Если когда-то понадобится миграция —
+    делать через Alembic.
+    """
+    async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
 
 

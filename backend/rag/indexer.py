@@ -39,6 +39,16 @@ CHROMA_DIR = Path(__file__).parent.parent / "chroma_db"
 
 SUPPORTED_EXTENSIONS = {".md", ".txt", ".html", ".htm", ".docx"}
 
+# Документы про сам AI-агентный проект (планы, миграции, мастерплан) —
+# в продуктовый RAG не попадают, иначе агент ссылается на них вместо
+# документации AdTarget.
+EXCLUDED_FILENAMES = {
+    "AI_AGENTS_MASTERPLAN.md",
+    "BUILDER_SIMPLIFICATION_PLAN.md",
+    "FRONTEND_UNIFIED_CHAT_MIGRATION.md",
+    "MVP_INITIATIVES_REQUIREMENTS.md",
+}
+
 HEADERS_TO_SPLIT = [
     ("#", "h1"),
     ("##", "h2"),
@@ -144,7 +154,12 @@ def _split_documents(docs: list[Document], is_markdown: bool = False) -> list[Do
 def build_index() -> None:
     """Загружает документы всех поддерживаемых форматов, чанкует и сохраняет в ChromaDB."""
     all_files: list[tuple[Path, str]] = []  # (filepath, label)
+    seen_names: set[str] = set()  # дедупликация по имени между source-docs и cvmCopilot-docs
 
+    # Порядок DOCS_DIRS важен: первый победит при коллизии имён.
+    # cvmCopilot/docs идёт после cvm-agents/docs, но продуктовая документация
+    # (txt/html/docx) живёт ТОЛЬКО там, а PLATFORM_*.md идентичен в обеих копиях,
+    # поэтому естественная победа первого вхождения нас устраивает.
     for docs_dir in DOCS_DIRS:
         if not docs_dir.exists():
             print(f"[indexer] Пропускаю (не найдено): {docs_dir}")
@@ -158,9 +173,17 @@ def build_index() -> None:
             # Пропускаем папки _files (Sphinx assets)
             if any(part.endswith("_files") for part in filepath.parts):
                 continue
-            if filepath.is_file() and filepath.suffix.lower() in SUPPORTED_EXTENSIONS:
-                label = f"{prefix}/{filepath.relative_to(docs_dir)}"
-                all_files.append((filepath, label))
+            if not (filepath.is_file() and filepath.suffix.lower() in SUPPORTED_EXTENSIONS):
+                continue
+            if filepath.name in EXCLUDED_FILENAMES:
+                print(f"[indexer] ⨯ пропускаю (agent-internal): {filepath.name}")
+                continue
+            if filepath.name in seen_names:
+                print(f"[indexer] ⨯ пропускаю дубль: {prefix}/{filepath.relative_to(docs_dir)}")
+                continue
+            seen_names.add(filepath.name)
+            label = f"{prefix}/{filepath.relative_to(docs_dir)}"
+            all_files.append((filepath, label))
 
     if not all_files:
         print("[indexer] Нет файлов для индексирования")

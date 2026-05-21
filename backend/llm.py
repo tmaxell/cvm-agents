@@ -2,17 +2,20 @@
 LLM Factory — единственное место выбора LLM.
 
 Провайдеры (устанавливается через LLM_PROVIDER в .env):
-  gigachat  → GigaChat (по умолчанию, нужен GIGACHAT_AUTH_KEY)
-  groq      → Groq (бесплатно, нужен GROQ_API_KEY, рекомендуется)
-  gemini    → Google Gemini (бесплатно, нужен GOOGLE_API_KEY)
+  gemini    → Google Gemini (бесплатно, нужен GOOGLE_API_KEY, рекомендуется)
+  groq      → Groq (бесплатно, нужен GROQ_API_KEY)
+  gigachat  → GigaChat (нужен GIGACHAT_AUTH_KEY, FREE для физ.лиц)
   ollama    → Ollama local (бесплатно, без ключа, нужен запущенный ollama)
-  anthropic → Claude (нужен ANTHROPIC_API_KEY)
+  anthropic → Claude (платный, нужен ANTHROPIC_API_KEY)
 
 Все провайдеры поддерживают bind_tools() для Campaign Builder (F2).
 
 Рекомендации:
+  - Gemini:  aistudio.google.com → Get API Key → бесплатный tier
+             gemini-2.5-flash (10 RPM / 250 RPD) или
+             gemini-2.5-flash-lite (15 RPM / 1000 RPD — если упираемся в RPD)
   - Groq:    console.groq.com → API Keys → бесплатный tier, llama-3.3-70b
-  - Gemini:  aistudio.google.com → Get API Key → бесплатный tier, gemini-1.5-flash
+             (низкий TPD; для большего объёма — llama-3.1-8b-instant)
   - Ollama:  brew install ollama && ollama pull qwen2.5:7b && ollama serve
 """
 
@@ -45,16 +48,21 @@ def _provider_is_installed(provider: str) -> bool:
 
 
 def _provider_candidates() -> list[str]:
-    """Returns configured providers whose integration packages are installed."""
+    """Returns configured providers whose integration packages are installed.
+
+    Порядок = приоритет автовыбора, если LLM_PROVIDER не задан.
+    Gemini первым — на free tier у него самая щедрая квота (250k TPM, 250 RPD
+    на 2.5-flash) и стабильная поддержка русского.
+    """
     candidates: list[str] = []
-    if os.getenv("ANTHROPIC_API_KEY"):
-        candidates.append("anthropic")
-    if os.getenv("GIGACHAT_AUTH_KEY"):
-        candidates.append("gigachat")
-    if os.getenv("GROQ_API_KEY"):
-        candidates.append("groq")
     if os.getenv("GOOGLE_API_KEY"):
         candidates.append("gemini")
+    if os.getenv("ANTHROPIC_API_KEY"):
+        candidates.append("anthropic")
+    if os.getenv("GROQ_API_KEY"):
+        candidates.append("groq")
+    if os.getenv("GIGACHAT_AUTH_KEY"):
+        candidates.append("gigachat")
     candidates.append("ollama")
     return [provider for provider in candidates if _provider_is_installed(provider)]
 
@@ -304,15 +312,27 @@ def _from_openai_assistant_message(message: dict[str, Any]) -> AIMessage:
 def _gemini(for_tools: bool = False, temperature: float | None = None) -> BaseChatModel:
     from langchain_google_genai import ChatGoogleGenerativeAI
 
-    default_model = "gemini-1.5-flash"
-    model = os.getenv("GOOGLE_MODEL", default_model)
+    # gemini-1.5-flash официально deprecated в 2026 — по умолчанию ставим 2.5-flash.
+    # GOOGLE_TOOL_MODEL опционально перебивает модель для запросов с bind_tools()
+    # (на случай, если для tool use хочется отдельную модель).
+    default_model = "gemini-2.5-flash"
+    env_key = "GOOGLE_TOOL_MODEL" if for_tools else "GOOGLE_MODEL"
+    model = os.getenv(env_key) or os.getenv("GOOGLE_MODEL", default_model)
     api_key = os.getenv("GOOGLE_API_KEY", "")
+    max_tokens = int(os.getenv("GOOGLE_MAX_TOKENS", "2048"))
+
+    if not api_key:
+        raise RuntimeError(
+            "GOOGLE_API_KEY пустой; получи ключ в https://aistudio.google.com "
+            "и положи в backend/.env как GOOGLE_API_KEY=..."
+        )
 
     print(f"[llm] Gemini → {model} (tools={for_tools})")
     return ChatGoogleGenerativeAI(
         model=model,
         google_api_key=api_key,
         temperature=_temperature(temperature),
+        max_output_tokens=max_tokens,
     )
 
 

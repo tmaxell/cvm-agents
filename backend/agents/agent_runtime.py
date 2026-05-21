@@ -85,9 +85,25 @@ async def _save_segment(ctx: AgentContext, payload: dict[str, Any]) -> AgentResu
     artifact = await ctx.store.get_artifact(artifact_id)
     await ctx.emit("step_completed", detail="segment saved")
     return AgentResult(
-        assistant_message="Сегмент сохранён.",
+        assistant_message=(
+            "Сегмент сохранён. Чтобы использовать его в сборке кампании, "
+            "сначала закрепите его как таргет-группу."
+        ),
         artifacts=[artifact] if artifact else [],
-        actions=[ChatAction(id="build_campaign_from_segment", label="Создать кампанию из сегмента", kind="build", payload={"segment": content})],
+        actions=[
+            ChatAction(
+                id="assign_segment_as_target_group",
+                label="Назначить таргет-группой",
+                kind="runtime",
+                payload={"segment": content},
+            ),
+            ChatAction(
+                id="build_campaign_from_segment",
+                label="Собрать кампанию для таргет-группы",
+                kind="build",
+                payload={"segment": content},
+            ),
+        ],
     )
 
 
@@ -101,6 +117,114 @@ async def _save_target_group(ctx: AgentContext, payload: dict[str, Any]) -> Agen
     artifact = await ctx.store.get_artifact(artifact_id)
     await ctx.emit("step_completed", detail="target group saved")
     return AgentResult(assistant_message="Таргет-группа сохранена.", artifacts=[artifact] if artifact else [])
+
+
+async def _assign_segment_as_target_group(ctx: AgentContext, payload: dict[str, Any]) -> AgentResult:
+    """Превращает сгенерированный сегмент в полноценную таргет-группу.
+
+    Если у сегмента уже есть `matched_target_group.target_group_id` (LLM нашёл
+    существующую ЦГ) — берём её. Иначе создаём новую через AdTarget mock и
+    сохраняем как артефакт `target_group_draft`, чтобы BuilderAgent
+    подхватил её при сборке кампании в этой же сессии.
+    """
+    segment = payload.get("segment")
+    if not isinstance(segment, dict):
+        segment = ctx.latest_artifact("segment_draft")
+        segment = (segment or {}).get("content") if segment else None
+    if not isinstance(segment, dict):
+        return AgentResult(
+            assistant_message="Не нашёл выбранный сегмент. Сначала выберите гипотезу из списка предложенных сегментов.",
+            status="needs_input",
+        )
+
+    name = (
+        segment.get("name")
+        or segment.get("title")
+        or segment.get("audience_description")
+        or "Таргет-группа из сегмента"
+    )
+    matched = segment.get("matched_target_group") or {}
+    existing_tg_id = matched.get("target_group_id") if isinstance(matched, dict) else None
+    clients_count = matched.get("clients_count") if isinstance(matched, dict) else None
+    if not clients_count:
+        clients_count = segment.get("clients_count")
+
+    if existing_tg_id and segment.get("is_existing_target_group"):
+        # LLM однозначно сопоставил сегмент с существующей ЦГ — используем её, без записи новой.
+        tg_id = int(existing_tg_id)
+        tg_name = matched.get("name") or name
+        source = "matched_existing"
+        await ctx.emit(
+            "step_completed",
+            detail=f"назначена существующая таргет-группа #{tg_id}",
+            metadata={"target_group_id": tg_id, "source": source},
+        )
+    else:
+        # Создаём новую таргет-группу в AdTarget (или mock).
+        await ctx.emit("step_started", detail=f"RuntimeAgent: создаю таргет-группу «{str(name)[:60]}»")
+        try:
+            result = await adtarget.create_target_group(
+                name=str(name)[:120],
+                criteria=segment.get("selection_criteria") or {},
+                clients_count=int(clients_count) if isinstance(clients_count, (int, str)) and str(clients_count).isdigit() else None,
+                source_segment_id=str(segment.get("id") or segment.get("name") or "")[:64] or None,
+            )
+        except Exception as exc:
+            await ctx.emit("step_completed", status="error", detail=str(exc)[:200])
+            return AgentResult(
+                assistant_message=f"Не удалось создать таргет-группу в AdTarget: {str(exc)[:200]}",
+                status="error",
+            )
+        tg_id = int(result.get("id"))
+        tg_name = result.get("name") or name
+        clients_count = result.get("clientsCount") or clients_count
+        source = "created_from_segment"
+        await ctx.emit(
+            "step_completed",
+            detail=f"создана таргет-группа #{tg_id} ({tg_name})",
+            metadata={"target_group_id": tg_id, "clients_count": clients_count, "source": source},
+        )
+
+    artifact_content = {
+        "target_group_id": tg_id,
+        "name": str(tg_name),
+        "clients_count": int(clients_count) if isinstance(clients_count, (int, float)) and clients_count else None,
+        "source": source,
+        "source_segment": segment,
+    }
+    artifact_id = await ctx.store.save_artifact(
+        session_id=ctx.session_id,
+        artifact_type="target_group_draft",
+        content_json=artifact_content,
+        metadata_json={"source": source, "target_group_id": tg_id},
+        source_run_id=ctx.run_id,
+    )
+    artifact = await ctx.store.get_artifact(artifact_id)
+
+    reach_text = ""
+    if isinstance(clients_count, (int, float)) and clients_count:
+        reach_text = f" Размер аудитории: ≈{int(clients_count):,}".replace(",", " ") + " клиентов."
+    message = (
+        f"Сегмент закреплён как **таргет-группа** «{tg_name}» (id {tg_id}).{reach_text}\n\n"
+        "Теперь её можно использовать в сборке кампании — следующая собранная "
+        "кампания в этой сессии будет ссылаться на эту таргет-группу автоматически."
+    )
+
+    actions = [
+        ChatAction(
+            id="build_campaign_from_segment",
+            label=f"Собрать кампанию для таргет-группы «{str(tg_name)[:32]}»",
+            kind="build",
+            payload={"segment": segment, "target_group_id": tg_id, "target_group_name": str(tg_name)},
+        ),
+    ]
+
+    return AgentResult(
+        assistant_message=message,
+        artifacts=[artifact] if artifact else [],
+        actions=actions,
+        metadata={"target_group_id": tg_id, "source": source},
+    )
 
 
 async def _start_campaign(ctx: AgentContext, payload: dict[str, Any]) -> AgentResult:
@@ -135,6 +259,7 @@ _DISPATCH = {
     "save_campaign": _save_campaign,
     "save_segment": _save_segment,
     "save_target_group": _save_target_group,
+    "assign_segment_as_target_group": _assign_segment_as_target_group,
     "start_campaign": _start_campaign,
     "pause_campaign": _pause_campaign,
 }

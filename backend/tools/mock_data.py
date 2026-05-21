@@ -235,3 +235,18 @@ def make_mock_start_result(campaign_id: int) -> list:
 
 def make_mock_pause_result(campaign_id: int) -> list:
     return [{"id": campaign_id, "isSuccess": True, "errors": []}]
+
+
+def make_mock_target_group_create_result(name: str, clients_count: int | None = None) -> dict:
+    """Возвращает реалистичный результат POST /TargetGroups для назначения сегмента
+    в роли таргет-группы. Размер аудитории берём из сегмента, если задан, иначе
+    оцениваем диапазоном «среднего» сегмента.
+    """
+    import random
+    return {
+        "id": random.randint(900_000, 999_999),  # diapason высоких id чтобы не пересекаться с MOCK_TARGET_GROUPS
+        "name": name or "Новая таргет-группа",
+        "clientsCount": int(clients_count) if clients_count else random.randint(15_000, 80_000),
+        "status": "Active",
+        "source": "segment_promotion",
+    }

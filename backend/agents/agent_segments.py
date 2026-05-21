@@ -64,11 +64,26 @@ async def execute(ctx: AgentContext) -> AgentResult:
     )
     artifact = await ctx.store.get_artifact(artifact_id)
 
+    primary_payload = primary.model_dump()
     actions = [
-        ChatAction(id="save_segment", label="Сохранить сегмент", kind="save",
-                   payload={"segment": primary.model_dump()}),
-        ChatAction(id="build_campaign_from_segment", label="Создать кампанию из сегмента",
-                   kind="build", payload={"segment": primary.model_dump()}),
+        ChatAction(
+            id="save_segment",
+            label="Сохранить сегмент",
+            kind="save",
+            payload={"segment": primary_payload},
+        ),
+        ChatAction(
+            id="assign_segment_as_target_group",
+            label="Назначить таргет-группой",
+            kind="runtime",
+            payload={"segment": primary_payload},
+        ),
+        ChatAction(
+            id="build_campaign_from_segment",
+            label="Собрать кампанию для таргет-группы",
+            kind="build",
+            payload={"segment": primary_payload},
+        ),
     ]
     return AgentResult(
         assistant_message=message_text,

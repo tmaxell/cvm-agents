@@ -27,6 +27,7 @@ from agents.builder.templates import (
     load_template_flow,
 )
 from schemas import ChatAction
+from tools import adtarget
 from tools.flow_builder import (
     assemble_flow,
     make_common_activity,
@@ -48,6 +49,13 @@ async def execute(ctx: AgentContext) -> AgentResult:
     await ctx.emit("step_started", detail=f"BuilderAgent: цель — «{_truncate(goal, 80)}»")
     started = time.perf_counter()
 
+    # 0. Если пришли с сегментом из SegmentsAgent и в сессии ещё нет таргет-группы —
+    #    автоматически закрепляем сегмент как таргет-группу. Так дальше по флоу
+    #    BuilderAgent уже работает с сущностью таргет-группа, а не с сегментом.
+    if seed_segment and isinstance(seed_segment, dict):
+        if _resolve_target_group(ctx) == (None, None):
+            await _auto_promote_segment(ctx, seed_segment)
+
     # 1. Template-first.
     template = find_template(goal)
     if template is not None:
@@ -65,7 +73,11 @@ async def execute(ctx: AgentContext) -> AgentResult:
     # 2. Brief analyzer.
     await ctx.emit("step_started", detail="BuilderAgent: анализ брифа")
     brief = await analyze_brief(goal, ctx.history)
-    if seed_segment and isinstance(seed_segment, dict):
+    # Если в сессии уже есть таргет-группа — берём её описание как audience по умолчанию.
+    tg_id_pre, tg_name_pre = _resolve_target_group(ctx)
+    if tg_name_pre and not brief.audience.get("description"):
+        brief.audience = {"description": str(tg_name_pre)[:160]}
+    elif seed_segment and isinstance(seed_segment, dict):
         # Если бриф пришёл из сегмент-агента — расширяем audience из сегмента.
         if not brief.audience.get("description"):
             audience_desc = (
@@ -82,6 +94,11 @@ async def execute(ctx: AgentContext) -> AgentResult:
         metadata={"missing": brief.missing_critical, "confidence": brief.confidence},
     )
 
+    # Если таргет-группа уже выбрана/назначена в сессии — больше не считаем
+    # «audience» отсутствующим критичным полем.
+    if tg_id_pre and "audience" in brief.missing_critical:
+        brief.missing_critical = [m for m in brief.missing_critical if m != "audience"]
+
     # 3. Если критичные поля отсутствуют — уточняем.
     if not is_ready_to_build(brief) and brief.missing_critical:
         return await _ask_clarifying(ctx, goal=goal, brief=brief)
@@ -96,7 +113,8 @@ async def execute(ctx: AgentContext) -> AgentResult:
     plan = await plan_flow_with_llm(goal, history=history_pairs, brief=brief_dict)
     if plan is not None:
         try:
-            flow = assemble_flow_from_plan(plan)
+            tg_id, tg_name = _resolve_target_group(ctx)
+            flow = assemble_flow_from_plan(plan, target_group_id=tg_id, target_group_name=tg_name)
             campaign_name = plan.get("campaign_name") or brief.product or "Новая кампания"
             summary = plan.get("summary") or ""
             steps_summary = ", ".join(
@@ -105,6 +123,8 @@ async def execute(ctx: AgentContext) -> AgentResult:
             message_lines = [
                 f"Собрал кампанию **{campaign_name}** ({len(plan['steps'])} шагов).",
             ]
+            if tg_name:
+                message_lines.append(f"_Таргет-группа: **{tg_name}** (id {tg_id})._")
             if summary:
                 message_lines.append(f"_{summary}_")
             message_lines.append("")
@@ -128,7 +148,8 @@ async def execute(ctx: AgentContext) -> AgentResult:
 
     # 5. Fallback.
     await ctx.emit("step_started", detail="BuilderAgent: detereminist fallback")
-    flow = _build_fallback_flow(goal, brief)
+    tg_id, tg_name = _resolve_target_group(ctx)
+    flow = _build_fallback_flow(goal, brief, target_group_id=tg_id, target_group_name=tg_name)
     latency = int((time.perf_counter() - started) * 1000)
     await ctx.emit("step_completed", detail=f"Fallback готов ({latency} ms)")
     message = (
@@ -272,7 +293,94 @@ def _truncate(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit - 1] + "…"
 
 
-def _build_fallback_flow(goal: str, brief: CampaignBriefAnalysis | None) -> dict[str, Any]:
+async def _auto_promote_segment(ctx: AgentContext, segment: dict[str, Any]) -> None:
+    """Закрепляет переданный сегмент как таргет-группу: создаёт ЦГ в AdTarget mock
+    (или подхватывает уже сопоставленную существующую), сохраняет артефакт
+    target_group_draft в сессии и помещает его в ctx.artifacts, чтобы _resolve_target_group
+    нашёл его на следующем шаге."""
+    name = (
+        segment.get("name")
+        or segment.get("title")
+        or segment.get("audience_description")
+        or "Таргет-группа из сегмента"
+    )
+    matched = segment.get("matched_target_group") or {}
+    existing_tg_id = matched.get("target_group_id") if isinstance(matched, dict) else None
+    clients_count = matched.get("clients_count") if isinstance(matched, dict) else None
+    if not clients_count:
+        clients_count = segment.get("clients_count")
+
+    try:
+        if existing_tg_id and segment.get("is_existing_target_group"):
+            tg_id = int(existing_tg_id)
+            tg_name = matched.get("name") or name
+            source = "matched_existing"
+        else:
+            await ctx.emit("step_started", detail=f"BuilderAgent: закрепляю сегмент «{str(name)[:60]}» как таргет-группу")
+            result = await adtarget.create_target_group(
+                name=str(name)[:120],
+                criteria=segment.get("selection_criteria") or {},
+                clients_count=int(clients_count) if isinstance(clients_count, int) else None,
+                source_segment_id=str(segment.get("id") or segment.get("name") or "")[:64] or None,
+            )
+            tg_id = int(result.get("id"))
+            tg_name = result.get("name") or name
+            clients_count = result.get("clientsCount") or clients_count
+            source = "created_from_segment"
+            await ctx.emit(
+                "step_completed",
+                detail=f"таргет-группа #{tg_id} ({tg_name}) создана",
+                metadata={"target_group_id": tg_id, "source": source},
+            )
+    except Exception as exc:
+        logger.warning("auto-promote segment failed: %s", exc)
+        return
+
+    artifact_content = {
+        "target_group_id": tg_id,
+        "name": str(tg_name),
+        "clients_count": int(clients_count) if isinstance(clients_count, (int, float)) and clients_count else None,
+        "source": source,
+        "source_segment": segment,
+    }
+    artifact_id = await ctx.store.save_artifact(
+        session_id=ctx.session_id,
+        artifact_type="target_group_draft",
+        content_json=artifact_content,
+        metadata_json={"source": source, "target_group_id": tg_id, "auto_promoted": True},
+        source_run_id=ctx.run_id,
+    )
+    artifact = await ctx.store.get_artifact(artifact_id)
+    if artifact:
+        ctx.artifacts.append(artifact)
+
+
+def _resolve_target_group(ctx: AgentContext) -> tuple[int | None, str | None]:
+    """Возвращает (target_group_id, target_group_name) из последнего
+    `target_group_draft` артефакта сессии. Артефакт создаёт RuntimeAgent
+    через action `assign_segment_as_target_group` — после этого все
+    последующие сборки кампании в сессии используют эту таргет-группу.
+    """
+    artifact = ctx.latest_artifact("target_group_draft")
+    if not artifact:
+        return None, None
+    content = artifact.get("content") or {}
+    tg_id = content.get("target_group_id") or content.get("id")
+    tg_name = content.get("name")
+    try:
+        tg_id_int = int(tg_id) if tg_id is not None else None
+    except (TypeError, ValueError):
+        tg_id_int = None
+    return tg_id_int, (str(tg_name) if tg_name else None)
+
+
+def _build_fallback_flow(
+    goal: str,
+    brief: CampaignBriefAnalysis | None,
+    *,
+    target_group_id: int | None = None,
+    target_group_name: str | None = None,
+) -> dict[str, Any]:
     campaign_name = (brief.product if brief and brief.product else None) or _truncate(goal, 60) or "Новая кампания"
     audience_hint = ""
     if brief and brief.audience:
@@ -282,8 +390,10 @@ def _build_fallback_flow(goal: str, brief: CampaignBriefAnalysis | None) -> dict
         mapping = {"sms": "SmsContent", "email": "EmailContent", "push": "PushContent", "ussd": "UssdContent"}
         content_type = mapping.get(brief.channels[0], "SmsContent")
     common = make_common_activity(campaign_name)
-    target = make_target_group_activity(target_group_id=1)
-    if audience_hint:
+    target = make_target_group_activity(target_group_id=int(target_group_id or 1))
+    if target_group_name:
+        target["name"] = target_group_name
+    elif audience_hint:
         target["name"] = f"Аудитория — {_truncate(audience_hint, 40)}"
     push = make_push_communication_activity(
         channel_id=1,

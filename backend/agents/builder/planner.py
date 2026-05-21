@@ -158,8 +158,19 @@ def _parse_plan(text: str) -> dict[str, Any] | None:
 
 # ── Детерминистический сборщик ────────────────────────────────────────────────
 
-def assemble_flow_from_plan(plan: dict[str, Any]) -> dict[str, Any]:
-    """Из плана строит JSON flow с правильно проставленными связями."""
+def assemble_flow_from_plan(
+    plan: dict[str, Any],
+    *,
+    target_group_id: int | None = None,
+    target_group_name: str | None = None,
+) -> dict[str, Any]:
+    """Из плана строит JSON flow с правильно проставленными связями.
+
+    Если в сессии уже выбрана таргет-группа (например, через
+    `assign_segment_as_target_group`), её id и имя можно передать сюда —
+    они переопределят то, что LLM-планировщик мог сгенерировать в шаге
+    TargetGroupActivity.
+    """
     campaign_name = str(plan.get("campaign_name") or "Новая кампания")
     raw_steps = plan.get("steps") or []
 
@@ -168,6 +179,15 @@ def assemble_flow_from_plan(plan: dict[str, Any]) -> dict[str, Any]:
         raw_steps = [{"type": "CommonActivity", "name": campaign_name}] + list(raw_steps)
     if len(raw_steps) < 2 or raw_steps[1].get("type") != "TargetGroupActivity":
         raw_steps = [raw_steps[0]] + [{"type": "TargetGroupActivity", "name": "Target group"}] + list(raw_steps[1:])
+
+    # Переопределяем TG-шаг если задана внешняя таргет-группа.
+    if target_group_id is not None:
+        raw_steps = list(raw_steps)
+        tg_step = dict(raw_steps[1])
+        tg_step["target_group_id"] = int(target_group_id)
+        if target_group_name:
+            tg_step["name"] = str(target_group_name)
+        raw_steps[1] = tg_step
 
     activities = [_make_activity(step) for step in raw_steps]
     activities = [a for a in activities if a is not None]
@@ -190,7 +210,12 @@ def _make_activity(step: dict[str, Any]) -> dict[str, Any] | None:
             return make_common_activity(name or "Новая кампания")
         if t == "TargetGroupActivity":
             tg_id = int(step.get("target_group_id") or 1)
-            return make_target_group_activity(target_group_id=tg_id)
+            activity = make_target_group_activity(target_group_id=tg_id)
+            # Если есть человекочитаемое имя (из шага плана или из активной таргет-группы) —
+            # ставим его вместо дефолтного "Target group"; иначе оставляем дефолт.
+            if name:
+                activity["name"] = name
+            return activity
         if t == "PushCommunicationActivity":
             content_type = str(step.get("content_type") or "SmsContent")
             text = str(step.get("text") or "Здравствуйте! Это сообщение по нашей кампании.")

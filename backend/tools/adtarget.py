@@ -256,6 +256,36 @@ async def list_target_groups(page: int = 1, page_size: int = 50) -> dict:
         return MOCK_TARGET_GROUPS
 
 
+async def create_target_group(
+    name: str,
+    criteria: dict | None = None,
+    clients_count: int | None = None,
+    source_segment_id: str | None = None,
+) -> dict:
+    """POST /TargetGroups — превращает segment-гипотезу в полноценную таргет-группу.
+
+    Возвращает {id, name, clientsCount, status, source}. В mock-режиме
+    отдаёт синтетический результат через make_mock_target_group_create_result.
+    """
+    if _is_mock():
+        from tools.mock_data import make_mock_target_group_create_result
+        result = make_mock_target_group_create_result(name, clients_count)
+        print(f"[adtarget mock] create_target_group → id={result['id']} name={name!r}")
+        return result
+
+    payload = {
+        "name": name,
+        "criteria": criteria or {},
+        "sourceSegmentId": source_segment_id,
+    }
+    try:
+        return await _post("/TargetGroups", payload)
+    except (httpx.ConnectError, httpx.ConnectTimeout):
+        _enable_auto_mock()
+        from tools.mock_data import make_mock_target_group_create_result
+        return make_mock_target_group_create_result(name, clients_count)
+
+
 async def list_channels() -> list:
     """GET /Channels/safe."""
     if _is_mock():

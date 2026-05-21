@@ -28,6 +28,7 @@ _ACTION_DISPATCH: dict[str, tuple[str, dict[str, str] | None]] = {
     "save_campaign":      ("runtime", None),
     "save_segment":       ("runtime", None),
     "save_target_group":  ("runtime", None),
+    "assign_segment_as_target_group": ("runtime", None),
     "start_campaign":     ("runtime", None),
     "pause_campaign":     ("runtime", None),
     # Бизнес actions — идут в специализированные агенты.

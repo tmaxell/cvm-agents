@@ -151,3 +151,33 @@ class CampaignHealthModel(Base):
     last_checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     campaign: Mapped[DemoCampaignModel] = relationship(back_populates="health")
+
+
+# ── Продуктовый каталог ───────────────────────────────────────────────────────
+
+class ProductCatalogModel(Base):
+    """Продуктовый каталог (тарифы, пакеты, услуги).
+
+    Имитация продуктового каталога AdTarget. Используется при подборе
+    таргет-группы: по продукту смотрим, есть ли он в каталоге (для опции
+    look-alike по подключившим), сколько подключивших, какие похожие продукты.
+    last_used_at обновляется, когда продукт фигурирует в сборке кампании —
+    чтобы агент мог отдать «последние использованные продукты».
+    """
+
+    __tablename__ = "product_catalog"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    category: Mapped[str] = mapped_column(String(64), nullable=False, default="other")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    subscribers: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    nbo_audience_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    similar_to_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    properties_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )

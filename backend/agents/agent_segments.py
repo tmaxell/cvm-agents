@@ -42,41 +42,45 @@ async def execute(ctx: AgentContext) -> AgentResult:
     campaign_goal = ctx.inputs.get("campaign_goal") or message or "Подбор аудитории"
     from_builder = bool(ctx.inputs.get("from_builder"))
     sticky_stage = ctx.inputs.get("sticky_stage")
+    # Метод подбора, выбранный пользователем в меню BuilderAgent
+    # (nbo / lookalike_existing / lookalike_similar / ask_properties).
+    audience_method = ctx.inputs.get("audience_method")
     # Stage, который пометим в ответе с гипотезами: если сегментация идёт внутри
     # сборки кампании — collect_audience, чтобы пользователь мог передумать и
     # описать аудиторию своими словами (sticky вернёт его в BuilderAgent).
     hypotheses_stage = "collect_audience" if from_builder else None
 
     # Ответ на запрос свойств продукта (sticky collect_product_properties):
-    # стратегию заново не резолвим (данных в каталоге всё равно нет) —
-    # строим гипотезы сразу из описания пользователя.
+    # данных в каталоге нет — строим гипотезы сразу из описания пользователя.
     if sticky_stage == "collect_product_properties":
         return await _suggest_from_description(
             ctx, product=ctx.inputs.get("product") or product,
             description=message, hypotheses_stage=hypotheses_stage,
         )
 
-    # 1. Собираем сигналы по продукту (NBO / подключившие / похожие продукты).
-    await ctx.emit("step_started", detail=f"SegmentsAgent: сбор сигналов по продукту «{product}»")
+    # 1. Собираем данные по продукту из каталога.
+    await ctx.emit("step_started", detail=f"SegmentsAgent: данные по продукту «{product}»")
     signals = await resolve_audience_signals(product)
     await ctx.emit(
         "step_completed",
-        detail=f"Методы подбора: {', '.join(signals.methods)}",
-        metadata={"methods": signals.methods, "found_in_catalog": signals.found_in_catalog},
+        detail=f"Продукт в каталоге: {signals.found_in_catalog}; метод: {audience_method or 'auto'}",
+        metadata={"found_in_catalog": signals.found_in_catalog, "method": audience_method},
     )
 
-    # 2. Нет ни одного сигнала → не выдумываем аудиторию, расспрашиваем о продукте.
-    if not signals.has_data:
+    # 2. Метод «расспросить» — не выдумываем аудиторию, спрашиваем о продукте.
+    if audience_method == "ask_properties":
         return _ask_product_properties(ctx, product=product, signals=signals)
 
-    # 3. Есть сигналы → строим гипотезы сегментатором, передав сигналы в запрос.
-    await ctx.emit("step_started", detail="SegmentsAgent: генерирую гипотезы сегментов")
+    # 3. Генерируем гипотезы. Если метод выбран пользователем — сегментатор
+    #    работает строго им; если метода нет (standalone) — использует все
+    #    доступные сигналы.
+    await ctx.emit("step_started", detail=f"SegmentsAgent: гипотезы (метод {audience_method or 'auto'})")
     started = time.perf_counter()
     try:
         response = await suggest_segments(SegmentSuggestRequest(
             product=product,
             campaign_goal=campaign_goal,
-            current_campaign_context={"audience_signals": signals.llm_context()},
+            current_campaign_context={"audience_signals": signals.llm_context(audience_method)},
         ))
     except Exception as exc:
         await ctx.emit("step_completed", status="error", detail=f"segment_agent failed: {str(exc)[:200]}")
@@ -87,11 +91,16 @@ async def execute(ctx: AgentContext) -> AgentResult:
     latency = int((time.perf_counter() - started) * 1000)
     await ctx.emit("step_completed", detail=f"Гипотез: {len(response.hypotheses)}", metadata={"latency_ms": latency})
 
+    intro = (
+        signals.method_intro(audience_method)
+        if audience_method
+        else f"Гипотезы сегментов для продукта «{product}»:"
+    )
     return await _render_hypotheses(
         ctx,
         response=response,
-        intro=signals.human_summary(),
-        methods=signals.methods,
+        intro=intro,
+        methods=[audience_method] if audience_method else ["auto"],
         hypotheses_stage=hypotheses_stage,
     )
 
@@ -199,13 +208,11 @@ async def _render_hypotheses(
 def _ask_product_properties(ctx: AgentContext, *, product: str, signals) -> AgentResult:
     """Возвращает needs_input с вопросами о свойствах продукта.
 
-    Срабатывает, когда по продукту нет ни NBO, ни подключивших, ни похожих
-    продуктов — выдумывать аудиторию нельзя, нужно расспросить пользователя.
+    Срабатывает, когда пользователь выбрал метод «Расспросить о продукте».
+    По ответу гипотезы строятся в режиме compose_new (см. _suggest_from_description).
     """
     parts = [
-        signals.human_summary(),
-        "",
-        "Чтобы предложить таргет-группу, опишите продукт:",
+        f"Чтобы подобрать таргет-группу для «{product}», опишите продукт:",
         "- Кому он в первую очередь полезен (какая потребность закрывается)?",
         "- Ценовой сегмент: бюджетный, средний, премиальный?",
         "- Есть ли ограничения (тип устройства, тариф, регион, возраст)?",
@@ -219,7 +226,6 @@ def _ask_product_properties(ctx: AgentContext, *, product: str, signals) -> Agen
         metadata={
             "stage": "collect_product_properties",
             "product": product,
-            "methods": signals.methods,
         },
     )
 

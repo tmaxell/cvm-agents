@@ -37,8 +37,10 @@ _ACTION_DISPATCH: dict[str, tuple[str, dict[str, str] | None]] = {
     "build_campaign_from_segment": ("builder", {"segment": "segment"}),
     "apply_segment":           ("builder",  {"segment": "segment"}),
     # Пользователь в сборке кампании попросил порекомендовать таргет-группу —
-    # BuilderAgent перехватит audience_mode=recommend и делегирует в SegmentsAgent.
+    # BuilderAgent покажет меню методов подбора.
     "recommend_audience":      ("builder",  {"goal": "goal", "product": "product"}),
+    # Пользователь выбрал конкретный метод подбора аудитории из меню.
+    "audience_method":         ("builder",  {"goal": "goal", "product": "product", "method": "audience_method"}),
     # clarify_reply — frontend особый: фронт превращает payload.message в обычное сообщение.
     # Если всё-таки прилетит сюда — передадим payload.message как goal в builder.
     "clarify_reply":           ("builder",  {"message": "goal"}),

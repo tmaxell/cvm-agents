@@ -138,26 +138,27 @@ async def execute(ctx: AgentContext) -> AgentResult:
 
     # 2.5. Резолв аудитории.
     sticky_stage = ctx.inputs.get("sticky_stage")
-    audience_mode = (
-        "recommend"
-        if (ctx.action is not None and ctx.action.id == "recommend_audience")
-        else ctx.inputs.get("audience_mode")
-    )
+    action_id = ctx.action.id if ctx.action is not None else None
+    chosen_method = ctx.inputs.get("audience_method")
 
-    # A. Явный запрос рекомендации (кнопка или «порекомендуй» в режиме collect_audience) —
-    #    делегируем подбор аудитории в SegmentsAgent.
-    wants_rec = audience_mode == "recommend" or (
+    # A1. Пользователь выбрал конкретный метод подбора → запускаем сегментацию им.
+    if (action_id == "audience_method" or chosen_method) and brief.product and not tg_id_pre:
+        return await _recommend_audience(ctx, goal=goal, brief=brief, method=chosen_method)
+
+    # A2. Пользователь попросил рекомендацию (кнопка или «порекомендуй» в режиме
+    #     collect_audience) — показываем меню методов подбора.
+    wants_rec = action_id == "recommend_audience" or (
         sticky_stage == "collect_audience" and _wants_recommendation(ctx.message)
     )
     if wants_rec and brief.product and not tg_id_pre:
-        return await _recommend_audience(ctx, goal=goal, brief=brief)
+        return await _ask_audience_method(ctx, goal=goal, brief=brief)
 
     # B. Пользователь в режиме collect_audience описал аудиторию сам —
     #    закрепляем описание как полноценную таргет-группу (сценарий завершается
     #    сохранением ТГ), дальше сборка кампании пойдёт уже с ней.
     if sticky_stage == "collect_audience" and not tg_id_pre:
         described = _clean_audience_description(ctx.message)
-        if described:
+        if described and not _wants_recommendation(ctx.message):
             await _auto_promote_segment(ctx, {
                 "name": _truncate(described, 80),
                 "audience_description": described,
@@ -271,23 +272,72 @@ async def _ask_audience_choice(ctx: AgentContext, *, goal: str, brief: CampaignB
     )
 
 
-async def _recommend_audience(ctx: AgentContext, *, goal: str, brief: CampaignBriefAnalysis) -> AgentResult:
-    """Делегирует подбор аудитории в SegmentsAgent.
+async def _ask_audience_method(ctx: AgentContext, *, goal: str, brief: CampaignBriefAnalysis) -> AgentResult:
+    """Показывает меню способов подбора таргет-группы.
 
-    Это та же сегментация, что и при standalone-запросе «подбери сегмент» —
-    SegmentsAgent сам соберёт сигналы по продукту и предложит варианты с
-    оценкой охвата. Дальше пользователь закрепит вариант как таргет-группу
-    (action assign_segment_as_target_group) и вернётся к сборке кампании.
+    Пользователь выбрал «порекомендовать» — теперь он выбирает КАК подбирать:
+    NBO / look-alike по подключившим / look-alike по похожим / расспросить.
+    Состав меню зависит от того, найден ли продукт в каталоге (look-alike по
+    подключившим доступен только для продуктов из каталога).
+    """
+    from agents.audience_strategy import (
+        METHOD_DESCRIPTIONS, method_label, resolve_audience_signals,
+    )
+
+    product = brief.product or "продукт"
+    await ctx.emit("step_started", detail=f"BuilderAgent: меню подбора аудитории для «{product}»")
+    signals = await resolve_audience_signals(product)
+    methods = signals.menu_methods
+    await ctx.emit(
+        "step_completed",
+        detail=f"Доступно методов: {len(methods)} (продукт в каталоге: {signals.found_in_catalog})",
+        metadata={"methods": methods, "found_in_catalog": signals.found_in_catalog},
+    )
+
+    lines = [
+        f"Как подобрать таргет-группу для **{product}**? Выберите способ:",
+        "",
+    ]
+    actions: list[ChatAction] = []
+    for m in methods:
+        lines.append(f"- **{method_label(m)}** — {METHOD_DESCRIPTIONS.get(m, '')}")
+        actions.append(ChatAction(
+            id="audience_method",
+            label=method_label(m),
+            kind="runtime",
+            payload={"method": m, "goal": goal, "product": brief.product or ""},
+        ))
+    lines.append("")
+    lines.append("_Либо просто опишите аудиторию своими словами — закреплю её как таргет-группу._")
+
+    return AgentResult(
+        assistant_message="\n".join(lines),
+        actions=actions,
+        status="needs_input",
+        metadata={"brief": _brief_to_dict(brief), "stage": "collect_audience", "product": brief.product},
+    )
+
+
+async def _recommend_audience(
+    ctx: AgentContext, *, goal: str, brief: CampaignBriefAnalysis, method: str | None,
+) -> AgentResult:
+    """Делегирует подбор аудитории в SegmentsAgent выбранным методом.
+
+    SegmentsAgent сгенерирует варианты сегментов под метод. Дальше пользователь
+    закрепит вариант как таргет-группу (action assign_segment_as_target_group)
+    и вернётся к сборке кампании.
     """
     from agents.agent_segments import execute as segments_execute
 
     product = brief.product or ctx.inputs.get("product") or "general"
     await ctx.emit(
         "step_started",
-        detail=f"BuilderAgent → SegmentsAgent: подбор аудитории для «{product}»",
+        detail=f"BuilderAgent → SegmentsAgent: подбор аудитории «{product}», метод={method or 'auto'}",
     )
     ctx.inputs["product"] = product
     ctx.inputs["campaign_goal"] = goal
+    if method:
+        ctx.inputs["audience_method"] = method
     # Маркер «вызвано из сборки кампании» — SegmentsAgent пометит свой ответ
     # stage=collect_audience, чтобы пользователь мог либо выбрать гипотезу
     # кнопкой, либо передумать и описать аудиторию своими словами (sticky → builder).

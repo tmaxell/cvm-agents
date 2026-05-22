@@ -53,6 +53,12 @@ async def lifespan(app: FastAPI):
             logger.info("demo campaigns seeded")
         except Exception as exc:
             logger.warning("demo seed failed: %s", exc)
+        try:
+            from scripts.seed_product_catalog import seed_product_catalog
+            await seed_product_catalog()
+            logger.info("product catalog seeded")
+        except Exception as exc:
+            logger.warning("product catalog seed failed: %s", exc)
     yield
 
 

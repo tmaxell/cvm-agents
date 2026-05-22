@@ -210,14 +210,13 @@ MOCK_CAMPAIGN_GROUPS = [
 ]
 
 # ── Продуктовый каталог ───────────────────────────────────────────────────────
-# Каждый продукт несёт сигналы, по которым резолвер стратегии аудитории
-# (agents/audience_strategy.py) выбирает способ подбора таргет-группы:
-#   - nbo_audience       — если задан, продукт является Next Best Offer для этой
-#                          аудитории → стратегия "nbo";
-#   - subscribers        — если >0, есть кому уже подключён продукт → "lookalike_existing";
-#   - status == "new" + similar_to — новый продукт, но есть похожие → "lookalike_similar";
-#   - ничего из этого    — "ask_properties" (расспросить о свойствах продукта).
-# Структура универсальна: новые продукты добавляются сюда без правок кода.
+# Это seed-данные: при старте бэкенда они загружаются в таблицу product_catalog
+# (см. scripts/seed_product_catalog.py). Агенты работают уже с БД, а не с этим
+# списком напрямую. Структура универсальна: новые продукты добавляются сюда без
+# правок кода.
+#   - subscribers        — сколько абонентов уже подключили продукт;
+#   - nbo_audience        — описание NBO-аудитории (если модель NBO её посчитала);
+#   - similar_to          — похожие продукты для look-alike по новым продуктам.
 
 MOCK_PRODUCT_CATALOG = [
     {
@@ -238,6 +237,33 @@ MOCK_PRODUCT_CATALOG = [
     },
     {
         "id": 302,
+        "name": "Тариф Безлимит Премиум",
+        "category": "tariff",
+        "status": "active",
+        "description": "Премиальный тариф с безлимитным интернетом и звонками, расширенным роумингом.",
+        "subscribers": 73_400,
+        "nbo_audience": {
+            "description": "Абоненты с высоким ARPU (>1500₽) и регулярным перерасходом пакетов, "
+                           "для которых «Тариф Безлимит Премиум» определён моделью NBO.",
+            "estimated_size": 41_800,
+            "model": "nbo_propensity_v3",
+        },
+        "similar_to": [],
+        "properties": {"audience_hint": "высокодоходные абоненты", "price_tier": "premium"},
+    },
+    {
+        "id": 303,
+        "name": "Тариф Молодёжный",
+        "category": "tariff",
+        "status": "active",
+        "description": "Доступный тариф с большим пакетом интернета и безлимитом на соцсети.",
+        "subscribers": 156_900,
+        "nbo_audience": None,
+        "similar_to": [],
+        "properties": {"audience_hint": "молодёжь 18-29", "price_tier": "low"},
+    },
+    {
+        "id": 304,
         "name": "Пакет данных 5 ГБ",
         "category": "data_package",
         "status": "active",
@@ -248,7 +274,7 @@ MOCK_PRODUCT_CATALOG = [
         "properties": {"audience_hint": "активные потребители интернета", "price_tier": "low"},
     },
     {
-        "id": 303,
+        "id": 305,
         "name": "Подписка Кино+",
         "category": "content_subscription",
         "status": "active",
@@ -259,7 +285,18 @@ MOCK_PRODUCT_CATALOG = [
         "properties": {"audience_hint": "потребители контента", "price_tier": "mid"},
     },
     {
-        "id": 304,
+        "id": 306,
+        "name": "Тариф Минимум",
+        "category": "tariff",
+        "status": "active",
+        "description": "Базовый тариф для абонентов с низким потреблением — звонки и небольшой пакет.",
+        "subscribers": 98_300,
+        "nbo_audience": None,
+        "similar_to": [],
+        "properties": {"audience_hint": "малоактивные абоненты", "price_tier": "low"},
+    },
+    {
+        "id": 307,
         "name": "Пакет данных 20 ГБ Ночной",
         "category": "data_package",
         "status": "new",
@@ -270,7 +307,18 @@ MOCK_PRODUCT_CATALOG = [
         "properties": {"audience_hint": "активные потребители интернета", "price_tier": "low", "night_unlimited": True},
     },
     {
-        "id": 305,
+        "id": 308,
+        "name": "Тариф Цифровой",
+        "category": "tariff",
+        "status": "new",
+        "description": "Новый онлайн-тариф без салонного обслуживания, управляется только в приложении.",
+        "subscribers": 0,
+        "nbo_audience": None,
+        "similar_to": ["Тариф Молодёжный"],
+        "properties": {"audience_hint": "digital-аудитория", "price_tier": "low", "app_only": True},
+    },
+    {
+        "id": 309,
         "name": "Услуга Стоп-спам",
         "category": "service",
         "status": "new",

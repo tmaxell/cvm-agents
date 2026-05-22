@@ -209,6 +209,79 @@ MOCK_CAMPAIGN_GROUPS = [
     {"id": 14, "name": "Промо"},
 ]
 
+# ── Продуктовый каталог ───────────────────────────────────────────────────────
+# Каждый продукт несёт сигналы, по которым резолвер стратегии аудитории
+# (agents/audience_strategy.py) выбирает способ подбора таргет-группы:
+#   - nbo_audience       — если задан, продукт является Next Best Offer для этой
+#                          аудитории → стратегия "nbo";
+#   - subscribers        — если >0, есть кому уже подключён продукт → "lookalike_existing";
+#   - status == "new" + similar_to — новый продукт, но есть похожие → "lookalike_similar";
+#   - ничего из этого    — "ask_properties" (расспросить о свойствах продукта).
+# Структура универсальна: новые продукты добавляются сюда без правок кода.
+
+MOCK_PRODUCT_CATALOG = [
+    {
+        "id": 301,
+        "name": "Тариф Семейный",
+        "category": "tariff",
+        "status": "active",
+        "description": "Тариф с общим балансом минут и интернета на всю семью, до 5 номеров.",
+        "subscribers": 184_200,
+        "nbo_audience": {
+            "description": "Абоненты с 2+ номерами на одном лицевом счёте и средним ARPU 700–1500₽, "
+                           "у которых продукт «Тариф Семейный» определён моделью NBO как лучшее следующее предложение.",
+            "estimated_size": 96_400,
+            "model": "nbo_propensity_v3",
+        },
+        "similar_to": [],
+        "properties": {"audience_hint": "семьи", "price_tier": "mid", "multi_sim": True},
+    },
+    {
+        "id": 302,
+        "name": "Пакет данных 5 ГБ",
+        "category": "data_package",
+        "status": "active",
+        "description": "Дополнительный интернет-пакет 5 ГБ на 30 дней.",
+        "subscribers": 312_800,
+        "nbo_audience": None,
+        "similar_to": [],
+        "properties": {"audience_hint": "активные потребители интернета", "price_tier": "low"},
+    },
+    {
+        "id": 303,
+        "name": "Подписка Кино+",
+        "category": "content_subscription",
+        "status": "active",
+        "description": "Подписка на онлайн-кинотеатр со скидкой для абонентов.",
+        "subscribers": 47_500,
+        "nbo_audience": None,
+        "similar_to": [],
+        "properties": {"audience_hint": "потребители контента", "price_tier": "mid"},
+    },
+    {
+        "id": 304,
+        "name": "Пакет данных 20 ГБ Ночной",
+        "category": "data_package",
+        "status": "new",
+        "description": "Новый интернет-пакет 20 ГБ с ночным безлимитом — продукт только запущен.",
+        "subscribers": 0,
+        "nbo_audience": None,
+        "similar_to": ["Пакет данных 5 ГБ"],
+        "properties": {"audience_hint": "активные потребители интернета", "price_tier": "low", "night_unlimited": True},
+    },
+    {
+        "id": 305,
+        "name": "Услуга Стоп-спам",
+        "category": "service",
+        "status": "new",
+        "description": "Новая сервисная услуга блокировки нежелательных звонков — аналогов в каталоге нет.",
+        "subscribers": 0,
+        "nbo_audience": None,
+        "similar_to": [],
+        "properties": {},
+    },
+]
+
 # ── Результат создания кампании ───────────────────────────────────────────────
 
 def make_mock_campaign_result() -> dict:

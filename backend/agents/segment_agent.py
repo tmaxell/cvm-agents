@@ -146,9 +146,18 @@ def _normalise_clients_count(value: Any) -> int | None:
     return None
 
 
+def _audience_signals(request: SegmentSuggestRequest) -> dict[str, Any] | None:
+    """Достаёт собранные сигналы по продукту (NBO / подключившие / похожие)
+    из current_campaign_context. Их кладёт туда вызывающий агент."""
+    ctx = request.current_campaign_context or {}
+    signals = ctx.get("audience_signals")
+    return signals if isinstance(signals, dict) else None
+
+
 async def _ask_llm(request: SegmentSuggestRequest, compact_groups: list[dict[str, Any]]) -> _RawSegmentResponse:
     llm = get_llm(for_tools=False)
     demo_contact_base_profile = _demo_contact_base_profile(request)
+    audience_signals = _audience_signals(request)
     response = await llm.ainvoke([
         SystemMessage(content=_segment_system_prompt()),
         HumanMessage(content=json.dumps({
@@ -156,6 +165,9 @@ async def _ask_llm(request: SegmentSuggestRequest, compact_groups: list[dict[str
             "strategy": request.strategy,
             "existing_target_groups": compact_groups,
             "demo_contact_base_profile": demo_contact_base_profile,
+            # Сигналы для подбора аудитории под продукт (см. agents/audience_strategy.py):
+            # NBO-аудитория, число подключивших, похожие продукты. Может быть null.
+            "audience_signals": audience_signals,
         }, ensure_ascii=False)),
     ])
     content = response.content if hasattr(response, "content") else str(response)
@@ -190,7 +202,17 @@ def _segment_system_prompt() -> str:
         "8) всегда возвращай ровно 2–3 гипотезы; "
         "9) для каждой гипотезы обязательно заполни risk_or_limitation конкретным риском или ограничением. "
         "Для matched_target_group используй только существующую Target Group из списка и указывай минимум id и name. "
-        "Не выдумывай id или названия Target Groups. confidence — число от 0 до 1."
+        "Не выдумывай id или названия Target Groups. confidence — число от 0 до 1.\n"
+        "ПОДБОР АУДИТОРИИ ПО ПРОДУКТУ: если в запросе есть поле audience_signals (не null), "
+        "строй гипотезы на его основе и используй audience_signals.guidance: "
+        "- если есть nbo — одна гипотеза ОБЯЗАТЕЛЬНО строится как NBO-аудитория продукта, "
+        "в demo_insight укажи, что это аудитория с NBO-склонностью к продукту; "
+        "- если есть existing_subscribers — гипотеза look-alike по уже подключившим продукт; "
+        "- если есть similar_products — гипотеза look-alike по аудитории похожих продуктов; "
+        "В relevance_reason КАЖДОЙ гипотезы явно укажи, на каком методе она основана "
+        "(NBO / look-alike по подключившим / look-alike по похожим продуктам). "
+        "Для NBO-гипотезы можно указать ориентировочный размер из nbo.estimated_size как "
+        "demo-оценку (с пометкой, что это модельная оценка, а не факт)."
     )
 
 

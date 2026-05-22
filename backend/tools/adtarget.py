@@ -357,10 +357,22 @@ async def list_campaign_groups() -> list:
 
 
 async def list_product_catalog() -> list:
-    """GET /ProductCatalog."""
+    """GET /ProductCatalog — каталог продуктов с сигналами для подбора аудитории.
+
+    Каждый элемент несёт поля subscribers / nbo_audience / similar_to / status,
+    по которым agents/audience_strategy.py собирает сигналы для рекомендации
+    таргет-группы. В mock возвращает MOCK_PRODUCT_CATALOG.
+    """
     if _is_mock():
-        return []
-    return await _get("/ProductCatalog")
+        from tools.mock_data import MOCK_PRODUCT_CATALOG
+        return list(MOCK_PRODUCT_CATALOG)
+
+    try:
+        return await _get("/ProductCatalog")
+    except (httpx.ConnectError, httpx.ConnectTimeout):
+        _enable_auto_mock()
+        from tools.mock_data import MOCK_PRODUCT_CATALOG
+        return list(MOCK_PRODUCT_CATALOG)
 
 
 async def get_product_actions(product_id: int) -> list:

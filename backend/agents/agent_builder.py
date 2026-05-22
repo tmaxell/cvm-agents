@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import asdict
 from typing import Any
@@ -28,6 +29,42 @@ from agents.builder.templates import (
 )
 from schemas import ChatAction
 from tools import adtarget
+
+# Регулярка «пользователь хочет, чтобы аудиторию подобрали за него».
+_RECOMMEND_RE = re.compile(
+    r"\b(порекоменд|рекоменд|подбер|предлож|подскаж|сам[аи]?\s+(подбер|выбер)|recommend|suggest)",
+    re.IGNORECASE,
+)
+
+
+def _wants_recommendation(message: str) -> bool:
+    return bool(message and _RECOMMEND_RE.search(message))
+
+
+# Ведущие филлеры, которые срезаем из описания аудитории
+# («нет, давай лучше я сам опишу: молодые семьи» → «молодые семьи»).
+_AUDIENCE_FILLER_RE = re.compile(
+    r"^(нет[,.]?\s*|да[,.]?\s*|давай[,.]?\s*|лучше\s+|пусть\s+|хочу\s+|я\s+|сам[аи]?\s+"
+    r"|опиш[уыие]\w*\s*|укаж[уыие]\w*\s*|скаж[уыие]\w*\s*|отбер[уые]\w*\s*|это\s+|аудитори\w*\s*[:—-]?\s*)+",
+    re.IGNORECASE,
+)
+
+
+def _clean_audience_description(message: str) -> str:
+    """Достаёт «чистое» описание аудитории из реплики пользователя.
+
+    Срезает разговорные филлеры и берёт текст после двоеточия, если оно есть
+    («…я сам опишу: молодые семьи 25-35» → «молодые семьи 25-35»).
+    """
+    text = (message or "").strip()
+    if not text:
+        return ""
+    if ":" in text:
+        tail = text.split(":", 1)[1].strip()
+        if len(tail) >= 5:
+            text = tail
+    cleaned = _AUDIENCE_FILLER_RE.sub("", text).strip()
+    return cleaned or text
 from tools.flow_builder import (
     assemble_flow,
     make_common_activity,
@@ -99,6 +136,44 @@ async def execute(ctx: AgentContext) -> AgentResult:
     if tg_id_pre and "audience" in brief.missing_critical:
         brief.missing_critical = [m for m in brief.missing_critical if m != "audience"]
 
+    # 2.5. Резолв аудитории.
+    sticky_stage = ctx.inputs.get("sticky_stage")
+    audience_mode = (
+        "recommend"
+        if (ctx.action is not None and ctx.action.id == "recommend_audience")
+        else ctx.inputs.get("audience_mode")
+    )
+
+    # A. Явный запрос рекомендации (кнопка или «порекомендуй» в режиме collect_audience) —
+    #    делегируем подбор аудитории в SegmentsAgent.
+    wants_rec = audience_mode == "recommend" or (
+        sticky_stage == "collect_audience" and _wants_recommendation(ctx.message)
+    )
+    if wants_rec and brief.product and not tg_id_pre:
+        return await _recommend_audience(ctx, goal=goal, brief=brief)
+
+    # B. Пользователь в режиме collect_audience описал аудиторию сам —
+    #    закрепляем описание как полноценную таргет-группу (сценарий завершается
+    #    сохранением ТГ), дальше сборка кампании пойдёт уже с ней.
+    if sticky_stage == "collect_audience" and not tg_id_pre:
+        described = _clean_audience_description(ctx.message)
+        if described:
+            await _auto_promote_segment(ctx, {
+                "name": _truncate(described, 80),
+                "audience_description": described,
+                "selection_criteria": {},
+                "is_existing_target_group": False,
+            })
+            tg_id_pre, tg_name_pre = _resolve_target_group(ctx)
+            if tg_name_pre:
+                brief.audience = {"description": tg_name_pre}
+                brief.missing_critical = [m for m in brief.missing_critical if m != "audience"]
+
+    # C. Аудитории по-прежнему не хватает, продукт известен, ТГ не выбрана —
+    #    предлагаем выбор «порекомендовать / описать самому».
+    if "audience" in brief.missing_critical and brief.product and not tg_id_pre:
+        return await _ask_audience_choice(ctx, goal=goal, brief=brief)
+
     # 3. Если критичные поля отсутствуют — уточняем.
     if not is_ready_to_build(brief) and brief.missing_critical:
         return await _ask_clarifying(ctx, goal=goal, brief=brief)
@@ -157,6 +232,67 @@ async def execute(ctx: AgentContext) -> AgentResult:
         "**Common → TargetGroup → SMS push**. Уточните аудиторию, оффер и каналы — пересоберу подробнее."
     )
     return await _finalize(ctx, flow=flow, message=message, mode="fallback", brief=brief)
+
+
+# ── Резолв аудитории ──────────────────────────────────────────────────────────
+
+async def _ask_audience_choice(ctx: AgentContext, *, goal: str, brief: CampaignBriefAnalysis) -> AgentResult:
+    """Спрашивает: порекомендовать таргет-группу или пользователь опишет аудиторию сам.
+
+    Возвращает needs_input со stage=collect_audience — следующее сообщение
+    останется в BuilderAgent (sticky-context).
+    """
+    product = brief.product or "продукт"
+    await ctx.emit("step_started", detail=f"BuilderAgent: уточняю аудиторию для «{product}»")
+
+    message = (
+        f"Собираю кампанию для продвижения **{product}**. Кому будем продвигать?\n\n"
+        "Я могу **порекомендовать таргет-группу** — подберу варианты на основе данных "
+        "о продукте (для кого он next best offer, кто уже подключал, похожие продукты) "
+        "с примерной оценкой охвата. Либо вы можете **сами описать аудиторию** — "
+        "просто напишите, кого охватываем, и я закреплю это как таргет-группу."
+    )
+    # Одна кнопка — рекомендация; описать аудиторию пользователь может, просто
+    # написав сообщение (мы в sticky-context collect_audience).
+    actions = [
+        ChatAction(
+            id="recommend_audience",
+            label="Порекомендуй таргет-группу",
+            kind="runtime",
+            payload={"goal": goal, "product": brief.product or ""},
+        ),
+    ]
+    await ctx.emit("step_completed", detail="BuilderAgent: предложен выбор способа подбора аудитории")
+    return AgentResult(
+        assistant_message=message,
+        actions=actions,
+        status="needs_input",
+        metadata={"brief": _brief_to_dict(brief), "stage": "collect_audience", "product": brief.product},
+    )
+
+
+async def _recommend_audience(ctx: AgentContext, *, goal: str, brief: CampaignBriefAnalysis) -> AgentResult:
+    """Делегирует подбор аудитории в SegmentsAgent.
+
+    Это та же сегментация, что и при standalone-запросе «подбери сегмент» —
+    SegmentsAgent сам соберёт сигналы по продукту и предложит варианты с
+    оценкой охвата. Дальше пользователь закрепит вариант как таргет-группу
+    (action assign_segment_as_target_group) и вернётся к сборке кампании.
+    """
+    from agents.agent_segments import execute as segments_execute
+
+    product = brief.product or ctx.inputs.get("product") or "general"
+    await ctx.emit(
+        "step_started",
+        detail=f"BuilderAgent → SegmentsAgent: подбор аудитории для «{product}»",
+    )
+    ctx.inputs["product"] = product
+    ctx.inputs["campaign_goal"] = goal
+    # Маркер «вызвано из сборки кампании» — SegmentsAgent пометит свой ответ
+    # stage=collect_audience, чтобы пользователь мог либо выбрать гипотезу
+    # кнопкой, либо передумать и описать аудиторию своими словами (sticky → builder).
+    ctx.inputs["from_builder"] = True
+    return await segments_execute(ctx)
 
 
 # ── Clarifying questions ──────────────────────────────────────────────────────

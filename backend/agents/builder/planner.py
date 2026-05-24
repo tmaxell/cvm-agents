@@ -163,6 +163,7 @@ def assemble_flow_from_plan(
     *,
     target_group_id: int | None = None,
     target_group_name: str | None = None,
+    offer_text: str | None = None,
 ) -> dict[str, Any]:
     """Из плана строит JSON flow с правильно проставленными связями.
 
@@ -170,6 +171,10 @@ def assemble_flow_from_plan(
     `assign_segment_as_target_group`), её id и имя можно передать сюда —
     они переопределят то, что LLM-планировщик мог сгенерировать в шаге
     TargetGroupActivity.
+
+    Если пользователь выбрал текст оффера (через OfferAgent),
+    передай его в `offer_text` — он подставится в первую
+    PushCommunicationActivity вместо LLM-сгенерированного текста.
     """
     campaign_name = str(plan.get("campaign_name") or "Новая кампания")
     raw_steps = plan.get("steps") or []
@@ -188,6 +193,16 @@ def assemble_flow_from_plan(
         if target_group_name:
             tg_step["name"] = str(target_group_name)
         raw_steps[1] = tg_step
+
+    # Подставляем выбранный текст оффера в первую PushCommunicationActivity.
+    if offer_text:
+        raw_steps = list(raw_steps)
+        for i, step in enumerate(raw_steps):
+            if step.get("type") == "PushCommunicationActivity":
+                new_step = dict(step)
+                new_step["text"] = offer_text
+                raw_steps[i] = new_step
+                break
 
     activities = [_make_activity(step) for step in raw_steps]
     activities = [a for a in activities if a is not None]

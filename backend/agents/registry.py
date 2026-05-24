@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from agents.base import AgentProtocol, FunctionAgent
-from agents import agent_attention, agent_builder, agent_docs, agent_refiner, agent_runtime, agent_segments
+from agents import (
+    agent_attention, agent_builder, agent_docs, agent_offer,
+    agent_refiner, agent_runtime, agent_segments,
+)
 
 
 def _make(module) -> AgentProtocol:
@@ -20,6 +23,7 @@ _AGENTS: dict[str, AgentProtocol] = {
     agent_builder.NAME: _make(agent_builder),
     agent_refiner.NAME: _make(agent_refiner),
     agent_segments.NAME: _make(agent_segments),
+    agent_offer.NAME: _make(agent_offer),
     agent_docs.NAME: _make(agent_docs),
     agent_runtime.NAME: _make(agent_runtime),
 }

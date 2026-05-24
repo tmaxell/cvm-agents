@@ -24,6 +24,7 @@ IntentName = Literal[
     "campaign_attention",
     "build_campaign",
     "suggest_segments",
+    "generate_offers",
     "refine_campaign",
     "documentation_qa",
     "runtime_action",

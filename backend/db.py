@@ -104,6 +104,8 @@ class ChatStore:
         "campaign_draft",
         "segment_draft",
         "target_group_draft",
+        "offer_variants",
+        "offer_choice",
         "monitor_report",
         "recommendation_bundle",
         "attention_report",

@@ -50,6 +50,25 @@ _AUDIENCE_FILLER_RE = re.compile(
 )
 
 
+# Регулярка «пользователь просит сгенерировать оффер».
+_OFFER_GEN_RE = re.compile(
+    r"\b(сгенерир|придум|подбер|напиш|дай)\w*\s+(\w+\s+){0,3}(оффер|вариант|вариант\w*\s+оффер|текст\w*)",
+    re.IGNORECASE,
+)
+_OFFER_SKIP_RE = re.compile(
+    r"\b(не\s+нужно|пропуст\w*|без\s+оффер|типовой|стандартн\w*|по\s+умолчанию)",
+    re.IGNORECASE,
+)
+
+
+def _wants_offer_generation(message: str) -> bool:
+    return bool(message and _OFFER_GEN_RE.search(message))
+
+
+def _wants_skip_offer(message: str) -> bool:
+    return bool(message and _OFFER_SKIP_RE.search(message))
+
+
 def _clean_audience_description(message: str) -> str:
     """Достаёт «чистое» описание аудитории из реплики пользователя.
 
@@ -86,12 +105,17 @@ async def execute(ctx: AgentContext) -> AgentResult:
     await ctx.emit("step_started", detail=f"BuilderAgent: цель — «{_truncate(goal, 80)}»")
     started = time.perf_counter()
 
-    # 0. Если пришли с сегментом из SegmentsAgent и в сессии ещё нет таргет-группы —
-    #    автоматически закрепляем сегмент как таргет-группу. Так дальше по флоу
-    #    BuilderAgent уже работает с сущностью таргет-группа, а не с сегментом.
+    # 0a. Если пришли с сегментом из SegmentsAgent и в сессии ещё нет таргет-группы —
+    #     автоматически закрепляем сегмент как таргет-группу. Так дальше по флоу
+    #     BuilderAgent уже работает с сущностью таргет-группа, а не с сегментом.
     if seed_segment and isinstance(seed_segment, dict):
         if _resolve_target_group(ctx) == (None, None):
             await _auto_promote_segment(ctx, seed_segment)
+
+    # 0b. select_offer action: пользователь выбрал вариант оффера из меню OfferAgent —
+    #     сохраняем выбор как артефакт offer_choice, дальше сборка подхватит текст.
+    if ctx.action is not None and ctx.action.id == "select_offer":
+        await _save_offer_choice(ctx)
 
     # 1. Template-first.
     template = find_template(goal)
@@ -179,6 +203,19 @@ async def execute(ctx: AgentContext) -> AgentResult:
     if not is_ready_to_build(brief) and brief.missing_critical:
         return await _ask_clarifying(ctx, goal=goal, brief=brief)
 
+    # 3.5. Шаг оффера. Если в сессии нет выбранного оффера и пользователь не
+    # просил пропустить — предлагаем сгенерировать варианты. Если попросил
+    # сгенерировать — делегируем в OfferAgent.
+    offer_text = _resolve_offer_text(ctx)
+    skip_offer = ctx.inputs.get("offer_mode") == "skip" or action_id == "skip_offer_generation"
+    wants_offers = action_id == "generate_offers" or (
+        sticky_stage == "collect_offer" and _wants_offer_generation(ctx.message)
+    )
+    if not offer_text and not skip_offer:
+        if wants_offers:
+            return await _generate_offers(ctx, goal=goal, brief=brief)
+        return await _ask_offer_decision(ctx, goal=goal, brief=brief)
+
     # 4. LLM-план + детерминистический сборщик.
     await ctx.emit("step_started", detail="BuilderAgent: LLM-планировщик с брифом")
     history_pairs = [
@@ -190,7 +227,9 @@ async def execute(ctx: AgentContext) -> AgentResult:
     if plan is not None:
         try:
             tg_id, tg_name = _resolve_target_group(ctx)
-            flow = assemble_flow_from_plan(plan, target_group_id=tg_id, target_group_name=tg_name)
+            flow = assemble_flow_from_plan(
+                plan, target_group_id=tg_id, target_group_name=tg_name, offer_text=offer_text,
+            )
             campaign_name = plan.get("campaign_name") or brief.product or "Новая кампания"
             summary = plan.get("summary") or ""
             steps_summary = ", ".join(
@@ -225,7 +264,9 @@ async def execute(ctx: AgentContext) -> AgentResult:
     # 5. Fallback.
     await ctx.emit("step_started", detail="BuilderAgent: detereminist fallback")
     tg_id, tg_name = _resolve_target_group(ctx)
-    flow = _build_fallback_flow(goal, brief, target_group_id=tg_id, target_group_name=tg_name)
+    flow = _build_fallback_flow(
+        goal, brief, target_group_id=tg_id, target_group_name=tg_name, offer_text=offer_text,
+    )
     latency = int((time.perf_counter() - started) * 1000)
     await ctx.emit("step_completed", detail=f"Fallback готов ({latency} ms)")
     message = (
@@ -541,6 +582,136 @@ async def _auto_promote_segment(ctx: AgentContext, segment: dict[str, Any]) -> N
         ctx.artifacts.append(artifact)
 
 
+# ── Шаг выбора оффера ────────────────────────────────────────────────────────
+
+def _resolve_offer_text(ctx: AgentContext) -> str | None:
+    """Достаёт выбранный пользователем текст оффера из артефакта offer_choice."""
+    # Если только что прилетел select_offer action — payload уже в inputs.
+    direct = ctx.inputs.get("offer_text")
+    if direct and isinstance(direct, str):
+        return direct.strip() or None
+    artifact = ctx.latest_artifact("offer_choice")
+    if not artifact:
+        return None
+    content = artifact.get("content") or {}
+    text = content.get("text")
+    return str(text).strip() if text else None
+
+
+async def _save_offer_choice(ctx: AgentContext) -> None:
+    """select_offer action → сохраняет выбранный вариант как artifact offer_choice.
+
+    Сохраняем в начале execute, до сборки flow, чтобы _resolve_offer_text
+    нашёл выбор и подставил в Communication.
+    """
+    payload = (ctx.action.payload if ctx.action else None) or {}
+    text = (
+        ctx.inputs.get("offer_text")
+        or payload.get("variant_text")
+        or payload.get("offer_text")
+        or ""
+    )
+    if not text:
+        return
+    content = {
+        "id": ctx.inputs.get("offer_variant_id") or payload.get("variant_id"),
+        "text": str(text),
+        "product": ctx.inputs.get("product") or payload.get("product"),
+        "channel": ctx.inputs.get("channel") or payload.get("channel"),
+    }
+    artifact_id = await ctx.store.save_artifact(
+        session_id=ctx.session_id,
+        artifact_type="offer_choice",
+        content_json=content,
+        metadata_json={"variant_id": content["id"], "length_chars": len(content["text"])},
+        source_run_id=ctx.run_id,
+    )
+    artifact = await ctx.store.get_artifact(artifact_id)
+    if artifact:
+        ctx.artifacts.append(artifact)
+    await ctx.emit(
+        "step_completed",
+        detail=f"Оффер выбран ({len(content['text'])} символов) — собираю кампанию",
+        metadata={"variant_id": content["id"]},
+    )
+
+
+async def _ask_offer_decision(
+    ctx: AgentContext, *, goal: str, brief: CampaignBriefAnalysis,
+) -> AgentResult:
+    """Спрашивает: сгенерировать варианты оффера или собрать с типовым текстом."""
+    product = brief.product or "продукт"
+    channel = (brief.channels[0] if brief.channels else "sms").lower()
+    tg_id, tg_name = _resolve_target_group(ctx)
+    audience = tg_name or (brief.audience or {}).get("description") or "выбранная аудитория"
+
+    await ctx.emit(
+        "step_started",
+        detail=f"BuilderAgent: запрашиваю решение по офферу (канал {channel})",
+    )
+
+    message = (
+        f"Бриф готов: **{product}** для **{audience}**, канал **{channel.upper()}**. "
+        "Сгенерировать **2-3 варианта оффера** под этот канал и аудиторию или собрать "
+        "кампанию с **типовым текстом**?"
+    )
+    actions = [
+        ChatAction(
+            id="generate_offers",
+            label="Сгенерируй варианты оффера",
+            kind="runtime",
+            payload={"goal": goal, "product": product, "channel": channel, "audience": audience},
+        ),
+        ChatAction(
+            id="skip_offer_generation",
+            label="Собрать с типовым текстом",
+            kind="runtime",
+            payload={"goal": goal, "product": product},
+        ),
+    ]
+    return AgentResult(
+        assistant_message=message,
+        actions=actions,
+        status="needs_input",
+        metadata={
+            "brief": _brief_to_dict(brief),
+            "stage": "collect_offer",
+            "product": product,
+            "channel": channel,
+        },
+    )
+
+
+async def _generate_offers(
+    ctx: AgentContext, *, goal: str, brief: CampaignBriefAnalysis,
+) -> AgentResult:
+    """Делегирует генерацию оффера в OfferAgent."""
+    from agents.agent_offer import execute as offer_execute
+
+    product = brief.product or ctx.inputs.get("product") or "продукт"
+    channel = (
+        ctx.inputs.get("channel")
+        or (brief.channels[0] if brief.channels else "sms")
+    ).lower()
+    tg_id, tg_name = _resolve_target_group(ctx)
+    audience = (
+        ctx.inputs.get("audience")
+        or tg_name
+        or (brief.audience or {}).get("description")
+        or "общая аудитория"
+    )
+    ctx.inputs["product"] = product
+    ctx.inputs["channel"] = channel
+    ctx.inputs["audience"] = audience
+    ctx.inputs["target_group_name"] = tg_name or audience
+    ctx.inputs["from_builder"] = True
+    await ctx.emit(
+        "step_started",
+        detail=f"BuilderAgent → OfferAgent: продукт «{product}», канал {channel}",
+    )
+    return await offer_execute(ctx)
+
+
 def _resolve_target_group(ctx: AgentContext) -> tuple[int | None, str | None]:
     """Возвращает (target_group_id, target_group_name) из последнего
     `target_group_draft` артефакта сессии. Артефакт создаёт RuntimeAgent
@@ -566,6 +737,7 @@ def _build_fallback_flow(
     *,
     target_group_id: int | None = None,
     target_group_name: str | None = None,
+    offer_text: str | None = None,
 ) -> dict[str, Any]:
     campaign_name = (brief.product if brief and brief.product else None) or _truncate(goal, 60) or "Новая кампания"
     audience_hint = ""
@@ -581,9 +753,10 @@ def _build_fallback_flow(
         target["name"] = target_group_name
     elif audience_hint:
         target["name"] = f"Аудитория — {_truncate(audience_hint, 40)}"
+    message_text = offer_text or f"Привет! Специальное предложение по «{campaign_name}». Подробности уточняйте."
     push = make_push_communication_activity(
         channel_id=1,
         content_type=content_type,
-        message_text=f"Привет! Специальное предложение по «{campaign_name}». Подробности уточняйте.",
+        message_text=message_text,
     )
     return assemble_flow([common, target, push])

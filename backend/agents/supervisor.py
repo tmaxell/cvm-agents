@@ -41,6 +41,14 @@ _ACTION_DISPATCH: dict[str, tuple[str, dict[str, str] | None]] = {
     "recommend_audience":      ("builder",  {"goal": "goal", "product": "product"}),
     # Пользователь выбрал конкретный метод подбора аудитории из меню.
     "audience_method":         ("builder",  {"goal": "goal", "product": "product", "method": "audience_method"}),
+    # Сборка кампании: пользователь нажал «Сгенерируй варианты оффера» —
+    # BuilderAgent делегирует в OfferAgent с продуктом/каналом/аудиторией.
+    "generate_offers":         ("builder",  {"goal": "goal", "product": "product", "channel": "channel", "audience": "audience"}),
+    # Пользователь выбрал «Собрать с типовым текстом» — пропускаем offer-step.
+    "skip_offer_generation":   ("builder",  {"goal": "goal", "product": "product"}),
+    # Пользователь выбрал один из вариантов оффера — BuilderAgent сохраняет
+    # offer_choice и сразу собирает кампанию с этим текстом.
+    "select_offer":            ("builder",  {"goal": "goal", "product": "product", "variant_id": "offer_variant_id", "variant_text": "offer_text", "channel": "channel"}),
     # clarify_reply — frontend особый: фронт превращает payload.message в обычное сообщение.
     # Если всё-таки прилетит сюда — передадим payload.message как goal в builder.
     "clarify_reply":           ("builder",  {"message": "goal"}),
@@ -141,6 +149,7 @@ async def _handle_message(ctx: AgentContext) -> AgentResult:
 _STICKY_STAGES: dict[str, str] = {
     "collect_brief": "builder",
     "collect_audience": "builder",
+    "collect_offer": "builder",
     "collect_product_properties": "segments",
 }
 

@@ -28,6 +28,7 @@ IntentName = Literal[
     "campaign_attention",
     "build_campaign",
     "suggest_segments",
+    "generate_offers",
     "refine_campaign",
     "documentation_qa",
 ]
@@ -44,6 +45,7 @@ _VALID_INTENTS = {
     "campaign_attention",
     "build_campaign",
     "suggest_segments",
+    "generate_offers",
     "refine_campaign",
     "documentation_qa",
 }
@@ -78,6 +80,15 @@ _RULES: list[tuple[IntentName, list[re.Pattern[str]]]] = [
         ],
     ),
     (
+        "generate_offers",
+        [
+            # «сгенерируй / придумай / подбери варианты оффера / текст коммуникации»
+            re.compile(r"\b(сгенерир|придум|подбер|сделай|напиш|дай)\w*\s+(\w+\s+){0,3}(оффер|вариант\w+\s+оффер|оффер\w*|текст\w*\s+(смс|sms|push|пуш|email))", re.IGNORECASE),
+            re.compile(r"\bвариант\w+\s+оффер", re.IGNORECASE),
+            re.compile(r"\b(generate|create|write)\s+(\w+\s+){0,3}offer", re.IGNORECASE),
+        ],
+    ),
+    (
         "campaign_attention",
         [
             re.compile(r"\bкак(ие|им)\s+кампани\w*\s+(требу|нужн|плохо|на риске)", re.IGNORECASE),
@@ -108,6 +119,7 @@ Intents:
 - campaign_attention — обзор/анализ существующих кампаний (что требует внимания, ранжирование, отчет).
 - build_campaign     — пользователь просит СОЗДАТЬ новую кампанию (повелительное наклонение, поручение). Это НЕ вопрос «как».
 - suggest_segments   — собрать гипотезы сегментов / аудиторий.
+- generate_offers    — сгенерировать 2-3 варианта текста оффера (для конкретного продукта/канала/аудитории).
 - refine_campaign    — улучшить / доработать существующий черновик или кампанию по id.
 - documentation_qa   — вопрос «как / что / почему / зачем», запрос на объяснение функций платформы, гайды. Сюда же относятся ВСЕ вопросы вида «Как создать ...», «Как настроить ...», «Что такое ...».
 
@@ -124,6 +136,8 @@ Few-shot:
 - «Доработай кампанию 24» → refine_campaign
 - «Оптимизируй текущий флоу» → refine_campaign
 - «Собери сегмент активных клиентов» → suggest_segments
+- «Сгенерируй варианты оффера для тарифа Семейный» → generate_offers
+- «Дай 3 варианта SMS-текста для пакета 5 ГБ» → generate_offers
 - «Подбери аудиторию под пакет 5GB» → suggest_segments
 
 Ответ — строго JSON одной строкой без markdown:

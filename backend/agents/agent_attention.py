@@ -41,7 +41,7 @@ async def execute(ctx: AgentContext) -> AgentResult:
         hints = report.get("suggested_next_steps") or []
         msg = "Нет данных для анализа портфеля кампаний."
         if reason:
-            msg += f"\n\n_{reason}_"
+            msg += f"\n\n{reason}"
         if hints:
             msg += "\n\nНужные шаги:\n" + "\n".join(f"- {h}" for h in hints)
         await ctx.emit("step_completed", status="warning", detail="insufficient_data")
@@ -132,8 +132,8 @@ def _render_markdown(*, summary: dict[str, Any], top: list[dict[str, Any]], cate
         f"**KPI портфеля:** open **{kpi_all['open_rate']}%** · click **{kpi_all['click_rate']}%** · CR **{kpi_all['conversion_rate']}%**."
     )
     out.append(
-        f"_Проблемные кампании в среднем:_ open {kpi_prob['open_rate']}% / click {kpi_prob['click_rate']}% / CR {kpi_prob['conversion_rate']}%. "
-        f"_Здоровые:_ open {kpi_ok['open_rate']}% / click {kpi_ok['click_rate']}% / CR {kpi_ok['conversion_rate']}%."
+        f"**Проблемные кампании в среднем:** open {kpi_prob['open_rate']}% / click {kpi_prob['click_rate']}% / CR {kpi_prob['conversion_rate']}%. "
+        f"**Здоровые:** open {kpi_ok['open_rate']}% / click {kpi_ok['click_rate']}% / CR {kpi_ok['conversion_rate']}%."
     )
     out.append("")
 
@@ -147,7 +147,7 @@ def _render_markdown(*, summary: dict[str, Any], top: list[dict[str, Any]], cate
         # Снапшот метрик строкой
         burn_item_pct = round(item["burn_ratio"] * 100)
         out.append(
-            f"_канал {_channel(item['channel'])}, аудитория {_audience(item['audience_size'])}, бюджет {_money(item['spent'])}/{_money(item['budget'])} ({burn_item_pct}%), open {item['open_rate']}% / click {item['click_rate']}% / CR {item['conversion_rate']}%, attention {item['attention_score']}_"
+            f"канал {_channel(item['channel'])}, аудитория {_audience(item['audience_size'])}, бюджет {_money(item['spent'])}/{_money(item['budget'])} ({burn_item_pct}%), open {item['open_rate']}% / click {item['click_rate']}% / CR {item['conversion_rate']}%, attention {item['attention_score']}"
         )
         out.append("")
         # Проблемы
@@ -192,7 +192,7 @@ def _render_markdown(*, summary: dict[str, Any], top: list[dict[str, Any]], cate
                 out.append(f"  - id: {preview_ids}")
         out.append("")
 
-    out.append(f"_Проанализировано {all_count} кампаний с health-снимком. Доступны действия «Доработать» по топу._")
+    out.append(f"Проанализировано {all_count} кампаний с health-снимком. Доступны действия «Доработать» по топу.")
     return "\n".join(out).strip()
 
 

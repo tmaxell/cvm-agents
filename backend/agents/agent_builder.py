@@ -200,9 +200,9 @@ async def execute(ctx: AgentContext) -> AgentResult:
                 f"Собрал кампанию **{campaign_name}** ({len(plan['steps'])} шагов).",
             ]
             if tg_name:
-                message_lines.append(f"_Таргет-группа: **{tg_name}** (id {tg_id})._")
+                message_lines.append(f"Таргет-группа: **{tg_name}** (id {tg_id}).")
             if summary:
-                message_lines.append(f"_{summary}_")
+                message_lines.append(summary)
             message_lines.append("")
             message_lines.append(f"**План:** {steps_summary}")
             if brief.notes:
@@ -308,7 +308,7 @@ async def _ask_audience_method(ctx: AgentContext, *, goal: str, brief: CampaignB
             payload={"method": m, "goal": goal, "product": brief.product or ""},
         ))
     lines.append("")
-    lines.append("_Либо просто опишите аудиторию своими словами — закреплю её как таргет-группу._")
+    lines.append("Либо просто опишите аудиторию своими словами — закреплю её как таргет-группу.")
 
     return AgentResult(
         assistant_message="\n".join(lines),

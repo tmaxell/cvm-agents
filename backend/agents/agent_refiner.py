@@ -245,7 +245,7 @@ async def _try_llm_modify(ctx: AgentContext, draft_flow: dict[str, Any]) -> Agen
     for descr in applied:
         lines.append(f"- {descr}")
     lines.append("")
-    lines.append(f"_Активностей в потоке: {activities_count}._")
+    lines.append(f"Активностей в потоке: {activities_count}.")
 
     actions = [
         ChatAction(id="save_campaign", label="Сохранить кампанию в AdTarget", kind="save", payload={"draft_flow": new_flow}),

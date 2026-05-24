@@ -170,7 +170,7 @@ async def _render_hypotheses(
         if h.risk_or_limitation:
             lines.append(f"- **Ограничения:** {h.risk_or_limitation}")
         lines.append("")
-    lines.append("_Выберите вариант и закрепите его как таргет-группу — дальше можно собрать кампанию._")
+    lines.append("Выберите вариант и закрепите его как таргет-группу — дальше можно собрать кампанию.")
     message_text = "\n".join(lines).rstrip()
 
     primary = response.hypotheses[0]

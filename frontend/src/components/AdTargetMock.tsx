@@ -181,16 +181,14 @@ function computeBounds(positions: Map<string, Pos>): { width: number; height: nu
 export function AdTargetMock({
   flow,
 }: Props) {
-  // Эффективный flow: либо переданный, либо скелет по умолчанию.
+  // Эффективный flow: либо переданный, либо дефолтный скелет (Common + Target Group).
   const effectiveFlow = flow && flow.activities?.length > 0 ? flow : SKELETON_FLOW;
-  // По умолчанию выбираем Event-ноду, если она есть (как в макете).
-  const defaultSelected =
-    effectiveFlow.activities.find(a => a.type === "EventActivity")?.id
-    ?? effectiveFlow.activities[effectiveFlow.activities.length - 1]?.id
-    ?? null;
 
-  const [selectedId, setSelectedId] = useState<string | null>(defaultSelected);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = effectiveFlow.activities.find(a => a.id === selectedId) ?? null;
+  // Side-panel показываем только для конфигурируемых типов — Common/TG только
+  // подсвечиваются обводкой.
+  const showSidePanel = !!selected && !isStructuralActivity(selected.type);
 
   return (
     <div className="adt-shell">
@@ -208,7 +206,7 @@ export function AdTargetMock({
           <AdtRightToolbar />
           <AdtNotificationTab />
         </div>
-        {selected && (
+        {showSidePanel && selected && (
           <AdtSidePanel activity={selected} onClose={() => setSelectedId(null)} />
         )}
       </div>
@@ -589,6 +587,12 @@ function AdtPlateActionIcon({ kind }: { kind: "calendar" | "clock" | "check" }) 
   );
 }
 
+// Структурные ноды — Common и Target Group: на клике только border меняется,
+// никакого indicator/Plate Actions и колоризации заголовка.
+function isStructuralActivity(type: string): boolean {
+  return type === "CommonActivity" || type === "TargetGroupActivity";
+}
+
 function AdtNode({ activity, offers, x, y, animDelay, selected, onSelect }: {
   activity: FlowActivity;
   offers: CampaignOffer[];
@@ -599,21 +603,21 @@ function AdtNode({ activity, offers, x, y, animDelay, selected, onSelect }: {
   onSelect?: () => void;
 }) {
   const active = !!selected;
+  const structural = isStructuralActivity(activity.type);
+  // В expanded-state переходим только для не-structural нод.
+  const expanded = active && !structural;
+
   const label = resolveNodeLabel(activity);
   const color = resolveNodeColor(activity);
   const hasError = Array.isArray(activity.errors) && activity.errors.length > 0;
   const subtitleText = activity.name && activity.name !== label ? activity.name : label;
   const subtitle = subtitleText.length > 30 ? subtitleText.slice(0, 28) + "…" : subtitleText;
 
-  // Warning: явные warnings или Target Group без конфигурации
-  const hasExplicitWarning = Array.isArray(activity.warnings) && activity.warnings.length > 0;
-  const hasWarning = !hasError && hasExplicitWarning;
-
-  const nodeHeight = active ? 116 : NODE_H;
+  const nodeHeight = expanded ? 116 : NODE_H;
 
   return (
     <div
-      className={`adt-node${active ? " adt-node-active" : ""}${hasError ? " adt-node-error" : ""}`}
+      className={`adt-node${active ? " adt-node-active" : ""}${expanded ? " adt-node-expanded" : ""}${hasError ? " adt-node-error" : ""}`}
       style={{
         position: "absolute",
         left: x,
@@ -624,8 +628,8 @@ function AdtNode({ activity, offers, x, y, animDelay, selected, onSelect }: {
       }}
       onClick={onSelect}
     >
-      {/* Indicator strip (только в active) */}
-      {active && (
+      {/* Indicator strip — только в expanded (не для structural) */}
+      {expanded && (
         <span className="adt-node-indicator" style={{ background: color }} />
       )}
 
@@ -633,7 +637,7 @@ function AdtNode({ activity, offers, x, y, animDelay, selected, onSelect }: {
       <div className="adt-node-title">
         <span
           className="adt-node-title-text"
-          style={active ? { color } : undefined}
+          style={expanded ? { color } : undefined}
         >
           {label}
         </span>
@@ -644,8 +648,8 @@ function AdtNode({ activity, offers, x, y, animDelay, selected, onSelect }: {
         <span className="adt-node-subtitle-text">{subtitle}</span>
       </div>
 
-      {/* Plate Actions — только в активном состоянии */}
-      {active && (
+      {/* Plate Actions — только в expanded-state */}
+      {expanded && (
         <div className="adt-node-plate-actions">
           <button className="adt-node-action-tab" type="button" onClick={(e) => e.stopPropagation()}>
             <AdtPlateActionIcon kind="calendar" />
@@ -662,8 +666,9 @@ function AdtNode({ activity, offers, x, y, animDelay, selected, onSelect }: {
       {/* Bottom spacer 4px */}
       <span className="adt-node-spacer" />
 
-      {/* Error badge — красный X, левый верхний угол */}
-      {hasError && (
+      {/* Error badge — красный X, левый верхний угол. Только для не-structural,
+          чтобы Common/Target Group в дефолтном скелете оставались чистыми. */}
+      {hasError && !structural && (
         <span className="adt-node-badge adt-node-badge-error" title={`${(activity.errors as unknown[]).length} ошибок`}>
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
             <path
@@ -675,25 +680,8 @@ function AdtNode({ activity, offers, x, y, animDelay, selected, onSelect }: {
         </span>
       )}
 
-      {/* Warning badge — жёлтый треугольник */}
-      {hasWarning && (
-        <span className="adt-node-badge adt-node-badge-warning" title="Требует настройки">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-            <path
-              d="M10 2.5L18.5 17H1.5L10 2.5z"
-              fill="#FDBD1A"
-              stroke="#FDBD1A"
-              strokeWidth="1"
-              strokeLinejoin="round"
-            />
-            <path d="M10 7.5v4" stroke="#FFFFFF" strokeWidth="1.6" strokeLinecap="round"/>
-            <circle cx="10" cy="14.2" r="0.9" fill="#FFFFFF"/>
-          </svg>
-        </span>
-      )}
-
-      {/* hidden offers data (для tooltips/expanded режим в будущем) */}
-      {active && getCommunicationDetails(activity, offers).length > 0 && (
+      {/* hidden offers data (для expanded-режима communication-нод) */}
+      {expanded && getCommunicationDetails(activity, offers).length > 0 && (
         <div className="adt-node-offers-tip">
           {getCommunicationDetails(activity, offers).slice(0, 2).map((d, i) => (
             <span key={i}><b>{d.label}:</b> {d.value}</span>

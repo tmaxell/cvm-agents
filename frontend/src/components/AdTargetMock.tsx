@@ -187,9 +187,9 @@ export function AdTargetMock({
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = effectiveFlow.activities.find(a => a.id === selectedId) ?? null;
-  // Side-panel открывается только для раскрываемых нод (сейчас — только Event).
-  // У остальных типов клик меняет только border.
-  const showSidePanel = !!selected && isExpandableActivity(selected.type);
+  // Side-panel — только для Event. Communication раскрывается inline в самой
+  // карточке (детали оффера), без правой панели.
+  const showSidePanel = !!selected && isEventActivity(selected.type);
 
   return (
     <div className="adt-shell">
@@ -595,14 +595,21 @@ function isStructuralActivity(type: string): boolean {
   return type === "CommonActivity" || type === "TargetGroupActivity";
 }
 
-// Только Event раскрывается на клике (показывает Plate Actions + side-panel).
-// Остальные типы (Push/Pull, Business, Response, …) показывают цветной
-// индикатор всегда, но при клике только подсвечиваются border'ом.
-function isExpandableActivity(type: string): boolean {
+// Event раскрывается с Plate Actions + side-panel.
+// Communication раскрывается с inline-блоком деталей оффера (без side-panel).
+// Остальные типы (Business, Response, …) показывают цветной индикатор всегда,
+// но при клике только подсвечиваются border'ом — без раскрытия.
+function isEventActivity(type: string): boolean {
   return type === "EventActivity";
 }
+function isCommunicationActivity(type: string): boolean {
+  return type === "PushCommunicationActivity" || type === "PullCommunicationActivity";
+}
+function isExpandableActivity(type: string): boolean {
+  return isEventActivity(type) || isCommunicationActivity(type);
+}
 
-function AdtNode({ activity, offers: _offers, x, y, animDelay, selected, onSelect }: {
+function AdtNode({ activity, offers, x, y, animDelay, selected, onSelect }: {
   activity: FlowActivity;
   offers: CampaignOffer[];
   x: number;
@@ -613,10 +620,9 @@ function AdtNode({ activity, offers: _offers, x, y, animDelay, selected, onSelec
 }) {
   const active = !!selected;
   const structural = isStructuralActivity(activity.type);
-  const expandable = isExpandableActivity(activity.type);
-  // В expanded переходим только если нода раскрываемая И выбрана.
-  const expanded = active && expandable;
-  // Цветной индикатор слева — у всех не-structural нод (всегда).
+  const isEvent = isEventActivity(activity.type);
+  const isCommunication = isCommunicationActivity(activity.type);
+  const expanded = active && isExpandableActivity(activity.type);
   const showIndicator = !structural;
 
   const label = resolveNodeLabel(activity);
@@ -625,7 +631,7 @@ function AdtNode({ activity, offers: _offers, x, y, animDelay, selected, onSelec
   const subtitleText = activity.name && activity.name !== label ? activity.name : label;
   const subtitle = subtitleText.length > 30 ? subtitleText.slice(0, 28) + "…" : subtitleText;
 
-  const nodeHeight = expanded ? 116 : NODE_H;
+  const offerDetails = isCommunication ? getCommunicationDetails(activity, offers) : [];
 
   return (
     <div
@@ -635,17 +641,17 @@ function AdtNode({ activity, offers: _offers, x, y, animDelay, selected, onSelec
         left: x,
         top: y,
         width: NODE_W,
-        height: nodeHeight,
+        minHeight: NODE_H,
         animationDelay: `${animDelay}ms`,
       }}
       onClick={onSelect}
     >
-      {/* Indicator strip — всегда виден у не-structural нод. */}
+      {/* Indicator strip — всегда виден у не-structural нод */}
       {showIndicator && (
         <span className="adt-node-indicator" style={{ background: color }} />
       )}
 
-      {/* Title row — цвет = цвет ноды у всех с индикатором */}
+      {/* Title row */}
       <div className="adt-node-title">
         <span
           className="adt-node-title-text"
@@ -661,7 +667,7 @@ function AdtNode({ activity, offers: _offers, x, y, animDelay, selected, onSelec
       </div>
 
       {/* Plate Actions — только у раскрытой Event-ноды */}
-      {expanded && (
+      {expanded && isEvent && (
         <div className="adt-node-plate-actions">
           <button className="adt-node-action-tab" type="button" onClick={(e) => e.stopPropagation()}>
             <AdtPlateActionIcon kind="calendar" />
@@ -675,11 +681,23 @@ function AdtNode({ activity, offers: _offers, x, y, animDelay, selected, onSelec
         </div>
       )}
 
+      {/* Offer details — inline-блок у раскрытой communication-ноды */}
+      {expanded && isCommunication && offerDetails.length > 0 && (
+        <div className="adt-node-offer-block">
+          <div className="adt-node-offer-title">Оффер</div>
+          {offerDetails.map((d, i) => (
+            <div key={i} className="adt-node-offer-row">
+              <span className="adt-node-offer-key">{d.label}</span>
+              <span className="adt-node-offer-val" title={d.value}>{d.value}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Bottom spacer 4px */}
       <span className="adt-node-spacer" />
 
-      {/* Error badge — красный X, левый верхний угол. Только для не-structural,
-          чтобы Common/Target Group в дефолтном скелете оставались чистыми. */}
+      {/* Error badge */}
       {hasError && !structural && (
         <span className="adt-node-badge adt-node-badge-error" title={`${(activity.errors as unknown[]).length} ошибок`}>
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
@@ -700,6 +718,47 @@ function AdtNode({ activity, offers: _offers, x, y, animDelay, selected, onSelec
 // Декоративный right-panel из макета: Name / Tags / Event-pill / Add filter /
 // Filter rows / checkboxes / Event relevance + Ok/Cancel. Реальной логики нет —
 // это статичный визуальный аналог Eastwind UI.
+
+// Достать список деталей оффера для communication-ноды.
+// Используется и в inline expanded-блоке самой ноды, и (потенциально) в
+// side-panel будущих типов.
+function getCommunicationDetails(
+  activity: FlowActivity,
+  offers: CampaignOffer[],
+): Array<{ label: string; value: string }> {
+  if (!isCommunicationActivity(activity.type)) return [];
+
+  const generatedOffer = offers.find((offer) => offer.activityId === activity.id);
+  const parameters = activity.content?.parameters ?? [];
+  const text = generatedOffer?.text ?? getParameterValue(parameters, "Text");
+  const sender = generatedOffer?.sender ?? getParameterValue(parameters, "Sender");
+  const rawChannel = generatedOffer?.contentType ?? activity.contentType ?? activity.content?.type;
+
+  const details: Array<{ label: string; value: string }> = [];
+  if (rawChannel) details.push({ label: "Канал", value: formatContentType(rawChannel) });
+  if (text) details.push({ label: "Оффер", value: text });
+  if (sender) details.push({ label: "Отправитель", value: sender });
+  if (generatedOffer?.offerTemplateId) {
+    details.push({ label: "Шаблон", value: `#${generatedOffer.offerTemplateId}` });
+  }
+  if (generatedOffer?.businessOperationId) {
+    details.push({ label: "Операция", value: generatedOffer.businessOperationId });
+  }
+  return details;
+}
+
+function formatContentType(contentType: string): string {
+  return contentType.replace("Content", "");
+}
+
+function getParameterValue(
+  parameters: NonNullable<FlowActivity["content"]>["parameters"],
+  name: string,
+): string | null {
+  const param = parameters?.find((item) => item.name === name);
+  if (param?.value === undefined || param.value === null) return null;
+  return String(param.value);
+}
 
 function AdtSidePanel({ activity, onClose }: { activity: FlowActivity; onClose: () => void }) {
   const isEvent = activity.type === "EventActivity";

@@ -299,6 +299,13 @@
 .adt-node-active { border-color: #64748B; }
 .adt-node-error { border-color: #FCA5A5; }
 
+/* Expanded: поднимается над соседями + лёгкая тень, чтобы не выглядело
+   плоско при наложении на следующую ноду / стрелку. */
+.adt-node-expanded {
+  z-index: 10;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.10), 0 2px 6px rgba(15, 23, 42, 0.06);
+}
+
 /* Title row: 260×20, padding 0 12, flex space-between */
 .adt-node-title {
   display: flex;
@@ -369,6 +376,49 @@
   cursor: pointer;
 }
 .adt-node-action-tab:hover { background: var(--adt-surface-2); }
+
+/* Offer details — inline-блок у раскрытой communication-ноды.
+   Растёт по контенту, общий вид остаётся 260px ширины. */
+.adt-node-offer-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 8px 12px 4px;
+  border-top: 1px solid var(--adt-border);
+}
+.adt-node-offer-title {
+  font-family: var(--adt-font);
+  font-weight: 700;
+  font-size: 10.5px;
+  line-height: 14px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--adt-text-quaternary);
+  margin-bottom: 2px;
+}
+.adt-node-offer-row {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 6px;
+  align-items: baseline;
+  font-family: var(--adt-font);
+  font-weight: 500;
+  font-size: 12px;
+  line-height: 16px;
+  min-width: 0;
+}
+.adt-node-offer-key {
+  color: var(--adt-text-secondary);
+}
+.adt-node-offer-val {
+  color: var(--adt-text);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
 
 /* Spacer 4px снизу — точно по макету */
 .adt-node-spacer {

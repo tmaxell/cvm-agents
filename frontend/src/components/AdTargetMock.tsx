@@ -181,19 +181,36 @@ function computeBounds(positions: Map<string, Pos>): { width: number; height: nu
 export function AdTargetMock({
   flow,
 }: Props) {
+  // Эффективный flow: либо переданный, либо скелет по умолчанию.
+  const effectiveFlow = flow && flow.activities?.length > 0 ? flow : SKELETON_FLOW;
+  // По умолчанию выбираем Event-ноду, если она есть (как в макете).
+  const defaultSelected =
+    effectiveFlow.activities.find(a => a.type === "EventActivity")?.id
+    ?? effectiveFlow.activities[effectiveFlow.activities.length - 1]?.id
+    ?? null;
+
+  const [selectedId, setSelectedId] = useState<string | null>(defaultSelected);
+  const selected = effectiveFlow.activities.find(a => a.id === selectedId) ?? null;
+
   return (
     <div className="adt-shell">
       <AdtTopNav />
       <div className="adt-body">
         <AdtSidebar />
-        <div className="adt-canvas">
-          {flow && flow.activities?.length > 0
-            ? <AdtFlowCanvas flow={flow} />
-            : <AdtCanvasEmpty />
-          }
+        <div className="adt-canvas-wrap">
+          <div className="adt-canvas">
+            <AdtFlowCanvas
+              flow={effectiveFlow}
+              selectedId={selectedId}
+              onSelect={(id) => setSelectedId(prev => prev === id ? null : id)}
+            />
+          </div>
+          <AdtRightToolbar />
+          <AdtNotificationTab />
         </div>
-        <AdtRightToolbar />
-        <AdtNotificationTab />
+        {selected && (
+          <AdtSidePanel activity={selected} onClose={() => setSelectedId(null)} />
+        )}
       </div>
     </div>
   );
@@ -444,23 +461,13 @@ function AdtRightToolbar() {
   );
 }
 
-// ── Canvas empty state ────────────────────────────────────────────────────────
-
-function AdtCanvasEmpty() {
-  return (
-    <div className="adt-canvas-empty">
-      {/* Ghost skeleton of mandatory first two nodes */}
-      <div style={{ opacity: 0.28, pointerEvents: "none", transform: "scale(0.92)", transformOrigin: "top center" }}>
-        <AdtFlowCanvas flow={SKELETON_FLOW} />
-      </div>
-      <p className="adt-canvas-hint">Drag activities from the left panel<br/>or use the AI builder →</p>
-    </div>
-  );
-}
-
 // ── Flow canvas ───────────────────────────────────────────────────────────────
 
-function AdtFlowCanvas({ flow }: { flow: CampaignFlow }) {
+function AdtFlowCanvas({ flow, selectedId, onSelect }: {
+  flow: CampaignFlow;
+  selectedId?: string | null;
+  onSelect?: (id: string) => void;
+}) {
   const positions = computeTreeLayout(flow.activities);
   const bounds = computeBounds(positions);
   const pad = 24;
@@ -535,6 +542,8 @@ function AdtFlowCanvas({ flow }: { flow: CampaignFlow }) {
             x={x}
             y={y}
             animDelay={i * 65}
+            selected={act.id === selectedId}
+            onSelect={() => onSelect?.(act.id)}
           />
         );
       })}
@@ -580,24 +589,25 @@ function AdtPlateActionIcon({ kind }: { kind: "calendar" | "clock" | "check" }) 
   );
 }
 
-function AdtNode({ activity, offers, x, y, animDelay }: {
-  activity: FlowActivity; offers: CampaignOffer[]; x: number; y: number; animDelay: number;
+function AdtNode({ activity, offers, x, y, animDelay, selected, onSelect }: {
+  activity: FlowActivity;
+  offers: CampaignOffer[];
+  x: number;
+  y: number;
+  animDelay: number;
+  selected?: boolean;
+  onSelect?: () => void;
 }) {
-  const [active, setActive] = useState(false);
+  const active = !!selected;
   const label = resolveNodeLabel(activity);
   const color = resolveNodeColor(activity);
   const hasError = Array.isArray(activity.errors) && activity.errors.length > 0;
   const subtitleText = activity.name && activity.name !== label ? activity.name : label;
   const subtitle = subtitleText.length > 30 ? subtitleText.slice(0, 28) + "…" : subtitleText;
 
-  // Warning: Target Group без сконфигурированных условий, или нода-стаб без content
-  const hasWarning = !hasError && (
-    activity.type === "TargetGroupActivity" && !activity.name
-  );
-
-  const isCommunication =
-    activity.type === "PushCommunicationActivity" || activity.type === "PullCommunicationActivity";
-  const isInteractive = isCommunication || hasError;
+  // Warning: явные warnings или Target Group без конфигурации
+  const hasExplicitWarning = Array.isArray(activity.warnings) && activity.warnings.length > 0;
+  const hasWarning = !hasError && hasExplicitWarning;
 
   const nodeHeight = active ? 116 : NODE_H;
 
@@ -612,7 +622,7 @@ function AdtNode({ activity, offers, x, y, animDelay }: {
         height: nodeHeight,
         animationDelay: `${animDelay}ms`,
       }}
-      onClick={isInteractive ? () => setActive(v => !v) : undefined}
+      onClick={onSelect}
     >
       {/* Indicator strip (только в active) */}
       {active && (
@@ -691,6 +701,110 @@ function AdtNode({ activity, offers, x, y, animDelay }: {
         </div>
       )}
     </div>
+  );
+}
+
+// ── Side panel (properties для выбранной ноды) ────────────────────────────────
+//
+// Декоративный right-panel из макета: Name / Tags / Event-pill / Add filter /
+// Filter rows / checkboxes / Event relevance + Ok/Cancel. Реальной логики нет —
+// это статичный визуальный аналог Eastwind UI.
+
+function AdtSidePanel({ activity, onClose }: { activity: FlowActivity; onClose: () => void }) {
+  const isEvent = activity.type === "EventActivity";
+  const title = isEvent ? "Event" : resolveNodeLabel(activity);
+
+  return (
+    <aside className="adt-side-panel" aria-label={`Свойства ${title}`}>
+      <div className="adt-sp-body">
+        <h3 className="adt-sp-title">{title}</h3>
+
+        <div className="adt-sp-field">
+          <label className="adt-sp-label">Name</label>
+          <div className="adt-sp-input">{activity.name || title}</div>
+        </div>
+
+        <div className="adt-sp-field">
+          <label className="adt-sp-label">
+            Tags
+            <button type="button" className="adt-sp-plus" title="Добавить тег">+</button>
+          </label>
+        </div>
+
+        {isEvent && (
+          <>
+            <div className="adt-sp-field">
+              <label className="adt-sp-label">Event</label>
+              <div className="adt-sp-pill">
+                <span className="adt-sp-pill-dot" />
+                <span className="adt-sp-pill-label">AddedExampleFile</span>
+                <span className="adt-sp-pill-close" title="Удалить">×</span>
+              </div>
+            </div>
+
+            <div className="adt-sp-field">
+              <label className="adt-sp-label">
+                Add filter
+                <button type="button" className="adt-sp-plus" title="Добавить фильтр">+</button>
+              </label>
+            </div>
+
+            <div className="adt-sp-filter">
+              <div className="adt-sp-filter-head">
+                <span>Filter 1</span>
+                <button type="button" className="adt-sp-icon-btn" title="Удалить фильтр">×</button>
+              </div>
+              <div className="adt-sp-filter-param">
+                <label className="adt-sp-label">
+                  Parameter
+                  <button type="button" className="adt-sp-plus" title="Добавить параметр">+</button>
+                </label>
+              </div>
+              <div className="adt-sp-filter-row">
+                <div className="adt-sp-select"><span>ExampleParSelect</span><span className="adt-sp-caret">▾</span></div>
+                <div className="adt-sp-select"><span>Is null</span><span className="adt-sp-caret">▾</span></div>
+                <button type="button" className="adt-sp-icon-btn" title="Удалить">
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <path d="M4 3V2.5A1 1 0 015 1.5h4A1 1 0 0110 2.5V3M2.5 3.5h9M3.5 3.5v8a1 1 0 001 1h5a1 1 0 001-1v-8" stroke="#94A3B8" strokeWidth="1.2" strokeLinecap="round"/>
+                  </svg>
+                </button>
+              </div>
+              <div className="adt-sp-filter-row">
+                <div className="adt-sp-select"><span>ExampleParSelect</span><span className="adt-sp-caret">▾</span></div>
+                <div className="adt-sp-select"><span>Is null</span><span className="adt-sp-caret">▾</span></div>
+                <button type="button" className="adt-sp-icon-btn" title="Удалить">
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <path d="M4 3V2.5A1 1 0 015 1.5h4A1 1 0 0110 2.5V3M2.5 3.5h9M3.5 3.5v8a1 1 0 001 1h5a1 1 0 001-1v-8" stroke="#94A3B8" strokeWidth="1.2" strokeLinecap="round"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <label className="adt-sp-check">
+              <span className="adt-sp-checkbox" />
+              <span>Consider campaign schedule</span>
+            </label>
+            <label className="adt-sp-check">
+              <span className="adt-sp-checkbox" />
+              <span>Wait time parameters</span>
+            </label>
+
+            <div className="adt-sp-field">
+              <label className="adt-sp-label">Event relevance</label>
+              <div className="adt-sp-input">15</div>
+            </div>
+          </>
+        )}
+      </div>
+      <div className="adt-sp-footer">
+        <button type="button" className="adt-sp-btn adt-sp-btn-primary" onClick={onClose}>
+          Ok
+        </button>
+        <button type="button" className="adt-sp-btn adt-sp-btn-secondary" onClick={onClose}>
+          Cancel
+        </button>
+      </div>
+    </aside>
   );
 }
 

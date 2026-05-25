@@ -237,6 +237,16 @@
 
 /* ── Canvas ─────────────────────────────────────────────────────────────── */
 
+/* Wrapper для canvas + overlay-элементов (right toolbar, notification tab) */
+.adt-canvas-wrap {
+  flex: 1;
+  position: relative;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .adt-canvas {
   flex: 1;
   background: var(--adt-bg);
@@ -254,25 +264,6 @@
   background-image: radial-gradient(circle, rgba(30, 41, 59, 0.18) 1px, transparent 1px);
   background-size: 16px 16px;
   pointer-events: none;
-}
-
-.adt-canvas-empty {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  z-index: 1;
-}
-.adt-canvas-hint {
-  color: var(--adt-text-quaternary);
-  font-size: 13px;
-  font-weight: 500;
-  text-align: center;
-  margin-top: 16px;
-  font-style: normal;
 }
 
 .adt-flow-canvas-wrap { position: relative; z-index: 1; }
@@ -431,6 +422,239 @@
   width: 100%;
 }
 .adt-node-offers-tip b { color: var(--adt-text); font-weight: 600; }
+
+/* ── Side panel (properties для выбранной ноды) ─────────────────────────── */
+
+.adt-side-panel {
+  flex: 0 0 360px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--adt-surface);
+  border-left: 1px solid var(--adt-border);
+  pointer-events: auto;
+  z-index: 4;
+}
+
+.adt-sp-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 20px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  font-family: var(--adt-font);
+}
+
+.adt-sp-title {
+  margin: 0;
+  font-family: var(--adt-font);
+  font-weight: 600;
+  font-size: 18px;
+  line-height: 24px;
+  color: var(--adt-text);
+}
+
+.adt-sp-field { display: flex; flex-direction: column; gap: 8px; }
+
+.adt-sp-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--adt-font);
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--adt-text-secondary);
+}
+
+.adt-sp-plus {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  color: var(--adt-accent);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 4px;
+  line-height: 1;
+}
+.adt-sp-plus:hover { background: rgba(82, 87, 255, 0.08); }
+
+.adt-sp-input {
+  height: 40px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  background: var(--adt-surface-2);
+  border: 1px solid var(--adt-border);
+  border-radius: var(--adt-radius-sm);
+  font-family: var(--adt-font);
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--adt-text);
+}
+
+.adt-sp-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  height: 32px;
+  padding: 0 10px;
+  background: var(--adt-surface-2);
+  border: 1px solid var(--adt-border);
+  border-radius: 999px;
+  font-family: var(--adt-font);
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--adt-text);
+}
+.adt-sp-pill-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: var(--adt-event);
+  flex-shrink: 0;
+}
+.adt-sp-pill-close {
+  margin-left: 2px;
+  color: var(--adt-text-quaternary);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+.adt-sp-pill-close:hover { color: var(--adt-text); }
+
+.adt-sp-filter {
+  background: var(--adt-surface-2);
+  border: 1px solid var(--adt-border);
+  border-radius: var(--adt-radius-sm);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.adt-sp-filter-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--adt-font);
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--adt-text);
+}
+
+.adt-sp-filter-param {
+  margin-top: 4px;
+}
+
+.adt-sp-filter-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.adt-sp-select {
+  height: 36px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--adt-surface);
+  border: 1px solid var(--adt-border);
+  border-radius: var(--adt-radius-sm);
+  font-family: var(--adt-font);
+  font-weight: 500;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--adt-text);
+  cursor: pointer;
+  gap: 6px;
+}
+.adt-sp-select > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.adt-sp-caret { color: var(--adt-text-quaternary); font-size: 10px; flex-shrink: 0; }
+
+.adt-sp-icon-btn {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--adt-text-quaternary);
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+}
+.adt-sp-icon-btn:hover { background: var(--adt-surface-2); color: var(--adt-text); }
+
+.adt-sp-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--adt-font);
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--adt-text);
+  cursor: pointer;
+}
+.adt-sp-checkbox {
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--adt-border);
+  border-radius: 4px;
+  background: var(--adt-surface);
+  flex-shrink: 0;
+}
+
+.adt-sp-footer {
+  display: flex;
+  gap: 12px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--adt-border);
+  background: var(--adt-surface);
+}
+.adt-sp-btn {
+  flex: 1;
+  height: 44px;
+  border-radius: var(--adt-radius-sm);
+  font-family: var(--adt-font);
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 20px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.adt-sp-btn-primary {
+  background: var(--adt-accent);
+  color: #FFFFFF;
+}
+.adt-sp-btn-primary:hover { background: #4147e0; }
+.adt-sp-btn-secondary {
+  background: var(--adt-surface);
+  border-color: var(--adt-border);
+  color: var(--adt-text);
+}
+.adt-sp-btn-secondary:hover { background: var(--adt-surface-2); }
 
 /* ── Notification list tab (bottom-left) ────────────────────────────────── */
 

@@ -314,39 +314,50 @@
 
 .adt-search-placeholder { color: var(--adt-text-quaternary); font-weight: 500; }
 
-.adt-sidebar-groups {
+.adt-sidebar-groups-container {
+  margin: 0 16px;
   display: flex;
   flex-direction: column;
-  padding: 0 8px;
-  gap: 2px;
+  background: var(--adt-surface);
+  border: 1px solid var(--adt-border);
+  border-radius: var(--adt-radius-sm);
+  overflow: hidden;
 }
 
 .adt-sidebar-group {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 40px;
+  height: 44px;
   padding: 0 12px;
-  border-radius: var(--adt-radius-sm);
   font-size: 14px;
   font-weight: 600;
   line-height: 20px;
+}
+.adt-sidebar-group + .adt-sidebar-group {
+  border-top: 1px solid var(--adt-border);
 }
 
 .adt-group-left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   min-width: 0;
 }
 
 .adt-group-icon {
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+}
+
+.adt-group-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .adt-group-arrow {
@@ -355,8 +366,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
   color: var(--adt-text-quaternary);
+  flex-shrink: 0;
 }
 
 /* ── Canvas ─────────────────────────────────────────────────────────────── */

@@ -334,69 +334,110 @@ function AdtTabBar() {
 
 // ── Left sidebar ──────────────────────────────────────────────────────────────
 
-// SVG-иконки групп (стилизованы под Eastwind product icons)
+// SVG-иконки групп (стилизованы под Eastwind product icons,
+// 16×16, currentColor — каждая группа берёт цвет из родителя).
 function MegaphoneIcon() {
   return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-      <path d="M3 7v4h2.2l5.3 3V4L5.2 7H3z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
-      <path d="M13 6.5a3 3 0 010 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      {/* Корпус мегафона */}
+      <path
+        d="M2.5 6.5L9 4v8L2.5 9.5a1 1 0 01-.6-.93V7.43a1 1 0 01.6-.93z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+        fill="currentColor"
+        fillOpacity="0.12"
+      />
+      {/* Ручка снизу */}
+      <path d="M4.5 9.5L5.5 13" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+      {/* Звуковые волны */}
+      <path d="M11 6.5l1.2-.8M11 8h1.5M11 9.5l1.2.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
     </svg>
   );
 }
 function BoltIcon() {
   return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-      <path d="M10 2L4 10h4l-1 6 6-8h-4l1-6z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" fill="currentColor" fillOpacity="0.15"/>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path
+        d="M9 1.5L3.5 9h3.5l-.5 5.5L12.5 7H9l.5-5.5z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+        fill="currentColor"
+      />
     </svg>
   );
 }
 function ThumbsUpIcon() {
   return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-      <path d="M3 8h2v7H3V8zm3 0V6c0-1.5 1.2-3 2.5-3 .8 0 1 .8 1 1.5 0 1-.5 2-.5 2.5H13c.8 0 1.5.7 1.5 1.5 0 .3 0 .5-.2.7.5.3.7.8.7 1.3 0 .5-.3 1-.7 1.3.2.2.2.5.2.7 0 .5-.3 1-.7 1.3.2.2.2.5.2.7 0 .8-.7 1.5-1.5 1.5H8L6 14V8z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path
+        d="M2 7.5h2.2v6.5H2.5a.5.5 0 01-.5-.5V7.5z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M4.2 7.5l2.3-4.8c.2-.5.8-.7 1.3-.5.4.2.6.6.6 1l-.3 2.8h4.4a1.2 1.2 0 011.18 1.42l-.95 5.1A1.2 1.2 0 0111.6 13.5H4.2V7.5z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
 function BackArrowIcon() {
   return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-      <path d="M11 4l-5 5 5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M6 9h7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path d="M6.5 3L2.5 7l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M2.5 7h7a4 4 0 014 4v3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
 }
 function ChatIcon() {
   return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-      <path d="M3 4h12v8H8l-3 3v-3H3V4z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path
+        d="M2.5 4a2 2 0 012-2h7a2 2 0 012 2v5a2 2 0 01-2 2H7l-3.2 2.5a.3.3 0 01-.5-.23V11a1 1 0 01-.8-.98V4z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
-function ClockIcon() {
+function ClockCheckIcon() {
   return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-      <circle cx="9" cy="9" r="6.5" stroke="currentColor" strokeWidth="1.4"/>
-      <path d="M9 5v4l2.5 1.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path d="M14 8a6 6 0 11-1.76-4.24" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+      <path d="M5.5 8l1.7 1.7L10.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
 }
-function CircleIcon() {
+function ShieldIcon() {
   return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-      <circle cx="9" cy="9" r="6.5" stroke="currentColor" strokeWidth="1.4" fill="currentColor" fillOpacity="0.12"/>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path
+        d="M8 1.5l5 2v4.2c0 3-2.1 5.5-5 6.3-2.9-.8-5-3.3-5-6.3V3.5l5-2z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+        fill="currentColor"
+        fillOpacity="0.12"
+      />
     </svg>
   );
 }
 
 const SIDEBAR_GROUPS: Array<{ label: string; color: string; icon: () => JSX.Element; hasArrow: boolean }> = [
-  { label: "Communication",         color: "#5257ff", icon: MegaphoneIcon, hasArrow: true  },
-  { label: "Custom communication",  color: "#5257ff", icon: MegaphoneIcon, hasArrow: true  },
-  { label: "Product action",        color: "#5257ff", icon: BoltIcon,      hasArrow: false },
-  { label: "Responce",              color: "#ffcc00", icon: ThumbsUpIcon,  hasArrow: false },
-  { label: "Business transaction",  color: "#611eb7", icon: BackArrowIcon, hasArrow: false },
-  { label: "Event",                 color: "#ff48e7", icon: ChatIcon,      hasArrow: false },
-  { label: "Real-time check",       color: "#21cf18", icon: ClockIcon,     hasArrow: false },
-  { label: "Control",               color: "#ff8b17", icon: CircleIcon,    hasArrow: true  },
+  { label: "Communication",         color: "#5257ff", icon: MegaphoneIcon,  hasArrow: true  },
+  { label: "Custom communication",  color: "#5257ff", icon: MegaphoneIcon,  hasArrow: true  },
+  { label: "Product action",        color: "#5257ff", icon: BoltIcon,       hasArrow: true  },
+  { label: "Responce",              color: "#ffcc00", icon: ThumbsUpIcon,   hasArrow: false },
+  { label: "Business transaction",  color: "#611eb7", icon: BackArrowIcon,  hasArrow: false },
+  { label: "Event",                 color: "#ff48e7", icon: ChatIcon,       hasArrow: false },
+  { label: "Real-time check",       color: "#21cf18", icon: ClockCheckIcon, hasArrow: false },
+  { label: "Control",               color: "#ff8b17", icon: ShieldIcon,     hasArrow: true  },
 ];
 
 function AdtSidebar() {
@@ -404,24 +445,24 @@ function AdtSidebar() {
     <aside className="adt-sidebar">
       <div className="adt-sidebar-search-container">
         <div className="adt-sidebar-search">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <circle cx="6" cy="6" r="4" stroke="currentColor" strokeWidth="1.4"/>
-            <line x1="9.2" y1="9.2" x2="12.5" y2="12.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.4"/>
+            <line x1="10.5" y1="10.5" x2="14" y2="14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
           </svg>
           <span className="adt-search-placeholder">Search</span>
         </div>
       </div>
-      <div className="adt-sidebar-groups">
+      <div className="adt-sidebar-groups-container">
         {SIDEBAR_GROUPS.map(g => (
           <div key={g.label} className="adt-sidebar-group">
             <div className="adt-group-left" style={{ color: g.color }}>
               <span className="adt-group-icon">{g.icon()}</span>
-              <span>{g.label}</span>
+              <span className="adt-group-label">{g.label}</span>
             </div>
             {g.hasArrow && (
               <span className="adt-group-arrow">
-                <svg width="10" height="6" viewBox="0 0 10 6" fill="none">
-                  <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                <svg width="12" height="8" viewBox="0 0 12 8" fill="none">
+                  <path d="M1.5 1.75L6 6.25l4.5-4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
               </span>
             )}

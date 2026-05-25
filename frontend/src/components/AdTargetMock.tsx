@@ -201,7 +201,6 @@ export function AdTargetMock({
         onStartCampaign={onStartCampaign}
         onPauseCampaign={onPauseCampaign}
       />
-      <AdtTabBar />
       <div className="adt-body">
         <AdtSidebar />
         <div className="adt-canvas">
@@ -218,32 +217,59 @@ export function AdTargetMock({
 
 // ── Top navigation bar ────────────────────────────────────────────────────────
 
+function AdtLogo() {
+  // Точно по макету Eastwind UI: «AdTarget» + двухсегментная стрелка #9AAEFF
+  // под текстом, заканчивающаяся треугольным наконечником.
+  // viewBox 110×28 — соответствует Adt Logo фрейму.
+  return (
+    <svg width="110" height="28" viewBox="0 0 110 28" fill="none" aria-label="AdTarget">
+      <text
+        x="0"
+        y="20"
+        fill="#FFFFFF"
+        fontFamily="Tilda Sans, Inter, -apple-system, sans-serif"
+        fontWeight="700"
+        fontSize="20"
+        letterSpacing="-0.2"
+      >
+        AdTarget
+      </text>
+      {/* Arrow 2 — длинная палочка стрелки */}
+      <line x1="0.44" y1="23.55" x2="57.21" y2="23.55" stroke="#9AAEFF" strokeWidth="2" strokeLinecap="square" />
+      {/* Arrow 3 — короткая палочка справа */}
+      <line x1="74.42" y1="23.55" x2="96.46" y2="23.55" stroke="#9AAEFF" strokeWidth="2" strokeLinecap="square" />
+      {/* Polygon 1 — треугольный наконечник (повернут на 90deg) */}
+      <polygon points="96.39,18.97 105.56,23.55 96.39,28.14" fill="#9AAEFF" />
+    </svg>
+  );
+}
+
 function AdtTopNav() {
   const NAV = ["Segmentation", "Campaigns", "Reporting", "Approval", "Templates", "System", "Configuration"];
   return (
     <header className="adt-topnav">
       <div className="adt-topnav-logo">
-        <span className="adt-logo-text">AdTarget</span>
+        <AdtLogo />
       </div>
       <nav className="adt-topnav-nav">
         {NAV.map(item => (
           <span key={item} className={`adt-nav-item${item === "Campaigns" ? " active" : ""}`}>
-            {item}
-            <svg className="adt-nav-arrow" width="10" height="6" viewBox="0 0 10 6" fill="none">
-              <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            <span className="adt-nav-item-label">{item}</span>
+            <svg className="adt-nav-arrow" width="10" height="6" viewBox="0 0 10 6" fill="none" aria-hidden="true">
+              <path d="M1 1l4 4 4-4" stroke="#94A3B8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </span>
         ))}
-      </nav>
-      <div className="adt-topnav-right">
         <span className="adt-clock">14:48 (UTC+05:00)</span>
         <div className="adt-avatar">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-            <circle cx="10" cy="7" r="3.25" stroke="currentColor" strokeWidth="1.5"/>
-            <path d="M3.5 17c0-3.31 2.91-6 6.5-6s6.5 2.69 6.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            {/* Вектор-голова (top: 11.46%, bottom: 52.27%) → круг сверху */}
+            <circle cx="10" cy="7.27" r="3.64" stroke="#FFFFFF" strokeWidth="1.3"/>
+            {/* Вектор-тело (top: 61.34%, bottom: 11.46%) → дуга снизу */}
+            <path d="M3.65 17.71a6.35 6.35 0 0112.7 0" stroke="#FFFFFF" strokeWidth="1.3" strokeLinecap="round"/>
           </svg>
         </div>
-      </div>
+      </nav>
     </header>
   );
 }
@@ -315,19 +341,6 @@ function AdtCampaignBar({
           {isActionPending ? "…" : "⏸"} Пауза
         </button>
       </div>
-    </div>
-  );
-}
-
-// ── Tab bar ───────────────────────────────────────────────────────────────────
-
-function AdtTabBar() {
-  const TABS = ["FLOW", "OVERVIEW", "GOALS", "NBO", "CHANGE HISTORY", "STATUS HISTORY", "CAMPAIGN CLIENTS", "DETAILED REPORT", "REPORTS"];
-  return (
-    <div className="adt-tabbar">
-      {TABS.map(tab => (
-        <span key={tab} className={`adt-tab${tab === "FLOW" ? " active" : ""}`}>{tab}</span>
-      ))}
     </div>
   );
 }

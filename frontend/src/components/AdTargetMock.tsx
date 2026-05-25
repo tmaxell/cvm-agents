@@ -62,10 +62,10 @@ function resolveNodeColor(activity: FlowActivity): string {
   return NODE_META[activity.type]?.color ?? "#94a3b8";
 }
 
-const NODE_W = 200;
-const NODE_H = 96;
-const H_GAP = 48;   // horizontal gap between parallel branches
-const V_GAP = 40;   // vertical gap between rows
+const NODE_W = 260;
+const NODE_H = 72;
+const H_GAP = 56;   // horizontal gap between parallel branches
+const V_GAP = 40;   // vertical gap between rows — точно как Connector Arrow в макете
 
 // ── Tree layout ───────────────────────────────────────────────────────────────
 
@@ -180,27 +180,10 @@ function computeBounds(positions: Map<string, Pos>): { width: number; height: nu
 
 export function AdTargetMock({
   flow,
-  campaignId,
-  campaignStatus,
-  isActionPending = false,
-  actionError,
-  canStartCampaign = true,
-  onStartCampaign,
-  onPauseCampaign,
 }: Props) {
   return (
     <div className="adt-shell">
       <AdtTopNav />
-      <AdtCampaignBar
-        flow={flow}
-        campaignId={campaignId}
-        campaignStatus={campaignStatus}
-        isActionPending={isActionPending}
-        actionError={actionError}
-        canStartCampaign={canStartCampaign}
-        onStartCampaign={onStartCampaign}
-        onPauseCampaign={onPauseCampaign}
-      />
       <div className="adt-body">
         <AdtSidebar />
         <div className="adt-canvas">
@@ -210,6 +193,7 @@ export function AdTargetMock({
           }
         </div>
         <AdtRightToolbar />
+        <AdtNotificationTab />
       </div>
     </div>
   );
@@ -271,77 +255,6 @@ function AdtTopNav() {
         </div>
       </nav>
     </header>
-  );
-}
-
-// ── Campaign breadcrumb bar ───────────────────────────────────────────────────
-
-function AdtCampaignBar({
-  flow,
-  campaignId,
-  campaignStatus,
-  isActionPending = false,
-  actionError,
-  canStartCampaign = true,
-  onStartCampaign,
-  onPauseCampaign,
-}: {
-  flow: CampaignFlow | null;
-  campaignId?: number | null;
-  campaignStatus: CampaignRuntimeStatus;
-  isActionPending?: boolean;
-  actionError?: string | null;
-  canStartCampaign?: boolean;
-  onStartCampaign: () => void | Promise<void>;
-  onPauseCampaign: () => void | Promise<void>;
-}) {
-  const name = flow?.activities?.find(a => a.type === "CommonActivity")?.name ?? "Demo campaign";
-  const idStr = campaignId ? ` | ${campaignId}` : "";
-  const statusLabels: Record<CampaignRuntimeStatus, string> = {
-    editing: "Редактирование",
-    active: "Активна",
-    paused: "На паузе",
-  };
-  const canStart = Boolean(campaignId)
-    && !isActionPending
-    && canStartCampaign
-    && (campaignStatus === "editing" || campaignStatus === "paused");
-  const canPause = !isActionPending && campaignStatus === "active";
-
-  return (
-    <div className="adt-campaign-bar">
-      <div className="adt-campaign-bar-left">
-        <span className="adt-back-btn">‹</span>
-        <span className="adt-campaign-crumb">Campaigns</span>
-        <span className="adt-crumb-sep">/</span>
-        <span className="adt-campaign-name">{name}{idStr}</span>
-        <span className={`adt-campaign-status ${campaignStatus}`}>
-          <span className="adt-status-dot" />
-          {statusLabels[campaignStatus]}
-        </span>
-      </div>
-      <div className="adt-campaign-bar-right">
-        {actionError && <span className="adt-action-error" title={actionError}>{actionError}</span>}
-        <button
-          type="button"
-          className="adt-toolbar-btn adt-toolbar-btn-start"
-          onClick={onStartCampaign}
-          disabled={!canStart}
-          title={!campaignId ? "Сначала создайте кампанию" : !canStartCampaign ? "Review checklist должен быть green или acknowledged warnings" : "Запустить кампанию"}
-        >
-          {isActionPending ? "…" : "▶"} Запустить
-        </button>
-        <button
-          type="button"
-          className="adt-toolbar-btn adt-toolbar-btn-pause"
-          onClick={onPauseCampaign}
-          disabled={!canPause}
-          title="Поставить кампанию на паузу"
-        >
-          {isActionPending ? "…" : "⏸"} Пауза
-        </button>
-      </div>
-    </div>
   );
 }
 
@@ -502,11 +415,12 @@ function AdtRightToolbar() {
         </svg>
       </button>
       <button className="adt-rt-btn active" title="Tree" type="button">
+        {/* Active state — иконка дерева в фирменном accent #5257FF */}
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-          <rect x="7.5" y="2.5" width="5" height="4" rx="1" stroke="currentColor" strokeWidth="1.4"/>
-          <rect x="2.5" y="13.5" width="5" height="4" rx="1" stroke="currentColor" strokeWidth="1.4"/>
-          <rect x="12.5" y="13.5" width="5" height="4" rx="1" stroke="currentColor" strokeWidth="1.4"/>
-          <path d="M10 6.5v3M5 13.5v-2h10v2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+          <rect x="6.5" y="2.5" width="7" height="5" rx="1" fill="#5257FF"/>
+          <rect x="2" y="12.5" width="6" height="5" rx="1" fill="#5257FF"/>
+          <rect x="12" y="12.5" width="6" height="5" rx="1" fill="#5257FF"/>
+          <path d="M10 7.5v3M5 12.5v-2h10v2" stroke="#5257FF" strokeWidth="1.4" strokeLinecap="round"/>
         </svg>
       </button>
       <div className="adt-rt-zoom-group">
@@ -629,77 +543,203 @@ function AdtFlowCanvas({ flow }: { flow: CampaignFlow }) {
 }
 
 // ── Single node card ──────────────────────────────────────────────────────────
+//
+// Canvas Plate из макета:
+//   - 260×72 (default), 260×116 (active/expanded — с indicator+Plate Actions)
+//   - bg #FFFFFF, border 1px #E2E8F0 rounded 6
+//   - padding-top 12, gap 8 между title/subtitle (по 20px), spacer 4 снизу
+//   - title: Tilda Sans 600 14/20 #1E293B (или цвет ноды в active)
+//   - subtitle: Tilda Sans 600 14/20 #64748B
+//   - active state — индикаторная полоса 4×16 слева top:14 в цвете ноды
+//   - error → красный X badge (#E4575F) поверх левого-верхнего угла
+//   - warning → жёлтый ⚠ (#FDBD1A) поверх левого-верхнего угла
+
+function AdtPlateActionIcon({ kind }: { kind: "calendar" | "clock" | "check" }) {
+  if (kind === "calendar") {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <rect x="2" y="3.5" width="12" height="10.5" rx="1.5" stroke="#94A3B8" strokeWidth="1.3"/>
+        <line x1="2" y1="6.5" x2="14" y2="6.5" stroke="#94A3B8" strokeWidth="1.3"/>
+        <line x1="5.5" y1="2" x2="5.5" y2="4.5" stroke="#94A3B8" strokeWidth="1.3" strokeLinecap="round"/>
+        <line x1="10.5" y1="2" x2="10.5" y2="4.5" stroke="#94A3B8" strokeWidth="1.3" strokeLinecap="round"/>
+      </svg>
+    );
+  }
+  if (kind === "clock") {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <circle cx="8" cy="8" r="5.5" stroke="#94A3B8" strokeWidth="1.3"/>
+        <path d="M8 5v3l2 1.2" stroke="#94A3B8" strokeWidth="1.3" strokeLinecap="round"/>
+      </svg>
+    );
+  }
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M3 8.5l3 3 7-7" stroke="#94A3B8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
 
 function AdtNode({ activity, offers, x, y, animDelay }: {
   activity: FlowActivity; offers: CampaignOffer[]; x: number; y: number; animDelay: number;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [active, setActive] = useState(false);
   const label = resolveNodeLabel(activity);
   const color = resolveNodeColor(activity);
   const hasError = Array.isArray(activity.errors) && activity.errors.length > 0;
   const subtitleText = activity.name && activity.name !== label ? activity.name : label;
-  const communicationDetails = getCommunicationDetails(activity, offers);
-  const isExpandable = communicationDetails.length > 0;
+  const subtitle = subtitleText.length > 30 ? subtitleText.slice(0, 28) + "…" : subtitleText;
 
-  const subtitle = subtitleText.length > 28 ? subtitleText.slice(0, 26) + "…" : subtitleText;
+  // Warning: Target Group без сконфигурированных условий, или нода-стаб без content
+  const hasWarning = !hasError && (
+    activity.type === "TargetGroupActivity" && !activity.name
+  );
+
+  const isCommunication =
+    activity.type === "PushCommunicationActivity" || activity.type === "PullCommunicationActivity";
+  const isInteractive = isCommunication || hasError;
+
+  const nodeHeight = active ? 116 : NODE_H;
 
   return (
     <div
-      className={`adt-node${hasError ? " adt-node-error" : ""}${expanded ? " adt-node-expanded" : ""}`}
+      className={`adt-node${active ? " adt-node-active" : ""}${hasError ? " adt-node-error" : ""}`}
       style={{
         position: "absolute",
         left: x,
         top: y,
         width: NODE_W,
-        minHeight: NODE_H,
+        height: nodeHeight,
         animationDelay: `${animDelay}ms`,
       }}
+      onClick={isInteractive ? () => setActive(v => !v) : undefined}
     >
-      <div className="adt-node-body">
-        <div className="adt-node-type">
-          <span className="adt-node-type-dot" style={{ background: color }} />
+      {/* Indicator strip (только в active) */}
+      {active && (
+        <span className="adt-node-indicator" style={{ background: color }} />
+      )}
+
+      {/* Title row */}
+      <div className="adt-node-title">
+        <span
+          className="adt-node-title-text"
+          style={active ? { color } : undefined}
+        >
           {label}
-        </div>
-        <div className="adt-node-name">{subtitle}</div>
+        </span>
       </div>
 
-      {expanded && (
-        <div className="adt-node-offers">
-          <div className="adt-node-offers-title">Сгенерированный оффер</div>
-          {communicationDetails.map((detail, index) => (
-            <div key={`${detail.label}-${index}`} className="adt-node-offer-row">
-              <span>{detail.label}</span>
-              <strong title={detail.value}>{detail.value}</strong>
-            </div>
+      {/* Subtitle row */}
+      <div className="adt-node-subtitle">
+        <span className="adt-node-subtitle-text">{subtitle}</span>
+      </div>
+
+      {/* Plate Actions — только в активном состоянии */}
+      {active && (
+        <div className="adt-node-plate-actions">
+          <button className="adt-node-action-tab" type="button" onClick={(e) => e.stopPropagation()}>
+            <AdtPlateActionIcon kind="calendar" />
+          </button>
+          <button className="adt-node-action-tab" type="button" onClick={(e) => e.stopPropagation()}>
+            <AdtPlateActionIcon kind="clock" />
+          </button>
+          <button className="adt-node-action-tab" type="button" onClick={(e) => e.stopPropagation()}>
+            <AdtPlateActionIcon kind="check" />
+          </button>
+        </div>
+      )}
+
+      {/* Bottom spacer 4px */}
+      <span className="adt-node-spacer" />
+
+      {/* Error badge — красный X, левый верхний угол */}
+      {hasError && (
+        <span className="adt-node-badge adt-node-badge-error" title={`${(activity.errors as unknown[]).length} ошибок`}>
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path
+              d="M6 1.7h8L18.3 6v8L14 18.3H6L1.7 14V6L6 1.7z"
+              fill="#E4575F"
+            />
+            <path d="M7 7l6 6M13 7l-6 6" stroke="#FFFFFF" strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
+        </span>
+      )}
+
+      {/* Warning badge — жёлтый треугольник */}
+      {hasWarning && (
+        <span className="adt-node-badge adt-node-badge-warning" title="Требует настройки">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path
+              d="M10 2.5L18.5 17H1.5L10 2.5z"
+              fill="#FDBD1A"
+              stroke="#FDBD1A"
+              strokeWidth="1"
+              strokeLinejoin="round"
+            />
+            <path d="M10 7.5v4" stroke="#FFFFFF" strokeWidth="1.6" strokeLinecap="round"/>
+            <circle cx="10" cy="14.2" r="0.9" fill="#FFFFFF"/>
+          </svg>
+        </span>
+      )}
+
+      {/* hidden offers data (для tooltips/expanded режим в будущем) */}
+      {active && getCommunicationDetails(activity, offers).length > 0 && (
+        <div className="adt-node-offers-tip">
+          {getCommunicationDetails(activity, offers).slice(0, 2).map((d, i) => (
+            <span key={i}><b>{d.label}:</b> {d.value}</span>
           ))}
         </div>
       )}
+    </div>
+  );
+}
 
-      {/* Action icons at bottom */}
-      <div className="adt-node-actions">
-        {isExpandable && (
-          <button
-            className="adt-node-expand"
-            onClick={(event) => {
-              event.stopPropagation();
-              setExpanded((value) => !value);
-            }}
-            title={expanded ? "Скрыть офферы" : "Показать офферы"}
-            type="button"
-          >
-            {expanded ? "▴" : "▾"}
-          </button>
-        )}
-        <span className="adt-node-act-icon">✎</span>
-        <span className="adt-node-act-icon">⎘</span>
-        <span className="adt-node-act-icon">✕</span>
-      </div>
+// ── Notification list tab (bottom-left of canvas) ─────────────────────────────
 
-      {hasError && (
-        <span className="adt-node-err-badge" title={`${(activity.errors as unknown[]).length} ошибок`}>
-          ✕
-        </span>
-      )}
+function AdtNotificationTab() {
+  return (
+    <div className="adt-notif-tab" aria-label="Уведомления">
+      <button className="adt-notif-cell" type="button" title="Уведомления">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M6 18.5V11a6 6 0 1112 0v7.5"
+            stroke="#64748B"
+            strokeWidth="1.3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M3.5 18.5h17"
+            stroke="#64748B"
+            strokeWidth="1.3"
+            strokeLinecap="round"
+          />
+          <path
+            d="M10 21h4"
+            stroke="#64748B"
+            strokeWidth="1.3"
+            strokeLinecap="round"
+          />
+        </svg>
+        <span className="adt-notif-badge">3</span>
+      </button>
+      <button className="adt-notif-cell" type="button" title="Обновить">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M19.5 12a7.5 7.5 0 11-2.2-5.3"
+            stroke="#CBD5E1"
+            strokeWidth="1.3"
+            strokeLinecap="round"
+          />
+          <path
+            d="M19.5 4.5v3.5h-3.5"
+            stroke="#CBD5E1"
+            strokeWidth="1.3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
     </div>
   );
 }

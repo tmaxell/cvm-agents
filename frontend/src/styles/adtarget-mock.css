@@ -73,11 +73,13 @@
   gap: 12px;
 }
 
-/* Tabs row: padding 0 12px 0 0, h-48, flex row, занимает остаток */
+/* Tabs row: padding 0 12px 0 0, h-48, flex row, занимает остаток.
+   Nav-items прижаты к правому краю (к clock + avatar). */
 .adt-topnav-nav {
   display: flex;
   flex-direction: row;
   align-items: center;
+  justify-content: flex-end;
   height: 48px;
   flex: 1;
   padding: 0 12px 0 0;
@@ -90,8 +92,8 @@
   display: inline-flex;
   flex-direction: row;
   align-items: center;
-  gap: 12px;
-  padding: 0 12px;
+  gap: 8px;
+  padding: 0 10px;
   white-space: nowrap;
 }
 
@@ -99,7 +101,7 @@
   display: inline-flex;
   align-items: center;
   font-family: "Tilda Sans", "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
-  font-weight: 600;
+  font-weight: 500;
   font-size: 16px;
   line-height: 22px;
   color: #FFFFFF;
@@ -121,9 +123,8 @@
   align-items: center;
   height: 48px;
   padding: 0 12px;
-  margin-left: auto;
   font-family: "Tilda Sans", "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
-  font-weight: 600;
+  font-weight: 500;
   font-size: 16px;
   line-height: 22px;
   color: #FFFFFF;

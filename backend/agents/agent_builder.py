@@ -41,13 +41,42 @@ def _wants_recommendation(message: str) -> bool:
     return bool(message and _RECOMMEND_RE.search(message))
 
 
-# Ведущие филлеры, которые срезаем из описания аудитории
-# («нет, давай лучше я сам опишу: молодые семьи» → «молодые семьи»).
-_AUDIENCE_FILLER_RE = re.compile(
-    r"^(нет[,.]?\s*|да[,.]?\s*|давай[,.]?\s*|лучше\s+|пусть\s+|хочу\s+|я\s+|сам[аи]?\s+"
-    r"|опиш[уыие]\w*\s*|укаж[уыие]\w*\s*|скаж[уыие]\w*\s*|отбер[уые]\w*\s*|это\s+|аудитори\w*\s*[:—-]?\s*)+",
+# Ведущие токены-филлеры, которые срезаем из описания аудитории
+# («Давай соберем кампанию для семей с детьми» → «семей с детьми»).
+# Регулярка с `\b` важна: без неё «да» сожрёт первые две буквы у «давай».
+_AUDIENCE_FILLER_WORDS = (
+    # односложные/побудительные
+    "нет", "да", "давай", "давайте", "лучше", "пусть", "хочу", "я", "сам", "сама", "сами",
+    "просто", "это", "новую", "новый", "новая", "новое", "новой",
+    # «опишу/укажу/скажу/отберу/выбрать»
+    "опишу", "опиши", "опишем", "опишите",
+    "укажу", "укажи", "укажем", "укажите",
+    "скажу", "скажем", "скажи", "скажите",
+    "отбер", "отбери", "отберу", "отберем",
+    "выбрать", "выбери", "выберу", "выберем",
+    # «собрать/сделать/оформить/придумать/запустить кампанию»
+    "собери", "соберём", "соберем", "соберите", "собрать",
+    "сделай", "сделать", "сделаем", "сделаю", "сделайте",
+    "оформи", "оформим", "оформить", "оформлю",
+    "придумай", "придумаем",
+    "запусти", "запустим", "запустить", "сборку",
+    # «кампанию/аудиторию/таргет-группу — это контейнерные слова, не аудитория»
+    "кампанию", "кампании", "кампания",
+    "аудитория", "аудитории", "аудиторию",
+    "целевую", "целевая", "целевой",
+    "таргет-группа", "таргет-группу", "таргет-группой", "таргет",
+    # маркеры цели/обращения
+    "для", "под", "на", "по",
+)
+_AUDIENCE_FILLER_SET = frozenset(w.lower() for w in _AUDIENCE_FILLER_WORDS)
+
+# Хвост вида «, канал SMS» / «, через push» — это не часть аудитории.
+_AUDIENCE_TRAIL_CHANNEL_RE = re.compile(
+    r"[,.;]?\s*(канал[ыов]*|через|по\s+каналу)\s+(sms|смс|push|пуш|email|имейл|ussd|юссд)\b.*$",
     re.IGNORECASE,
 )
+
+_LEADING_TOKEN_RE = re.compile(r"^([\wёЁ-]+)([\s,.:;—-]+)", re.UNICODE)
 
 
 # Регулярка «пользователь просит сгенерировать оффер».
@@ -72,8 +101,13 @@ def _wants_skip_offer(message: str) -> bool:
 def _clean_audience_description(message: str) -> str:
     """Достаёт «чистое» описание аудитории из реплики пользователя.
 
-    Срезает разговорные филлеры и берёт текст после двоеточия, если оно есть
-    («…я сам опишу: молодые семьи 25-35» → «молодые семьи 25-35»).
+    1. Если есть двоеточие — берём часть после него
+       («…я опишу: молодые семьи 25-35» → «молодые семьи 25-35»).
+    2. Срезаем хвостовое «, канал SMS» — это не часть аудитории.
+    3. Поэтапно срезаем ведущие токены-филлеры
+       («давай соберем кампанию для» → «»), пока встречается слово
+       из _AUDIENCE_FILLER_SET. Останавливаемся, как только первый
+       значимый токен встретился.
     """
     text = (message or "").strip()
     if not text:
@@ -82,7 +116,17 @@ def _clean_audience_description(message: str) -> str:
         tail = text.split(":", 1)[1].strip()
         if len(tail) >= 5:
             text = tail
-    cleaned = _AUDIENCE_FILLER_RE.sub("", text).strip()
+    text = _AUDIENCE_TRAIL_CHANNEL_RE.sub("", text).strip(" ,.;")
+    cleaned = text
+    while True:
+        m = _LEADING_TOKEN_RE.match(cleaned)
+        if not m:
+            break
+        token = m.group(1).lower()
+        if token not in _AUDIENCE_FILLER_SET:
+            break
+        cleaned = cleaned[m.end():]
+    cleaned = cleaned.strip(" ,.;")
     return cleaned or text
 from tools.flow_builder import (
     assemble_flow,
@@ -165,8 +209,12 @@ async def execute(ctx: AgentContext) -> AgentResult:
     action_id = ctx.action.id if ctx.action is not None else None
     chosen_method = ctx.inputs.get("audience_method")
 
+    # product_optional разрешает все следующие шаги работать без brief.product:
+    # резолв аудитории, генерация оффера, сборка флоу.
+    has_product_context = bool(brief.product) or getattr(brief, "product_optional", False)
+
     # A1. Пользователь выбрал конкретный метод подбора → запускаем сегментацию им.
-    if (action_id == "audience_method" or chosen_method) and brief.product and not tg_id_pre:
+    if (action_id == "audience_method" or chosen_method) and has_product_context and not tg_id_pre:
         return await _recommend_audience(ctx, goal=goal, brief=brief, method=chosen_method)
 
     # A2. Пользователь попросил рекомендацию (кнопка или «порекомендуй» в режиме
@@ -174,7 +222,7 @@ async def execute(ctx: AgentContext) -> AgentResult:
     wants_rec = action_id == "recommend_audience" or (
         sticky_stage == "collect_audience" and _wants_recommendation(ctx.message)
     )
-    if wants_rec and brief.product and not tg_id_pre:
+    if wants_rec and has_product_context and not tg_id_pre:
         return await _ask_audience_method(ctx, goal=goal, brief=brief)
 
     # B. Пользователь в режиме collect_audience описал аудиторию сам —
@@ -194,9 +242,9 @@ async def execute(ctx: AgentContext) -> AgentResult:
                 brief.audience = {"description": tg_name_pre}
                 brief.missing_critical = [m for m in brief.missing_critical if m != "audience"]
 
-    # C. Аудитории по-прежнему не хватает, продукт известен, ТГ не выбрана —
-    #    предлагаем выбор «порекомендовать / описать самому».
-    if "audience" in brief.missing_critical and brief.product and not tg_id_pre:
+    # C. Аудитории по-прежнему не хватает, продукт указан или явно «не важен»,
+    #    ТГ не выбрана — предлагаем выбор «порекомендовать / описать самому».
+    if "audience" in brief.missing_critical and has_product_context and not tg_id_pre:
         return await _ask_audience_choice(ctx, goal=goal, brief=brief)
 
     # 3. Если критичные поля отсутствуют — уточняем.
@@ -284,15 +332,32 @@ async def _ask_audience_choice(ctx: AgentContext, *, goal: str, brief: CampaignB
     Возвращает needs_input со stage=collect_audience — следующее сообщение
     останется в BuilderAgent (sticky-context).
     """
-    product = brief.product or "продукт"
-    await ctx.emit("step_started", detail=f"BuilderAgent: уточняю аудиторию для «{product}»")
+    product_optional = getattr(brief, "product_optional", False)
+    product = brief.product or ""
+    subject = f"продвижения **{product}**" if product else "кампании"
+    await ctx.emit("step_started", detail=f"BuilderAgent: уточняю аудиторию для «{product or 'без продукта'}»")
 
+    if product:
+        intro = (
+            f"Собираю кампанию для {subject}. Кому будем продвигать?\n\n"
+            "Я могу **порекомендовать таргет-группу** — подберу варианты на основе данных "
+            "о продукте (для кого он next best offer, кто уже подключал, похожие продукты) "
+            "с примерной оценкой охвата."
+        )
+    elif product_optional:
+        intro = (
+            "Собираю кампанию без привязки к конкретному продукту. Кого охватываем?\n\n"
+            "Я могу **порекомендовать таргет-группу** по бизнес-цели и обычным "
+            "look-alike-эвристикам."
+        )
+    else:
+        intro = (
+            "Собираю кампанию. Кому будем продвигать?\n\n"
+            "Я могу **порекомендовать таргет-группу** под цель кампании."
+        )
     message = (
-        f"Собираю кампанию для продвижения **{product}**. Кому будем продвигать?\n\n"
-        "Я могу **порекомендовать таргет-группу** — подберу варианты на основе данных "
-        "о продукте (для кого он next best offer, кто уже подключал, похожие продукты) "
-        "с примерной оценкой охвата. Либо вы можете **сами описать аудиторию** — "
-        "просто напишите, кого охватываем, и я закреплю это как таргет-группу."
+        f"{intro} Либо вы можете **сами описать аудиторию** — просто напишите, кого "
+        "охватываем, и я закреплю это как таргет-группу."
     )
     # Одна кнопка — рекомендация; описать аудиторию пользователь может, просто
     # написав сообщение (мы в sticky-context collect_audience).
@@ -325,20 +390,29 @@ async def _ask_audience_method(ctx: AgentContext, *, goal: str, brief: CampaignB
         METHOD_DESCRIPTIONS, method_label, resolve_audience_signals,
     )
 
-    product = brief.product or "продукт"
-    await ctx.emit("step_started", detail=f"BuilderAgent: меню подбора аудитории для «{product}»")
-    signals = await resolve_audience_signals(product)
-    methods = signals.menu_methods
+    product_optional = getattr(brief, "product_optional", False)
+    product = brief.product or ""
+    probe = product or "<без продукта>"
+    await ctx.emit("step_started", detail=f"BuilderAgent: меню подбора аудитории для «{probe}»")
+    # Без указанного продукта в каталоге нечего искать — пропускаем резолв
+    # и не предлагаем look-alike по подключившим этого продукта.
+    if product:
+        signals = await resolve_audience_signals(product)
+        methods = signals.menu_methods
+    else:
+        methods = ["lookalike_similar", "ask_properties"]
     await ctx.emit(
         "step_completed",
-        detail=f"Доступно методов: {len(methods)} (продукт в каталоге: {signals.found_in_catalog})",
-        metadata={"methods": methods, "found_in_catalog": signals.found_in_catalog},
+        detail=f"Доступно методов: {len(methods)}; продукт указан: {bool(product)}",
+        metadata={"methods": methods, "product_optional": product_optional, "product": product},
     )
 
-    lines = [
-        f"Как подобрать таргет-группу для **{product}**? Выберите способ:",
-        "",
-    ]
+    head = (
+        f"Как подобрать таргет-группу для **{product}**? Выберите способ:"
+        if product
+        else "Как подобрать таргет-группу для этой кампании? Выберите способ:"
+    )
+    lines = [head, ""]
     actions: list[ChatAction] = []
     for m in methods:
         lines.append(f"- **{method_label(m)}** — {METHOD_DESCRIPTIONS.get(m, '')}")
@@ -640,7 +714,8 @@ async def _ask_offer_decision(
     ctx: AgentContext, *, goal: str, brief: CampaignBriefAnalysis,
 ) -> AgentResult:
     """Спрашивает: сгенерировать варианты оффера или собрать с типовым текстом."""
-    product = brief.product or "продукт"
+    product_optional = getattr(brief, "product_optional", False)
+    product = brief.product or ""
     channel = (brief.channels[0] if brief.channels else "sms").lower()
     tg_id, tg_name = _resolve_target_group(ctx)
     audience = tg_name or (brief.audience or {}).get("description") or "выбранная аудитория"
@@ -650,10 +725,21 @@ async def _ask_offer_decision(
         detail=f"BuilderAgent: запрашиваю решение по офферу (канал {channel})",
     )
 
+    # Заголовок брифа меняется в зависимости от того, указан ли продукт
+    # или пользователь сказал «не важен».
+    if product:
+        brief_head = f"Бриф готов: **{product}** для **{audience}**, канал **{channel.upper()}**."
+    elif product_optional:
+        brief_head = (
+            f"Бриф готов: кампания для **{audience}** без привязки к конкретному продукту, "
+            f"канал **{channel.upper()}**."
+        )
+    else:
+        brief_head = f"Бриф готов: кампания для **{audience}**, канал **{channel.upper()}**."
+
     message = (
-        f"Бриф готов: **{product}** для **{audience}**, канал **{channel.upper()}**. "
-        "Сгенерировать **2-3 варианта оффера** под этот канал и аудиторию или собрать "
-        "кампанию с **типовым текстом**?"
+        f"{brief_head} Сгенерировать **2-3 варианта оффера** под этот канал и аудиторию "
+        "или собрать кампанию с **типовым текстом**?"
     )
     actions = [
         ChatAction(

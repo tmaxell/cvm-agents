@@ -61,6 +61,9 @@ class CampaignBriefAnalysis:
     missing_critical: list[str] = field(default_factory=list)
     clarifying_questions: list[str] = field(default_factory=list)
     confidence: float = 0.0
+    # Пользователь явно сказал «тариф не важен» — кампания собирается без
+    # привязки к конкретному продукту, поле product не должно блокировать сборку.
+    product_optional: bool = False
 
 
 # ── Quick deterministic extraction (для уменьшения нагрузки на LLM) ───────────
@@ -245,8 +248,10 @@ def _post_process(brief: CampaignBriefAnalysis) -> None:
 
     - Если audience.description выглядит как goal — переносим в goal, чистим audience.
     - Если product выглядит как goal — переносим в goal, чистим product.
-    - Если product выглядит как audience-hint — оставляем product только если он также
-      выглядит как product-hint; иначе чистим (пусть LLM/пользователь уточнит).
+    - Если product звучит как «продукт не важен» (от quick-reply «Тариф не важен»
+      или явного отказа пользователя) — обнуляем product и помечаем
+      product_explicitly_optional=True, чтобы _recompute_missing убрал
+      product из missing_critical.
     """
     if brief.audience and brief.audience.get("description"):
         desc = str(brief.audience["description"]).strip()
@@ -256,10 +261,34 @@ def _post_process(brief: CampaignBriefAnalysis) -> None:
                 # Нормализуем: оставим первый goal-term из текста.
                 brief.goal = _normalize_goal(desc)
             brief.audience = {}
+    if brief.product and _looks_like_product_optional(brief.product):
+        brief.product = None
+        brief.product_optional = True
+        note = "Продукт указан как «не важен» — собираем кампанию без привязки к конкретному продукту."
+        if note not in brief.notes:
+            brief.notes = list(brief.notes) + [note]
     if brief.product and is_goal_phrase(brief.product) and not looks_like_product(brief.product):
         if not brief.goal:
             brief.goal = _normalize_goal(brief.product)
         brief.product = None
+
+
+_PRODUCT_OPTIONAL_RE = re.compile(
+    r"\b("
+    # «важен / важна / важно / важный / важный» — корень «важ» + окончание.
+    r"не\s*важ[енаоыий]\w*|неважн?[аоыий]\w*|"
+    r"любо[йе]|любые|любой\s+продукт\w*|"
+    r"на\s+ваш(е|у|ему)\s+усмотрен\w*|"
+    r"без\s+разниц\w*|не\s+имеет\s+значен\w*|не\s+принципиал\w*|"
+    r"all\s+products|any\s+product"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_product_optional(text: str) -> bool:
+    """True, если строка означает «продукт не важен / любой»."""
+    return bool(text and _PRODUCT_OPTIONAL_RE.search(text))
 
 
 def _normalize_goal(text: str) -> str:
@@ -350,7 +379,9 @@ _FIELD_QUESTIONS: dict[str, str] = {
 
 def _has_field(brief: CampaignBriefAnalysis, field_name: str) -> bool:
     if field_name == "product":
-        return bool(brief.product)
+        # «product» считается заполненным и когда пользователь явно сказал «не важен» —
+        # тогда сборка идёт без привязки к конкретному продукту.
+        return bool(brief.product) or brief.product_optional
     if field_name == "goal":
         return bool(brief.goal)
     if field_name == "channels":
@@ -373,7 +404,7 @@ def _recompute_missing(brief: CampaignBriefAnalysis) -> None:
     ))
 
     must_have: list[str] = []
-    if not retention_like and not brief.product:
+    if not retention_like and not brief.product and not brief.product_optional:
         must_have.append("product")
     if not brief.channels:
         must_have.append("channels")
@@ -437,5 +468,7 @@ def is_ready_to_build(brief: CampaignBriefAnalysis) -> bool:
     retention_like = bool(brief.goal and any(
         term in brief.goal.lower() for term in ("удержани", "retention", "churn", "отток", "реактивац", "reactivat")
     ))
-    has_subject = has_product or retention_like
+    # product_optional: пользователь явно сказал «тариф не важен» — продукт
+    # не блокирует сборку даже если goal не retention-like.
+    has_subject = has_product or retention_like or brief.product_optional
     return has_channel and has_audience and has_subject

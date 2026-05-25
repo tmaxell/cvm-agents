@@ -26,7 +26,7 @@ interface Props {
 // Соответствие типу активности — лейбл и цвет (по палитре design-system Eastwind UI).
 const NODE_META: Record<string, { label: string; color: string }> = {
   CommonActivity:                { label: "Common",                color: "#64748b" },
-  TargetGroupActivity:           { label: "Target group",          color: "#64748b" },
+  TargetGroupActivity:           { label: "Target Group",          color: "#64748b" },
   EventActivity:                 { label: "Event",                 color: "#ff48e7" },
   FilterActivity:                { label: "Filter",                color: "#94a3b8" },
   WaitActivity:                  { label: "Wait",                  color: "#ffcc00" },
@@ -36,24 +36,25 @@ const NODE_META: Record<string, { label: string; color: string }> = {
   ResponseActivity:              { label: "Response",              color: "#ffcc00" },
   InteractiveResponseActivity:   { label: "Interactive response",  color: "#ffcc00" },
   RealTimeCheckActivity:         { label: "Real-time check",       color: "#21cf18" },
-  OrJoinActivity:                { label: "Or",                    color: "#611eb7" },
+  OrJoinActivity:                { label: "Or join",               color: "#611eb7" },
   SplitActivity:                 { label: "Split",                 color: "#611eb7" },
   TransferToCampaignActivity:    { label: "Transfer to campaign",  color: "#ff8b17" },
   ExcludeFromCampaignActivity:   { label: "Exclude from campaign", color: "#ff8b17" },
 };
 
-// Лейбл Push/Pull зависит от contentType: SmsContent → «SMS push», PushContent → «Push push» и т.д.
+// Лейбл Push/Pull-нод — название канала (SMS, Email, Push, USSD, Custom)
+// без дублирующего «push/pull» суффикса. Тип коммуникации передаёт цветовая
+// полоска и сам факт ноды; имя в subtitle уточняет назначение.
 function resolveNodeLabel(activity: FlowActivity): string {
   const meta = NODE_META[activity.type];
   if (!meta) return activity.type;
   if (activity.type === "PushCommunicationActivity" || activity.type === "PullCommunicationActivity") {
     const ct = activity.content?.type ?? activity.contentType ?? "";
-    const kind = activity.type === "PushCommunicationActivity" ? "push" : "pull";
-    if (/sms/i.test(ct))     return `SMS ${kind}`;
-    if (/email/i.test(ct))   return `Email ${kind}`;
-    if (/ussd/i.test(ct))    return `USSD ${kind}`;
-    if (/push/i.test(ct))    return `Push ${kind}`;
-    if (/custom/i.test(ct))  return `Custom ${kind}`;
+    if (/sms/i.test(ct))     return "SMS";
+    if (/email/i.test(ct))   return "Email";
+    if (/ussd/i.test(ct))    return "USSD";
+    if (/push/i.test(ct))    return "Push";
+    if (/custom/i.test(ct))  return "Custom";
   }
   return meta.label;
 }
@@ -186,9 +187,9 @@ export function AdTargetMock({
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = effectiveFlow.activities.find(a => a.id === selectedId) ?? null;
-  // Side-panel показываем только для конфигурируемых типов — Common/TG только
-  // подсвечиваются обводкой.
-  const showSidePanel = !!selected && !isStructuralActivity(selected.type);
+  // Side-panel открывается только для раскрываемых нод (сейчас — только Event).
+  // У остальных типов клик меняет только border.
+  const showSidePanel = !!selected && isExpandableActivity(selected.type);
 
   return (
     <div className="adt-shell">
@@ -588,13 +589,20 @@ function AdtPlateActionIcon({ kind }: { kind: "calendar" | "clock" | "check" }) 
   );
 }
 
-// Структурные ноды — Common и Target Group: на клике только border меняется,
-// никакого indicator/Plate Actions и колоризации заголовка.
+// Структурные ноды — Common и Target Group: всегда дефолтный 72px вид,
+// никакого indicator. На клике только border меняется.
 function isStructuralActivity(type: string): boolean {
   return type === "CommonActivity" || type === "TargetGroupActivity";
 }
 
-function AdtNode({ activity, offers, x, y, animDelay, selected, onSelect }: {
+// Только Event раскрывается на клике (показывает Plate Actions + side-panel).
+// Остальные типы (Push/Pull, Business, Response, …) показывают цветной
+// индикатор всегда, но при клике только подсвечиваются border'ом.
+function isExpandableActivity(type: string): boolean {
+  return type === "EventActivity";
+}
+
+function AdtNode({ activity, offers: _offers, x, y, animDelay, selected, onSelect }: {
   activity: FlowActivity;
   offers: CampaignOffer[];
   x: number;
@@ -605,8 +613,11 @@ function AdtNode({ activity, offers, x, y, animDelay, selected, onSelect }: {
 }) {
   const active = !!selected;
   const structural = isStructuralActivity(activity.type);
-  // В expanded-state переходим только для не-structural нод.
-  const expanded = active && !structural;
+  const expandable = isExpandableActivity(activity.type);
+  // В expanded переходим только если нода раскрываемая И выбрана.
+  const expanded = active && expandable;
+  // Цветной индикатор слева — у всех не-structural нод (всегда).
+  const showIndicator = !structural;
 
   const label = resolveNodeLabel(activity);
   const color = resolveNodeColor(activity);
@@ -629,16 +640,16 @@ function AdtNode({ activity, offers, x, y, animDelay, selected, onSelect }: {
       }}
       onClick={onSelect}
     >
-      {/* Indicator strip — только в expanded (не для structural) */}
-      {expanded && (
+      {/* Indicator strip — всегда виден у не-structural нод. */}
+      {showIndicator && (
         <span className="adt-node-indicator" style={{ background: color }} />
       )}
 
-      {/* Title row */}
+      {/* Title row — цвет = цвет ноды у всех с индикатором */}
       <div className="adt-node-title">
         <span
           className="adt-node-title-text"
-          style={expanded ? { color } : undefined}
+          style={showIndicator ? { color } : undefined}
         >
           {label}
         </span>
@@ -649,7 +660,7 @@ function AdtNode({ activity, offers, x, y, animDelay, selected, onSelect }: {
         <span className="adt-node-subtitle-text">{subtitle}</span>
       </div>
 
-      {/* Plate Actions — только в expanded-state */}
+      {/* Plate Actions — только у раскрытой Event-ноды */}
       {expanded && (
         <div className="adt-node-plate-actions">
           <button className="adt-node-action-tab" type="button" onClick={(e) => e.stopPropagation()}>
@@ -679,15 +690,6 @@ function AdtNode({ activity, offers, x, y, animDelay, selected, onSelect }: {
             <path d="M7 7l6 6M13 7l-6 6" stroke="#FFFFFF" strokeWidth="1.5" strokeLinecap="round"/>
           </svg>
         </span>
-      )}
-
-      {/* hidden offers data (для expanded-режима communication-нод) */}
-      {expanded && getCommunicationDetails(activity, offers).length > 0 && (
-        <div className="adt-node-offers-tip">
-          {getCommunicationDetails(activity, offers).slice(0, 2).map((d, i) => (
-            <span key={i}><b>{d.label}:</b> {d.value}</span>
-          ))}
-        </div>
       )}
     </div>
   );
@@ -847,43 +849,3 @@ function AdtNotificationTab() {
   );
 }
 
-function getCommunicationDetails(
-  activity: FlowActivity,
-  offers: CampaignOffer[],
-): Array<{ label: string; value: string }> {
-  if (activity.type !== "PushCommunicationActivity" && activity.type !== "PullCommunicationActivity") {
-    return [];
-  }
-
-  const generatedOffer = offers.find((offer) => offer.activityId === activity.id);
-  const parameters = activity.content?.parameters ?? [];
-  const text = generatedOffer?.text ?? getParameterValue(parameters, "Text");
-  const sender = generatedOffer?.sender ?? getParameterValue(parameters, "Sender");
-  const channel = generatedOffer?.contentType ?? activity.contentType ?? activity.name;
-
-  const details: Array<{ label: string; value: string }> = [];
-  if (channel) details.push({ label: "Канал", value: formatContentType(channel) });
-  if (text) details.push({ label: "Оффер", value: text });
-  if (sender) details.push({ label: "Отправитель", value: sender });
-  if (generatedOffer?.offerTemplateId) {
-    details.push({ label: "Шаблон", value: `#${generatedOffer.offerTemplateId}` });
-  }
-  if (generatedOffer?.businessOperationId) {
-    details.push({ label: "Операция", value: generatedOffer.businessOperationId });
-  }
-
-  return details;
-}
-
-function formatContentType(contentType: string): string {
-  return contentType.replace("Content", "");
-}
-
-function getParameterValue(
-  parameters: NonNullable<FlowActivity["content"]>["parameters"],
-  name: string,
-): string | null {
-  const param = parameters?.find((item) => item.name === name);
-  if (param?.value === undefined || param.value === null) return null;
-  return String(param.value);
-}

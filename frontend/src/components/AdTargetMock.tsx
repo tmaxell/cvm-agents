@@ -1,6 +1,6 @@
 /**
  * AdTargetMock — статичный CSS/SVG-макет интерфейса AdTarget.
- * Воссоздан по скриншоту реального AdTarget. Не функционален.
+ * Воссоздан по макетам из Figma (Design System Eastwind UI).
  *
  * Когда передан campaign flow — отображает его ноды на холсте в стиле AdTarget
  * с SVG-соединителями и tree-layout алгоритмом.
@@ -23,24 +23,23 @@ interface Props {
 
 // ── Node type metadata ────────────────────────────────────────────────────────
 
-// Соответствие типу активности — цвет акцентной полоски и базовый лейбл (header card).
-// Цвета подобраны под реальный AdTarget UI (см. examples/*.png).
+// Соответствие типу активности — лейбл и цвет (по палитре design-system Eastwind UI).
 const NODE_META: Record<string, { label: string; color: string }> = {
-  CommonActivity:                { label: "Common",               color: "#475569" },
-  TargetGroupActivity:           { label: "Target group",         color: "#475569" },
-  EventActivity:                 { label: "Event",                color: "#a855f7" },
-  FilterActivity:                { label: "Filter",               color: "#94a3b8" },
-  WaitActivity:                  { label: "Wait",                 color: "#f59e0b" },
-  PushCommunicationActivity:     { label: "Push communication",   color: "#3b82f6" },
-  PullCommunicationActivity:     { label: "Pull communication",   color: "#3b82f6" },
-  BusinessTransactionActivity:   { label: "Business transaction", color: "#1d4ed8" },
-  ResponseActivity:              { label: "Response",             color: "#10b981" },
-  InteractiveResponseActivity:   { label: "Interactive response", color: "#10b981" },
-  RealTimeCheckActivity:         { label: "Real-time check",      color: "#64748b" },
-  OrJoinActivity:                { label: "Or",                   color: "#c026d3" },
-  SplitActivity:                 { label: "Split",                color: "#8b5cf6" },
-  TransferToCampaignActivity:    { label: "Transfer to campaign", color: "#f97316" },
-  ExcludeFromCampaignActivity:   { label: "Exclude from campaign", color: "#f97316" },
+  CommonActivity:                { label: "Common",                color: "#64748b" },
+  TargetGroupActivity:           { label: "Target group",          color: "#64748b" },
+  EventActivity:                 { label: "Event",                 color: "#ff48e7" },
+  FilterActivity:                { label: "Filter",                color: "#94a3b8" },
+  WaitActivity:                  { label: "Wait",                  color: "#ffcc00" },
+  PushCommunicationActivity:     { label: "Push communication",    color: "#5257ff" },
+  PullCommunicationActivity:     { label: "Pull communication",    color: "#5257ff" },
+  BusinessTransactionActivity:   { label: "Business transaction",  color: "#611eb7" },
+  ResponseActivity:              { label: "Response",              color: "#ffcc00" },
+  InteractiveResponseActivity:   { label: "Interactive response",  color: "#ffcc00" },
+  RealTimeCheckActivity:         { label: "Real-time check",       color: "#21cf18" },
+  OrJoinActivity:                { label: "Or",                    color: "#611eb7" },
+  SplitActivity:                 { label: "Split",                 color: "#611eb7" },
+  TransferToCampaignActivity:    { label: "Transfer to campaign",  color: "#ff8b17" },
+  ExcludeFromCampaignActivity:   { label: "Exclude from campaign", color: "#ff8b17" },
 };
 
 // Лейбл Push/Pull зависит от contentType: SmsContent → «SMS push», PushContent → «Push push» и т.д.
@@ -60,13 +59,13 @@ function resolveNodeLabel(activity: FlowActivity): string {
 }
 
 function resolveNodeColor(activity: FlowActivity): string {
-  return NODE_META[activity.type]?.color ?? "#9ca3af";
+  return NODE_META[activity.type]?.color ?? "#94a3b8";
 }
 
-const NODE_W = 158;
-const NODE_H = 68;
-const H_GAP = 56;   // horizontal gap between parallel branches
-const V_GAP = 52;   // vertical gap between rows
+const NODE_W = 200;
+const NODE_H = 96;
+const H_GAP = 48;   // horizontal gap between parallel branches
+const V_GAP = 40;   // vertical gap between rows
 
 // ── Tree layout ───────────────────────────────────────────────────────────────
 
@@ -224,30 +223,24 @@ function AdtTopNav() {
   return (
     <header className="adt-topnav">
       <div className="adt-topnav-logo">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-          <circle cx="10" cy="10" r="8.5" stroke="#4f8ef7" strokeWidth="1.5"/>
-          <circle cx="10" cy="10" r="5" stroke="#4f8ef7" strokeWidth="1.5"/>
-          <circle cx="10" cy="10" r="1.8" fill="#4f8ef7"/>
-          <line x1="10" y1="1.5" x2="10" y2="0" stroke="#4f8ef7" strokeWidth="1.5" strokeLinecap="round"/>
-          <line x1="10" y1="20" x2="10" y2="18.5" stroke="#4f8ef7" strokeWidth="1.5" strokeLinecap="round"/>
-          <line x1="0" y1="10" x2="1.5" y2="10" stroke="#4f8ef7" strokeWidth="1.5" strokeLinecap="round"/>
-          <line x1="20" y1="10" x2="18.5" y2="10" stroke="#4f8ef7" strokeWidth="1.5" strokeLinecap="round"/>
-        </svg>
-        <span className="adt-logo-text">AdTarget<span style={{color:"#4f8ef7"}}>.</span></span>
+        <span className="adt-logo-text">AdTarget</span>
       </div>
       <nav className="adt-topnav-nav">
         {NAV.map(item => (
           <span key={item} className={`adt-nav-item${item === "Campaigns" ? " active" : ""}`}>
-            {item} <span className="adt-nav-arrow">▾</span>
+            {item}
+            <svg className="adt-nav-arrow" width="10" height="6" viewBox="0 0 10 6" fill="none">
+              <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
           </span>
         ))}
       </nav>
       <div className="adt-topnav-right">
-        <span className="adt-clock">14:29 (UTC+05:00)</span>
+        <span className="adt-clock">14:48 (UTC+05:00)</span>
         <div className="adt-avatar">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <circle cx="8" cy="5.5" r="2.8" stroke="rgba(255,255,255,0.85)" strokeWidth="1.3"/>
-            <path d="M2 14.5c0-3.314 2.686-6 6-6s6 2.686 6 6" stroke="rgba(255,255,255,0.85)" strokeWidth="1.3" fill="none"/>
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <circle cx="10" cy="7" r="3.25" stroke="currentColor" strokeWidth="1.5"/>
+            <path d="M3.5 17c0-3.31 2.91-6 6.5-6s6.5 2.69 6.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
           </svg>
         </div>
       </div>
@@ -341,76 +334,144 @@ function AdtTabBar() {
 
 // ── Left sidebar ──────────────────────────────────────────────────────────────
 
-const SIDEBAR_GROUPS = [
-  { label: "Communication",        color: "#4f8ef7", arrow: "◀", active: true  },
-  { label: "Custom communication", color: "#4f8ef7", arrow: "◀", active: false },
-  { label: "Response",             color: "#f97316", arrow: null, active: false },
-  { label: "Business transaction", color: "#f97316", arrow: null, active: false },
-  { label: "Product action",       color: "#f97316", arrow: null, active: false },
-  { label: "Event",                color: "#eab308", arrow: null, active: false },
-  { label: "Real-time check",      color: "#10b981", arrow: null, active: false },
-  { label: "Control",              color: "#8b5cf6", arrow: "◀", active: false },
+// SVG-иконки групп (стилизованы под Eastwind product icons)
+function MegaphoneIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <path d="M3 7v4h2.2l5.3 3V4L5.2 7H3z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+      <path d="M13 6.5a3 3 0 010 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+    </svg>
+  );
+}
+function BoltIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <path d="M10 2L4 10h4l-1 6 6-8h-4l1-6z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" fill="currentColor" fillOpacity="0.15"/>
+    </svg>
+  );
+}
+function ThumbsUpIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <path d="M3 8h2v7H3V8zm3 0V6c0-1.5 1.2-3 2.5-3 .8 0 1 .8 1 1.5 0 1-.5 2-.5 2.5H13c.8 0 1.5.7 1.5 1.5 0 .3 0 .5-.2.7.5.3.7.8.7 1.3 0 .5-.3 1-.7 1.3.2.2.2.5.2.7 0 .5-.3 1-.7 1.3.2.2.2.5.2.7 0 .8-.7 1.5-1.5 1.5H8L6 14V8z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+function BackArrowIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <path d="M11 4l-5 5 5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M6 9h7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+    </svg>
+  );
+}
+function ChatIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <path d="M3 4h12v8H8l-3 3v-3H3V4z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+function ClockIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <circle cx="9" cy="9" r="6.5" stroke="currentColor" strokeWidth="1.4"/>
+      <path d="M9 5v4l2.5 1.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+    </svg>
+  );
+}
+function CircleIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <circle cx="9" cy="9" r="6.5" stroke="currentColor" strokeWidth="1.4" fill="currentColor" fillOpacity="0.12"/>
+    </svg>
+  );
+}
+
+const SIDEBAR_GROUPS: Array<{ label: string; color: string; icon: () => JSX.Element; hasArrow: boolean }> = [
+  { label: "Communication",         color: "#5257ff", icon: MegaphoneIcon, hasArrow: true  },
+  { label: "Custom communication",  color: "#5257ff", icon: MegaphoneIcon, hasArrow: true  },
+  { label: "Product action",        color: "#5257ff", icon: BoltIcon,      hasArrow: false },
+  { label: "Responce",              color: "#ffcc00", icon: ThumbsUpIcon,  hasArrow: false },
+  { label: "Business transaction",  color: "#611eb7", icon: BackArrowIcon, hasArrow: false },
+  { label: "Event",                 color: "#ff48e7", icon: ChatIcon,      hasArrow: false },
+  { label: "Real-time check",       color: "#21cf18", icon: ClockIcon,     hasArrow: false },
+  { label: "Control",               color: "#ff8b17", icon: CircleIcon,    hasArrow: true  },
 ];
 
 function AdtSidebar() {
   return (
     <aside className="adt-sidebar">
-      <div className="adt-sidebar-search">
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" opacity="0.45">
-          <circle cx="5" cy="5" r="3.5" stroke="#6b7280" strokeWidth="1.2"/>
-          <line x1="8" y1="8" x2="11" y2="11" stroke="#6b7280" strokeWidth="1.2" strokeLinecap="round"/>
-        </svg>
-        <span className="adt-search-placeholder">Search...</span>
+      <div className="adt-sidebar-search-container">
+        <div className="adt-sidebar-search">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <circle cx="6" cy="6" r="4" stroke="currentColor" strokeWidth="1.4"/>
+            <line x1="9.2" y1="9.2" x2="12.5" y2="12.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+          </svg>
+          <span className="adt-search-placeholder">Search</span>
+        </div>
       </div>
-
-      {SIDEBAR_GROUPS.map(g => (
-        <div key={g.label} className={`adt-sidebar-group${g.active ? " adt-sidebar-group-active" : ""}`}>
-          <div className="adt-group-header" style={{ color: g.color }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-              <span className="adt-group-dot" style={{ background: g.color }} />
+      <div className="adt-sidebar-groups">
+        {SIDEBAR_GROUPS.map(g => (
+          <div key={g.label} className="adt-sidebar-group">
+            <div className="adt-group-left" style={{ color: g.color }}>
+              <span className="adt-group-icon">{g.icon()}</span>
               <span>{g.label}</span>
             </div>
-            {g.arrow && <span className="adt-group-arrow">{g.arrow}</span>}
+            {g.hasArrow && (
+              <span className="adt-group-arrow">
+                <svg width="10" height="6" viewBox="0 0 10 6" fill="none">
+                  <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </span>
+            )}
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </aside>
   );
 }
 
-// ── Right vertical toolbar ────────────────────────────────────────────────────
+// ── Right floating toolbar ────────────────────────────────────────────────────
 
 function AdtRightToolbar() {
-  const icons = [
-    { d: "M3 2h10a1 1 0 011 1v10a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1zm3 0v4h4V2M5 9h6m-6 3h4", title: "Save" },
-    { d: "M4 13V9h8v4M8 2v7M5.5 6.5L8 9l2.5-2.5", title: "Export" },
-    { d: "M5 5.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5zm0 1C2.51 6.5 0 8.79 0 12h10c0-3.21-2.51-5.5-5-5.5zm6-1a2 2 0 100-4 2 2 0 000 4zm2 1c1.38 0 2.5 1.12 2.5 2.5H11", title: "Users" },
-  ];
   return (
     <div className="adt-right-toolbar">
-      {icons.map(({ d, title }) => (
-        <button key={title} className="adt-rt-btn" title={title}>
-          <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
-            <path d={d} stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+      <button className="adt-rt-btn" title="Save" type="button">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path d="M4 3h10l3 3v11a1 1 0 01-1 1H4a1 1 0 01-1-1V4a1 1 0 011-1zm3 0v5h6V3M6 12h8m-8 3h6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+      <button className="adt-rt-btn" title="Export" type="button">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path d="M4 13v3a1 1 0 001 1h10a1 1 0 001-1v-3M10 3v10M6 8l4-4 4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+      <button className="adt-rt-btn active" title="Tree" type="button">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <rect x="7.5" y="2.5" width="5" height="4" rx="1" stroke="currentColor" strokeWidth="1.4"/>
+          <rect x="2.5" y="13.5" width="5" height="4" rx="1" stroke="currentColor" strokeWidth="1.4"/>
+          <rect x="12.5" y="13.5" width="5" height="4" rx="1" stroke="currentColor" strokeWidth="1.4"/>
+          <path d="M10 6.5v3M5 13.5v-2h10v2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+        </svg>
+      </button>
+      <div className="adt-rt-zoom-group">
+        <button className="adt-rt-btn" title="Zoom in" type="button">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <circle cx="9" cy="9" r="5.5" stroke="currentColor" strokeWidth="1.4"/>
+            <line x1="13" y1="13" x2="17" y2="17" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+            <line x1="6.5" y1="9" x2="11.5" y2="9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+            <line x1="9" y1="6.5" x2="9" y2="11.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
           </svg>
         </button>
-      ))}
-      <div className="adt-rt-divider" />
-      <button className="adt-rt-btn" title="Zoom in">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.3"/>
-          <line x1="9.5" y1="9.5" x2="13" y2="13" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-          <line x1="4" y1="6" x2="8" y2="6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-          <line x1="6" y1="4" x2="6" y2="8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-        </svg>
-      </button>
-      <button className="adt-rt-btn" title="Zoom out">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.3"/>
-          <line x1="9.5" y1="9.5" x2="13" y2="13" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-          <line x1="4" y1="6" x2="8" y2="6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-        </svg>
-      </button>
+        <button className="adt-rt-btn" title="Zoom out" type="button">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <circle cx="9" cy="9" r="5.5" stroke="currentColor" strokeWidth="1.4"/>
+            <line x1="13" y1="13" x2="17" y2="17" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+            <line x1="6.5" y1="9" x2="11.5" y2="9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+          </svg>
+        </button>
+      </div>
     </div>
   );
 }
@@ -421,7 +482,7 @@ function AdtCanvasEmpty() {
   return (
     <div className="adt-canvas-empty">
       {/* Ghost skeleton of mandatory first two nodes */}
-      <div style={{ opacity: 0.22, pointerEvents: "none", transform: "scale(0.88)", transformOrigin: "top center" }}>
+      <div style={{ opacity: 0.28, pointerEvents: "none", transform: "scale(0.92)", transformOrigin: "top center" }}>
         <AdtFlowCanvas flow={SKELETON_FLOW} />
       </div>
       <p className="adt-canvas-hint">Drag activities from the left panel<br/>or use the AI builder →</p>
@@ -457,8 +518,8 @@ function AdtFlowCanvas({ flow }: { flow: CampaignFlow }) {
         style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
       >
         <defs>
-          <marker id="arrowhead" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
-            <path d="M0 1.5 L4 4 L0 6.5" stroke="rgba(40,50,70,0.4)" strokeWidth="1.2" fill="none" strokeLinecap="round"/>
+          <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto">
+            <path d="M0 1.5 L5 5 L0 8.5" stroke="#94a3b8" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
           </marker>
         </defs>
         {flow.activities.map(act => {
@@ -471,18 +532,19 @@ function AdtFlowCanvas({ flow }: { flow: CampaignFlow }) {
             const toPos = positions.get(childId);
             if (!toPos) return null;
             const tx = toPos.x + offsetX;
-            const ty = toPos.y + offsetY;
+            const ty = toPos.y + offsetY - 4;
 
-            // Cubic bezier: vertical departure + arrival
-            const midY = (fy + ty) / 2;
-            const d = `M ${fx} ${fy} C ${fx} ${midY}, ${tx} ${midY}, ${tx} ${ty}`;
+            // Straight vertical line when same column; otherwise stepped path
+            const d = fx === tx
+              ? `M ${fx} ${fy} L ${tx} ${ty}`
+              : `M ${fx} ${fy} L ${fx} ${(fy + ty) / 2} L ${tx} ${(fy + ty) / 2} L ${tx} ${ty}`;
 
             return (
               <path
                 key={`${act.id}-${childId}`}
                 d={d}
-                stroke="rgba(40,50,70,0.35)"
-                strokeWidth="1.5"
+                stroke="#94a3b8"
+                strokeWidth="1.4"
                 fill="none"
                 markerEnd="url(#arrowhead)"
               />
@@ -521,12 +583,11 @@ function AdtNode({ activity, offers, x, y, animDelay }: {
   const label = resolveNodeLabel(activity);
   const color = resolveNodeColor(activity);
   const hasError = Array.isArray(activity.errors) && activity.errors.length > 0;
-  const subtitleText = activity.name && activity.name !== label ? activity.name : "";
+  const subtitleText = activity.name && activity.name !== label ? activity.name : label;
   const communicationDetails = getCommunicationDetails(activity, offers);
   const isExpandable = communicationDetails.length > 0;
 
-  // Shortened subtitle for display
-  const subtitle = subtitleText.length > 22 ? subtitleText.slice(0, 20) + "…" : subtitleText;
+  const subtitle = subtitleText.length > 28 ? subtitleText.slice(0, 26) + "…" : subtitleText;
 
   return (
     <div
@@ -536,26 +597,16 @@ function AdtNode({ activity, offers, x, y, animDelay }: {
         left: x,
         top: y,
         width: NODE_W,
-        height: expanded ? 154 : NODE_H,
+        minHeight: NODE_H,
         animationDelay: `${animDelay}ms`,
       }}
     >
-      {/* Left colored strip */}
-      <div className="adt-node-strip" style={{ background: hasError ? "#ef4444" : color }} />
-
-      {/* Colored dot */}
-      <span className="adt-node-dot" style={{ background: hasError ? "#ef4444" : color }} />
-
       <div className="adt-node-body">
-        <div className="adt-node-type" style={{ color: hasError ? "#ef4444" : color }}>{label}</div>
-        {subtitle && (
-          <div className="adt-node-name">
-            <svg width="8" height="8" viewBox="0 0 8 8" fill="none" style={{ flexShrink: 0, opacity: 0.4, marginRight: 2 }}>
-              <path d="M1 1h3.5l2.5 2.5-3.5 3.5L1 4.5V1z" stroke="currentColor" strokeWidth="1" strokeLinejoin="round"/>
-            </svg>
-            {subtitle}
-          </div>
-        )}
+        <div className="adt-node-type">
+          <span className="adt-node-type-dot" style={{ background: color }} />
+          {label}
+        </div>
+        <div className="adt-node-name">{subtitle}</div>
       </div>
 
       {expanded && (
@@ -588,10 +639,13 @@ function AdtNode({ activity, offers, x, y, animDelay }: {
         <span className="adt-node-act-icon">✎</span>
         <span className="adt-node-act-icon">⎘</span>
         <span className="adt-node-act-icon">✕</span>
-        {hasError && (
-          <span className="adt-node-err-badge">{(activity.errors as unknown[]).length}</span>
-        )}
       </div>
+
+      {hasError && (
+        <span className="adt-node-err-badge" title={`${(activity.errors as unknown[]).length} ошибок`}>
+          ✕
+        </span>
+      )}
     </div>
   );
 }

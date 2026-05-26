@@ -160,7 +160,7 @@ function computeTreeLayout(activities: FlowActivity[]): Map<string, Pos> {
 }
 
 function computeBounds(positions: Map<string, Pos>): { width: number; height: number; minX: number; minY: number } {
-  if (positions.size === 0) return { width: 200, height: 80, minX: 0, minY: 0 };
+  if (positions.size === 0) return { width: NODE_W, height: NODE_H, minX: 0, minY: 0 };
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   for (const { x, y } of positions.values()) {
     minX = Math.min(minX, x - NODE_W / 2);
@@ -168,9 +168,11 @@ function computeBounds(positions: Map<string, Pos>): { width: number; height: nu
     minY = Math.min(minY, y);
     maxY = Math.max(maxY, y + NODE_H);
   }
+  // Чистая ширина/высота bounding-box нод. Внешний padding добавляется
+  // в render через `pad * 2`, симметрично слева/справа и сверху/снизу.
   return {
-    width: maxX - minX + 48,
-    height: maxY - minY + 48,
+    width: maxX - minX,
+    height: maxY - minY,
     minX,
     minY,
   };
@@ -472,8 +474,10 @@ function AdtFlowCanvas({ flow, selectedId, onSelect }: {
   const bounds = computeBounds(positions);
   const pad = 24;
 
-  // Shift all positions so minX,minY → pad
-  const offsetX = pad - bounds.minX + NODE_W / 2;
+  // Shift all positions so bounds.minX/minY → pad.
+  // pos.x хранится как центр ноды, левый край = pos.x + offsetX - NODE_W/2.
+  // Чтобы node-left самой левой ноды попадал в pad, нужно offsetX = pad - minX.
+  const offsetX = pad - bounds.minX;
   const offsetY = pad - bounds.minY;
 
   const canvasW = bounds.width + pad * 2;

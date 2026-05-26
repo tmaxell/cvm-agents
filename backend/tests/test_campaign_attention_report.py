@@ -36,10 +36,21 @@ def test_campaign_attention_report_is_deterministic_with_seeded_campaigns(seeded
     report = asyncio.run(campaign_attention.build_campaign_attention_report())
 
     assert report["status"] == "ok"
-    # Кампания #201 — severity=critical, должна быть в топе priority_score
+    # Кампания #201 — severity=critical + blocked, должна быть в топе priority_score
     assert report["campaigns"][0]["campaign_id"] == 201
+    assert report["campaigns"][0]["status"] == "blocked"
+    assert report["campaigns"][0]["blocked_reason"] == "Превышен лимит SMS-провайдера"
     # Формула приоритета описана текстом — проверяем что есть упоминание priority + слагаемые
     assert "priority" in report["ranking_formula"]
     assert "severity_weight" in report["ranking_formula"]
-    # Текст проблемы из health.issues_json должен оказаться в issues кампании
-    assert any("CTR drop" in issue.get("message", "") for issue in report["campaigns"][0]["issues"])
+    # Операционные категории попадают в issue_categories
+    codes = {c["code"] for c in report["issue_categories"]}
+    assert "blocked_by_system" in codes
+    assert "delivery_failure_high" in codes
+    # Сводка отдаёт счётчики по статусу
+    assert report["summary"]["by_status"]["running"] == 1
+    assert report["summary"]["by_status"]["blocked"] == 1
+    assert report["summary"]["blocked_count"] == 1
+    # Канальный разрез
+    channels = {ch["channel"] for ch in report["summary"]["channels"]}
+    assert "sms_push" in channels and "push" in channels

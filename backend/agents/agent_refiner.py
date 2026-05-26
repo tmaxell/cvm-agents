@@ -92,7 +92,6 @@ async def _refine_existing(ctx: AgentContext, campaign_id: int) -> AgentResult:
         )
 
     health = campaign.health
-    spent_ratio = campaign.spent / campaign.budget if campaign.budget else 0
     fixes: list[str] = []
     issues_text: list[str] = []
 
@@ -105,20 +104,71 @@ async def _refine_existing(ctx: AgentContext, campaign_id: int) -> AgentResult:
             fix = action.get("action") or action.get("title") or str(action)
             fixes.append(str(fix))
 
-    if campaign.open_rate < 12:
-        fixes.append("A/B-тест двух заголовков с разной длиной и эмодзи в начале.")
-    if campaign.conversion_rate < 3:
-        fixes.append("Усилить оффер: добавить персональную скидку или ограничение по времени.")
-    if spent_ratio > 0.9:
-        fixes.append("Снизить дневной лимит на 20% или перераспределить бюджет на эффективные креативы.")
-    if campaign.click_rate < 5 and campaign.open_rate > 15:
-        fixes.append("Переписать CTA: явный глагол + выгода в первых 30 символах.")
+    # Дополняем рекомендации по фактическим операционным метрикам.
+    if health:
+        if campaign.status == "blocked":
+            reason = health.blocked_reason or "причина не указана"
+            fixes.append(f"Снять блокировку и проверить причину: «{reason}».")
+        if (health.delivery_failure_rate_pct or 0) > 5:
+            fixes.append(
+                f"Failure rate {health.delivery_failure_rate_pct}% — проверить состояние провайдера канала "
+                f"{campaign.channel}, лимиты SMPP/HTTP и долю недоставок по причинам."
+            )
+        if (health.slow_delivery_share_pct or 0) > 5:
+            fixes.append(
+                f"{health.slow_delivery_share_pct}% сообщений уходят >300с — поднять параллелизм consumer'а "
+                "и снизить throttling канала."
+            )
+        if (health.delivery_rate_pct or 100) < 90 and (health.messages_sent_24h or 0) > 0:
+            fixes.append(
+                f"Доставка {health.delivery_rate_pct}% < 90% — сверить SLA провайдера и проверить, "
+                "не упёрлась ли кампания в контактные политики (opt-out, частотный cap)."
+            )
+        if (health.event_lag_minutes or 0) > 60:
+            fixes.append(
+                f"События не приходят {health.event_lag_minutes} мин — проверить источник в DDS, "
+                "подписку на топик и фильтры eventCode."
+            )
+        if (health.response_lag_minutes or 0) > 60:
+            fixes.append(
+                f"Отклики не обрабатываются {health.response_lag_minutes} мин — перезапустить consumer "
+                "ResponseActivity и проверить error-rate в очереди."
+            )
+        if (health.queue_lag_minutes or 0) > 15:
+            fixes.append(
+                f"Lag очереди {health.queue_lag_minutes} мин — проверить rebalance в Kafka и "
+                "увеличить число партиций / реплик consumer-group."
+            )
+        if campaign.status == "running" and (health.messages_sent_24h or 0) == 0:
+            fixes.append(
+                "За 24ч не отправлено ни одного сообщения — проверить таргет-группу (snapshot, "
+                "размер) и расписание/триггер запуска."
+            )
     if not fixes:
-        fixes.append("KPI в норме. Можно расширить аудиторию на 20% и проверить uplift через 7 дней.")
+        fixes.append(
+            "Операционных проблем нет (доставка в норме, тайм-аутов событий и откликов не зафиксировано) — "
+            "можно расширить аудиторию или проверить uplift в следующем окне."
+        )
 
+    # Сжатый снимок текущего состояния.
     lines = [f"### Доработка кампании «{campaign.name}» (id {campaign.id})", ""]
-    lines.append(f"**Текущее состояние:** канал {campaign.channel}, бюджет {campaign.spent:,}/{campaign.budget:,}, "
-                 f"open {campaign.open_rate}%, click {campaign.click_rate}%, CR {campaign.conversion_rate}%.")
+    state_bits = [f"статус {campaign.status}", f"канал {campaign.channel}", f"тип {campaign.campaign_kind}"]
+    if health:
+        state_bits += [
+            f"отправлено за 24ч {health.messages_sent_24h}",
+            f"delivery {health.delivery_rate_pct}%",
+            f"failure {health.delivery_failure_rate_pct}%",
+            f"p95 латентности {health.p95_delivery_latency_sec}с",
+        ]
+        if health.event_lag_minutes is not None:
+            state_bits.append(f"event lag {health.event_lag_minutes} мин")
+        if health.response_lag_minutes is not None:
+            state_bits.append(f"response lag {health.response_lag_minutes} мин")
+        if (health.queue_lag_minutes or 0) > 0:
+            state_bits.append(f"queue lag {health.queue_lag_minutes} мин")
+        if campaign.status == "blocked" and health.blocked_reason:
+            state_bits.append(f"blocked: {health.blocked_reason}")
+    lines.append("**Текущее состояние:** " + ", ".join(state_bits) + ".")
     if issues_text:
         lines.append("")
         lines.append("**Проблемы:**")
@@ -126,21 +176,44 @@ async def _refine_existing(ctx: AgentContext, campaign_id: int) -> AgentResult:
             lines.append(f"- {issue}")
     lines.append("")
     lines.append("**Рекомендации:**")
-    for i, fix in enumerate(fixes[:5], start=1):
+    # Dedupe, сохраняем порядок.
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for fix in fixes:
+        key = fix.strip().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(fix)
+    for i, fix in enumerate(deduped[:6], start=1):
         lines.append(f"{i}. {fix}")
 
-    actions = [
-        ChatAction(
+    actions: list[ChatAction] = []
+    if campaign.status == "blocked":
+        actions.append(ChatAction(
             id="start_campaign",
-            label=f"Запустить «{campaign.name[:24]}» после правок",
+            label=f"Снять блокировку и запустить «{campaign.name[:24]}»",
             kind="runtime",
             payload={"campaign_id": campaign.id},
-        ),
-    ]
+        ))
+    else:
+        actions.append(ChatAction(
+            id="start_campaign",
+            label=f"Перезапустить «{campaign.name[:24]}»",
+            kind="runtime",
+            payload={"campaign_id": campaign.id},
+        ))
+        actions.append(ChatAction(
+            id="pause_campaign",
+            label=f"Поставить «{campaign.name[:24]}» на паузу",
+            kind="runtime",
+            payload={"campaign_id": campaign.id},
+        ))
+
     return AgentResult(
         assistant_message="\n".join(lines),
         actions=actions,
-        metadata={"campaign_id": campaign.id, "fixes": len(fixes)},
+        metadata={"campaign_id": campaign.id, "fixes": len(deduped)},
     )
 
 

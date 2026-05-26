@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, func
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -112,22 +112,28 @@ class SavedArtifactModel(Base):
 
 
 # ── Demo campaigns (для campaign_attention отчёта) ────────────────────────────
+# Метрики оперируют тем же контуром, что показан на дашбордах платформы AdTarget
+# (см. examples/01-06 - Dashboards*): доставка сообщений, задержки, тайм-ауты
+# событий/откликов, очереди обработки и блокировки. Маркетинговых KPI вроде
+# open_rate/CTR на этих дашбордах нет — анализатор работает строго на
+# операционных сигналах.
+
 
 class DemoCampaignModel(Base):
-    """Demo campaigns used for monitoring and local development seed data."""
+    """Метаданные кампании, как они выглядят в платформе AdTarget."""
 
     __tablename__ = "demo_campaigns"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # running | paused | blocked | draft | completed
     status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
-    channel: Mapped[str] = mapped_column(String(64), nullable=False)
-    audience_size: Mapped[int] = mapped_column(Integer, nullable=False)
-    budget: Mapped[int] = mapped_column(Integer, nullable=False)
-    spent: Mapped[int] = mapped_column(Integer, nullable=False)
-    open_rate: Mapped[int] = mapped_column(Integer, nullable=False)
-    click_rate: Mapped[int] = mapped_column(Integer, nullable=False)
-    conversion_rate: Mapped[int] = mapped_column(Integer, nullable=False)
+    # sms_push | push | email_push | ussd_push | ussd_pull | json_pull | json_push | text_push
+    channel: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    # event-triggered / scheduled / pull — определяет, должны ли приходить события.
+    campaign_kind: Mapped[str] = mapped_column(String(32), nullable=False, default="scheduled")
+    audience_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
@@ -139,13 +145,38 @@ class DemoCampaignModel(Base):
 
 
 class CampaignHealthModel(Base):
-    """Health diagnostics snapshot for demo campaigns."""
+    """Снапшот операционного состояния кампании.
+
+    Поля соответствуют метрикам, которые видны на дашбордах AdTarget:
+      • messages_sent_24h        — сколько сообщений отправлено за сутки;
+      • delivery_rate_pct        — доля доставленных от отправленных, %;
+      • delivery_failure_rate_pct — доля доставок с ошибкой, %;
+      • slow_delivery_share_pct  — доля сообщений с задержкой >300с, %;
+      • p95_delivery_latency_sec — 95-й перцентиль задержки доставки, с;
+      • event_lag_minutes        — для event-triggered: минут с последнего события;
+      • response_lag_minutes     — минут с последней успешной обработки отклика;
+      • queue_lag_minutes        — отставание consumer'а очереди обработки, мин;
+      • blocked_reason           — если status=blocked, причина блокировки.
+    """
 
     __tablename__ = "campaign_health"
 
     campaign_id: Mapped[int] = mapped_column(ForeignKey("demo_campaigns.id", ondelete="CASCADE"), primary_key=True)
-    attention_score: Mapped[int] = mapped_column(Integer, nullable=False)
-    severity: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False, index=True)   # critical/high/medium/low
+    attention_score: Mapped[int] = mapped_column(Integer, nullable=False)            # 0-100, выше = здоровее
+
+    messages_sent_24h: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    delivery_rate_pct: Mapped[float] = mapped_column(Float, nullable=False, default=100.0)
+    delivery_failure_rate_pct: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    slow_delivery_share_pct: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    p95_delivery_latency_sec: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    event_lag_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    response_lag_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    queue_lag_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_traffic_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    blocked_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     issues_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
     recommended_actions_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
     last_checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

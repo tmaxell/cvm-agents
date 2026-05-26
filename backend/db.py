@@ -75,13 +75,16 @@ async def session_scope() -> AsyncIterator[AsyncSession]:
 async def init_db() -> None:
     """Создаёт схему БД, если её ещё нет (идемпотентно).
 
-    Раньше здесь были `DROP TABLE … CASCADE` для миграции со старой
-    легаси-схемы (sessions/messages/campaign_states из прошлой версии
-    Builder). Они работали только на Postgres и ломали SQLite, плюс
-    давно неактуальны. Снёс. Если когда-то понадобится миграция —
-    делать через Alembic.
+    Демо-таблицы (`campaign_health`, `demo_campaigns`) пересоздаём при старте —
+    их схема развивается вместе с операционными метриками платформы, и
+    данные всегда пересевают (см. `scripts/seed_demo_campaigns.py`).
+    Чаты и артефакты НЕ трогаем — это пользовательские данные.
     """
+    from sqlalchemy import text
+
     async with engine.begin() as connection:
+        for table in ("campaign_health", "demo_campaigns"):
+            await connection.execute(text(f"DROP TABLE IF EXISTS {table}"))
         await connection.run_sync(Base.metadata.create_all)
 
 

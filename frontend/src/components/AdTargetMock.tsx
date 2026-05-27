@@ -7,7 +7,7 @@
  */
 
 import { useState } from "react";
-import type { CampaignFlow, CampaignOffer, CampaignRuntimeStatus, FlowActivity } from "../types/api";
+import type { CampaignFlow, CampaignOffer, CampaignRuntimeStatus, FlowActivity, FlowSubNode } from "../types/api";
 import { SKELETON_FLOW } from "./flow/skeletonFlow";
 
 interface Props {
@@ -40,6 +40,9 @@ const NODE_META: Record<string, { label: string; color: string }> = {
   SplitActivity:                 { label: "Split",                 color: "#611eb7" },
   TransferToCampaignActivity:    { label: "Transfer to campaign",  color: "#ff8b17" },
   ExcludeFromCampaignActivity:   { label: "Exclude from campaign", color: "#ff8b17" },
+  // ActivityFilter — subNode-карточка между Response и его case-таргетом
+  // (визуально: «Filter 1 / Equals [Ок]»). Жёлтая полоса как у Response.
+  ActivityFilter:                { label: "Filter 1",              color: "#ffcc00" },
 };
 
 // Лейбл Push/Pull-нод — название канала (SMS, Email, Push, USSD, Custom)
@@ -65,6 +68,8 @@ function resolveNodeColor(activity: FlowActivity): string {
 
 const NODE_W = 260;
 const NODE_H = 72;
+const FILTER_W = 200;  // SubNode (ActivityFilter) — чуть уже, чем основная карточка
+const FILTER_H = 72;
 const H_GAP = 56;   // horizontal gap between parallel branches
 const V_GAP = 40;   // vertical gap between rows — точно как Connector Arrow в макете
 
@@ -72,86 +77,221 @@ const V_GAP = 40;   // vertical gap between rows — точно как Connector
 
 interface Pos { x: number; y: number }
 
-function buildAdjacency(activities: FlowActivity[]): Map<string, string[]> {
-  const adj = new Map<string, string[]>();
-  for (const act of activities) {
-    const children: string[] = [];
-    if (act.nextActivityId) children.push(act.nextActivityId);
-    if (act.defaultSuccessActivityId) children.push(act.defaultSuccessActivityId);
-    if (act.defaultFailActivityId) children.push(act.defaultFailActivityId);
-    if (act.cases) {
-      for (const targetId of Object.values(act.cases)) {
-        if (targetId && !children.includes(targetId)) children.push(targetId);
-      }
-    }
-    adj.set(act.id, children);
-  }
-  return adj;
+// Унифицированная «вершина» графа: либо активность, либо subNode (Filter card).
+interface LayoutNode {
+  id: string;
+  kind: "activity" | "filter";
+  width: number;
+  height: number;
+  activity?: FlowActivity;
+  subNode?: FlowSubNode;
+  filterLabel?: string;   // «Equals [Ок]» и т.п. — описание фильтра в subtitle
+  parentResponseId?: string;
 }
 
-function computeTreeLayout(activities: FlowActivity[]): Map<string, Pos> {
-  if (activities.length === 0) return new Map();
+/**
+ * Строит DAG-граф флоу с учётом всех типов связей AdTarget:
+ *  - nextActivityId / defaultSuccessActivityId / defaultFailActivityId
+ *  - cases[caseIdx] — для Response/Real-time check
+ *  - timeOutNextActivityId — таймаут-ветка Response (например, к reminder)
+ *
+ * Также:
+ *  - вставляет ActivityFilter subNode между Response и его case-таргетом
+ *    («Response → Filter 1 (Equals «Ок») → OrJoin»), как это рисует AdTarget;
+ *  - не дублирует subNodes, если они уже пришли с бэка (берёт их позицию).
+ */
+function buildGraph(flow: CampaignFlow): {
+  nodes: Map<string, LayoutNode>;
+  children: Map<string, string[]>;
+  parents: Map<string, string[]>;
+} {
+  const nodes = new Map<string, LayoutNode>();
+  const children = new Map<string, string[]>();
+  const parents = new Map<string, string[]>();
 
-  const adj = buildAdjacency(activities);
-  const byId = new Map(activities.map(a => [a.id, a]));
+  const ensureChildren = (id: string) => {
+    let arr = children.get(id);
+    if (!arr) { arr = []; children.set(id, arr); }
+    return arr;
+  };
+  const addEdge = (from: string, to: string) => {
+    const arr = ensureChildren(from);
+    if (!arr.includes(to)) arr.push(to);
+    let pArr = parents.get(to);
+    if (!pArr) { pArr = []; parents.set(to, pArr); }
+    if (!pArr.includes(from)) pArr.push(from);
+  };
 
-  // Find root (CommonActivity or node not referenced by anyone)
-  const referenced = new Set<string>();
-  for (const children of adj.values()) {
-    for (const c of children) referenced.add(c);
+  // 1. Регистрируем все активности как узлы.
+  for (const act of flow.activities) {
+    nodes.set(act.id, { id: act.id, kind: "activity", width: NODE_W, height: NODE_H, activity: act });
+    ensureChildren(act.id);
   }
-  const root = activities.find(a => a.type === "CommonActivity" || !referenced.has(a.id));
-  if (!root) return new Map(activities.map((a, i) => [a.id, { x: 0, y: i * (NODE_H + V_GAP) }]));
 
-  // Count leaf descendants (for width allocation)
+  // 2. Индекс subNodes, если бэк уже прислал (Response#1 → ActivityFilter).
+  //    Ключ subNode формируется как `<responseId>__<caseIndex>`.
+  const existingSubByKey = new Map<string, FlowSubNode>();
+  for (const sn of flow.subNodes ?? []) {
+    existingSubByKey.set(sn.id, sn);
+  }
+
+  // 3. Перебираем активности и рисуем рёбра, для Response.cases вставляем Filter-узел.
+  for (const act of flow.activities) {
+    // nextActivityId / defaultSuccess / defaultFail — линейные связи
+    if (act.nextActivityId) addEdge(act.id, act.nextActivityId);
+    if (act.defaultSuccessActivityId) addEdge(act.id, act.defaultSuccessActivityId);
+    if (act.defaultFailActivityId) addEdge(act.id, act.defaultFailActivityId);
+
+    // Response.cases: для каждого case вставляем ActivityFilter между Response и case-таргетом
+    if (act.cases && Object.keys(act.cases).length > 0) {
+      for (const [caseIdx, targetId] of Object.entries(act.cases)) {
+        if (!targetId) continue;
+        const filterId = `${act.id}__${caseIdx}`;
+        const filter = act.filters?.find(f => String(f.index ?? "") === caseIdx);
+        const fnName = filter?.function ?? "Equals";
+        const args = (filter?.arguments ?? []).map(a => String(a)).join(", ");
+        const filterLabel = args ? `${fnName} [${args}]` : fnName;
+        nodes.set(filterId, {
+          id: filterId,
+          kind: "filter",
+          width: FILTER_W,
+          height: FILTER_H,
+          subNode: existingSubByKey.get(filterId),
+          filterLabel,
+          parentResponseId: act.id,
+        });
+        ensureChildren(filterId);
+        addEdge(act.id, filterId);
+        addEdge(filterId, targetId);
+      }
+    }
+
+    // timeOutNextActivityId — таймаут-ветка (без фильтра, прямое ребро)
+    if (act.timeOutNextActivityId) addEdge(act.id, act.timeOutNextActivityId);
+  }
+
+  return { nodes, children, parents };
+}
+
+/**
+ * Топологический layered-layout:
+ *  - depth[node] = max(depth[parent]) + 1 (а не depth первого посещения),
+ *    иначе OrJoin с двумя родителями попадает слишком высоко;
+ *  - x распределяется по leaf-count поддерева, как раньше;
+ *  - повторное «посещение» уже размещённой ноды только увеличивает её глубину.
+ */
+function computeLayout(flow: CampaignFlow): Map<string, Pos> {
+  const { nodes, children, parents } = buildGraph(flow);
+  if (nodes.size === 0) return new Map();
+
+  // Корень: CommonActivity или нода без входящих рёбер.
+  const root =
+    flow.activities.find(a => a.type === "CommonActivity")?.id
+    ?? Array.from(nodes.keys()).find(id => (parents.get(id) ?? []).length === 0);
+  if (!root) {
+    const fallback = new Map<string, Pos>();
+    let y = 0;
+    for (const id of nodes.keys()) { fallback.set(id, { x: 0, y }); y += NODE_H + V_GAP; }
+    return fallback;
+  }
+
+  // 1. Глубина: BFS с релаксацией depth до max(parent)+1.
+  const depth = new Map<string, number>();
+  depth.set(root, 0);
+  // Несколько проходов: для DAG достаточно O(V); делаем до стабилизации.
+  let changed = true;
+  let safety = nodes.size * 4;
+  while (changed && safety-- > 0) {
+    changed = false;
+    for (const [id, kids] of children) {
+      const d = depth.get(id);
+      if (d === undefined) continue;
+      for (const k of kids) {
+        const kd = depth.get(k);
+        const target = d + 1;
+        if (kd === undefined || kd < target) {
+          depth.set(k, target);
+          changed = true;
+        }
+      }
+    }
+  }
+  // Узлы вне достижимости от корня — относим в конец.
+  let extra = (Math.max(...depth.values(), 0)) + 1;
+  for (const id of nodes.keys()) {
+    if (!depth.has(id)) { depth.set(id, extra++); }
+  }
+
+  // 2. Считаем leaf-count по DAG для распределения по ширине.
   const leafCount = new Map<string, number>();
   const visited = new Set<string>();
-
   function countLeaves(id: string): number {
+    const cached = leafCount.get(id);
+    if (cached !== undefined) return cached;
     if (visited.has(id)) return 1;
     visited.add(id);
-    const children = adj.get(id) ?? [];
-    if (children.length === 0) {
-      leafCount.set(id, 1);
-      return 1;
-    }
-    const total = children.reduce((sum, c) => sum + countLeaves(c), 0);
+    const kids = (children.get(id) ?? []).filter(c => (depth.get(c) ?? -1) > (depth.get(id) ?? -1));
+    if (kids.length === 0) { leafCount.set(id, 1); return 1; }
+    const total = kids.reduce((s, c) => s + countLeaves(c), 0);
     leafCount.set(id, total);
     return total;
   }
-  countLeaves(root.id);
+  countLeaves(root);
 
-  // Assign positions top-down
+  // 3. Раскладка X по уровням: дети распределяются вокруг центра родителя
+  //    пропорционально своему leafCount; нода размещается только когда её
+  //    depth совпадает с текущим (иначе ждёт нижнего уровня).
   const positions = new Map<string, Pos>();
-  const placed = new Set<string>();
-
-  function place(id: string, centerX: number, depth: number) {
-    if (placed.has(id) || !byId.has(id)) return;
-    placed.add(id);
-    positions.set(id, { x: centerX, y: depth * (NODE_H + V_GAP) });
-
-    const children = (adj.get(id) ?? []).filter(c => byId.has(c));
-    if (children.length === 0) return;
-
-    const totalLeaves = children.reduce((s, c) => s + (leafCount.get(c) ?? 1), 0);
-    const totalWidth = totalLeaves * NODE_W + (totalLeaves - 1) * H_GAP;
-    let startX = centerX - totalWidth / 2;
-
-    for (const child of children) {
+  function place(id: string, centerX: number) {
+    const node = nodes.get(id);
+    if (!node) return;
+    const myDepth = depth.get(id) ?? 0;
+    const existing = positions.get(id);
+    // Если уже размещали — усредняем X (например, OrJoin с двух веток).
+    if (existing) {
+      positions.set(id, { x: (existing.x + centerX) / 2, y: myDepth * (NODE_H + V_GAP) });
+    } else {
+      positions.set(id, { x: centerX, y: myDepth * (NODE_H + V_GAP) });
+    }
+    const kids = (children.get(id) ?? []).filter(c => (depth.get(c) ?? -1) === myDepth + 1);
+    if (kids.length === 0) return;
+    const totalLeaves = kids.reduce((s, c) => s + (leafCount.get(c) ?? 1), 0);
+    const totalWidth = kids.reduce((s, c) => s + (nodes.get(c)?.width ?? NODE_W), 0)
+      + (kids.length - 1) * H_GAP;
+    // Если у ветки общая ширина меньше суммы leaf-блоков — масштабируемся по leaf.
+    const widthByLeaves = totalLeaves * NODE_W + (totalLeaves - 1) * H_GAP;
+    const useWidth = Math.max(totalWidth, widthByLeaves);
+    let startX = centerX - useWidth / 2;
+    for (const child of kids) {
+      const childNode = nodes.get(child);
       const leaves = leafCount.get(child) ?? 1;
-      const childWidth = leaves * NODE_W + (leaves - 1) * H_GAP;
-      place(child, startX + childWidth / 2, depth + 1);
-      startX += childWidth + H_GAP;
+      const slot = Math.max(childNode?.width ?? NODE_W, leaves * NODE_W + (leaves - 1) * H_GAP);
+      place(child, startX + slot / 2);
+      startX += slot + H_GAP;
     }
   }
+  place(root, 0);
 
-  place(root.id, 0, 0);
-
-  // Place any unreachable nodes below
-  let unreachableY = (placed.size) * (NODE_H + V_GAP);
-  for (const act of activities) {
-    if (!placed.has(act.id)) {
-      positions.set(act.id, { x: 0, y: unreachableY });
+  // 4. Для нод, к которым добрались только «снизу» (depth выровнен max-parent),
+  //    place мог не дойти. Релакс по родителям: x = avg(parent.x).
+  let pass = nodes.size;
+  while (pass-- > 0) {
+    let updated = false;
+    for (const id of nodes.keys()) {
+      if (positions.has(id)) continue;
+      const ps = (parents.get(id) ?? []).filter(p => positions.has(p));
+      if (ps.length === 0) continue;
+      const avgX = ps.reduce((s, p) => s + (positions.get(p)?.x ?? 0), 0) / ps.length;
+      positions.set(id, { x: avgX, y: (depth.get(id) ?? 0) * (NODE_H + V_GAP) });
+      updated = true;
+    }
+    if (!updated) break;
+  }
+  // Финальный fallback: всё что не легло — в столбик внизу.
+  let unreachableY = Array.from(positions.values()).reduce((m, p) => Math.max(m, p.y), 0) + NODE_H + V_GAP;
+  for (const id of nodes.keys()) {
+    if (!positions.has(id)) {
+      positions.set(id, { x: 0, y: unreachableY });
       unreachableY += NODE_H + V_GAP;
     }
   }
@@ -159,14 +299,18 @@ function computeTreeLayout(activities: FlowActivity[]): Map<string, Pos> {
   return positions;
 }
 
-function computeBounds(positions: Map<string, Pos>): { width: number; height: number; minX: number; minY: number } {
+function computeBounds(
+  positions: Map<string, Pos>,
+  sizes: Map<string, { w: number; h: number }>,
+): { width: number; height: number; minX: number; minY: number } {
   if (positions.size === 0) return { width: NODE_W, height: NODE_H, minX: 0, minY: 0 };
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (const { x, y } of positions.values()) {
-    minX = Math.min(minX, x - NODE_W / 2);
-    maxX = Math.max(maxX, x + NODE_W / 2);
+  for (const [id, { x, y }] of positions) {
+    const s = sizes.get(id) ?? { w: NODE_W, h: NODE_H };
+    minX = Math.min(minX, x - s.w / 2);
+    maxX = Math.max(maxX, x + s.w / 2);
     minY = Math.min(minY, y);
-    maxY = Math.max(maxY, y + NODE_H);
+    maxY = Math.max(maxY, y + s.h);
   }
   // Чистая ширина/высота bounding-box нод. Внешний padding добавляется
   // в render через `pad * 2`, симметрично слева/справа и сверху/снизу.
@@ -470,20 +614,18 @@ function AdtFlowCanvas({ flow, selectedId, onSelect }: {
   selectedId?: string | null;
   onSelect?: (id: string) => void;
 }) {
-  const positions = computeTreeLayout(flow.activities);
-  const bounds = computeBounds(positions);
+  const { nodes, children } = buildGraph(flow);
+  const positions = computeLayout(flow);
+  const sizes = new Map<string, { w: number; h: number }>();
+  for (const [id, n] of nodes) sizes.set(id, { w: n.width, h: n.height });
+  const bounds = computeBounds(positions, sizes);
   const pad = 24;
 
-  // Shift all positions so bounds.minX/minY → pad.
-  // pos.x хранится как центр ноды, левый край = pos.x + offsetX - NODE_W/2.
-  // Чтобы node-left самой левой ноды попадал в pad, нужно offsetX = pad - minX.
   const offsetX = pad - bounds.minX;
   const offsetY = pad - bounds.minY;
 
   const canvasW = bounds.width + pad * 2;
   const canvasH = bounds.height + pad * 2;
-
-  const adj = buildAdjacency(flow.activities);
 
   return (
     <div
@@ -501,26 +643,27 @@ function AdtFlowCanvas({ flow, selectedId, onSelect }: {
             <path d="M0 1.5 L5 5 L0 8.5" stroke="#94a3b8" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
           </marker>
         </defs>
-        {flow.activities.map(act => {
-          const fromPos = positions.get(act.id);
+        {Array.from(nodes.values()).map(node => {
+          const fromPos = positions.get(node.id);
           if (!fromPos) return null;
           const fx = fromPos.x + offsetX;
-          const fy = fromPos.y + offsetY + NODE_H;
+          const fy = fromPos.y + offsetY + node.height;
 
-          return (adj.get(act.id) ?? []).map(childId => {
+          return (children.get(node.id) ?? []).map(childId => {
+            const child = nodes.get(childId);
             const toPos = positions.get(childId);
-            if (!toPos) return null;
+            if (!toPos || !child) return null;
             const tx = toPos.x + offsetX;
             const ty = toPos.y + offsetY - 4;
 
-            // Straight vertical line when same column; otherwise stepped path
-            const d = fx === tx
+            // Прямая вертикаль если ноды в одной колонке, иначе step-path.
+            const d = Math.abs(fx - tx) < 1
               ? `M ${fx} ${fy} L ${tx} ${ty}`
               : `M ${fx} ${fy} L ${fx} ${(fy + ty) / 2} L ${tx} ${(fy + ty) / 2} L ${tx} ${ty}`;
 
             return (
               <path
-                key={`${act.id}-${childId}`}
+                key={`${node.id}-${childId}`}
                 d={d}
                 stroke="#94a3b8"
                 strokeWidth="1.4"
@@ -533,14 +676,27 @@ function AdtFlowCanvas({ flow, selectedId, onSelect }: {
       </svg>
 
       {/* Node cards */}
-      {flow.activities.map((act, i) => {
-        const pos = positions.get(act.id);
+      {Array.from(nodes.values()).map((node, i) => {
+        const pos = positions.get(node.id);
         if (!pos) return null;
-        const x = pos.x + offsetX - NODE_W / 2;
+        const x = pos.x + offsetX - node.width / 2;
         const y = pos.y + offsetY;
+        if (node.kind === "filter") {
+          return (
+            <AdtFilterNode
+              key={node.id}
+              x={x}
+              y={y}
+              width={node.width}
+              animDelay={i * 65}
+              label={node.filterLabel ?? "Equals"}
+            />
+          );
+        }
+        const act = node.activity!;
         return (
           <AdtNode
-            key={act.id}
+            key={node.id}
             activity={act}
             offers={flow.offers ?? []}
             x={x}
@@ -551,6 +707,41 @@ function AdtFlowCanvas({ flow, selectedId, onSelect }: {
           />
         );
       })}
+    </div>
+  );
+}
+
+// ── Filter subNode card (Response → ActivityFilter → cases target) ────────────
+//
+// Маленькая карточка под Response с жёлтой полосой и subtitle «Equals [Ок]».
+// Без интерактива — это визуальный аналог subNode из AdTarget UI.
+function AdtFilterNode({ x, y, width, animDelay, label }: {
+  x: number;
+  y: number;
+  width: number;
+  animDelay: number;
+  label: string;
+}) {
+  return (
+    <div
+      className="adt-node adt-node-filter"
+      style={{
+        position: "absolute",
+        left: x,
+        top: y,
+        width,
+        minHeight: FILTER_H,
+        animationDelay: `${animDelay}ms`,
+      }}
+    >
+      <span className="adt-node-indicator" style={{ background: "#ffcc00" }} />
+      <div className="adt-node-title">
+        <span className="adt-node-title-text" style={{ color: "#ffcc00" }}>Filter 1</span>
+      </div>
+      <div className="adt-node-subtitle">
+        <span className="adt-node-subtitle-text">{label}</span>
+      </div>
+      <span className="adt-node-spacer" />
     </div>
   );
 }

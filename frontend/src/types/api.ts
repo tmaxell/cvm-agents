@@ -199,13 +199,35 @@ export interface FlowActivity {
   cases?: Record<string, string>;
   defaultSuccessActivityId?: string | null;
   defaultFailActivityId?: string | null;
+  // Response timeout: куда идти, если за timeoutParameters.interval секунд
+  // не пришёл отклик (например, на reminder-ветку).
+  timeOutNextActivityId?: string | null;
+  timeoutParameters?: { interval?: number | null } | null;
+  // Какие communication-ноды эта Response слушает (нужно для ActivityFilter).
+  linkedCommunicationActivities?: string[];
+  // Response.cases ссылается на ActivityFilter по индексу 1..N — описание
+  // фильтра по которому матчится отклик (Equals «Ок» и т.п.).
+  filters?: Array<{ type?: string; function?: string; arguments?: unknown[]; index?: number }>;
   // Wait
   waitingPeriod?: { type: string; count: number };
+  // ExcludeFromCampaign / TransferToCampaign
+  removeFromCurrentCampaign?: boolean;
+  // Notification flag — отрисовываем reminder отдельным значком.
+  isNotification?: boolean;
+}
+
+// SubNode — небольшие карточки-фильтры, которые AdTarget рисует между
+// Response и его case-таргетом (Filter 1 → Equals [Ок]).
+export interface FlowSubNode {
+  id: string;       // обычно "<responseId>__<caseIndex>"
+  type: string;     // "ActivityFilter"
+  position?: { left: number; top: number };
 }
 
 export interface CampaignFlow {
   activities: FlowActivity[];
   offers?: CampaignOffer[];
+  subNodes?: FlowSubNode[];
 }
 
 export type CampaignRuntimeStatus = "editing" | "active" | "paused";

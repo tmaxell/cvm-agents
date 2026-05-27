@@ -11,6 +11,7 @@ import {
   type ChatSession,
 } from "../../api/chatApi";
 import type { CampaignFlow } from "../../types/api";
+import { normalizeUpsellFlow } from "../../components/flow/normalizeUpsellFlow";
 
 export interface ChatEntry extends ChatMessage {
   optimistic?: boolean;
@@ -38,7 +39,11 @@ function extractDraftFlow(artifacts: ChatArtifact[]): CampaignFlow | null {
   for (let i = artifacts.length - 1; i >= 0; i -= 1) {
     const a = artifacts[i];
     if ((a.type === "draft_flow" || a.type === "campaign_draft") && a.content && Array.isArray((a.content as { activities?: unknown }).activities)) {
-      return a.content as unknown as CampaignFlow;
+      // Старые upsell-артефакты (до коммита 481f51c) лежат в БД линейной
+      // цепочкой через nextActivityId — без cases/timeOutNext/subNodes.
+      // Нормализатор распознаёт сигнатуру по типам активностей и
+      // пересобирает их как DAG, чтобы рендерер корректно показал две ветки.
+      return normalizeUpsellFlow(a.content as unknown as CampaignFlow);
     }
   }
   return null;
@@ -101,6 +106,8 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
     return () => { cancelled = true; };
   }, []);
 
+  const didAutoSelectRef = useRef(false);
+
   const selectSession = useCallback(async (sessionId: string) => {
     setActiveSessionId(sessionId);
     setLoadingMessages(true);
@@ -117,6 +124,18 @@ export function ChatWorkspaceProvider({ children }: { children: ReactNode }) {
       setLoadingMessages(false);
     }
   }, []);
+
+  // Авто-выбор самой свежей сессии на старте. Раньше история подтягивалась
+  // только после первого отправленного сообщения — при перезаходе на страницу
+  // холст и переписка были пустыми до клика. Делаем один раз через ref,
+  // чтобы автоселект не «прыгал» обратно после createNewChat / refreshSessions.
+  useEffect(() => {
+    if (didAutoSelectRef.current) return;
+    if (sessions.length === 0) return;
+    if (activeSessionId) { didAutoSelectRef.current = true; return; }
+    didAutoSelectRef.current = true;
+    void selectSession(sessions[0].id);
+  }, [sessions, activeSessionId, selectSession]);
 
   const createNewChat = useCallback(async () => {
     setError(null);

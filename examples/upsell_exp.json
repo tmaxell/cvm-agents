@@ -1,0 +1,402 @@
+{
+    "id": 0,
+    "campaignId": 0,
+    "activities": [
+        {
+            "type": "CommonActivity",
+            "id": "55d80de8-ccc7-4823-a17c-0009fcfd5211",
+            "name": "vad4 Продвижение ТП «Ультра»",
+            "position": {
+                "left": 266,
+                "top": 38
+            },
+            "nextActivityId": "4bbead06-28c7-438d-a5bd-4b91d40c44d5",
+            "description": "Бесплатный переход на ТП в течение недели по отклику.",
+            "priority": 3,
+            "typeId": 56,
+            "schedule": {
+                "period": {
+                    "tzBehavior": "System",
+                    "beginDate": "0001-01-01T00:00:00+04:03",
+                    "tzBeginDate": "0001-01-01T00:00:00+04:03",
+                    "endDate": "0001-01-01T00:00:00+04:03",
+                    "tzEndDate": "0001-01-01T00:00:00+04:03"
+                },
+                "frequency": {
+                    "type": "DailyFrequency",
+                    "periodInDays": 1
+                }
+            },
+            "settings": {
+                "useContactPolicies": true,
+                "hasImpactOnContactPolicies": true,
+                "useBlackLists": true,
+                "communicationLimit": null,
+                "businessTransactionLimit": null
+            },
+            "campaignGroupId": null,
+            "tagIds": []
+        },
+        {
+            "type": "TargetGroupActivity",
+            "id": "4bbead06-28c7-438d-a5bd-4b91d40c44d5",
+            "name": "ультра vad4",
+            "position": {
+                "left": 266,
+                "top": 179
+            },
+            "nextActivityId": "8e8b24c4-7359-4557-a560-81fed9d0c41d",
+            "clientSourceType": "TargetGroup",
+            "clientSourceId": 478,
+            "description": "(FROM \"All clients\": \"ActivityForLastMonth\" = True AND \"Gender\" = 'M') MERGE (FROM \"All clients\": \"ActivityForLastMonth\" = True AND \"Gender\" = 'F' AND \"AgeGroup\" = '18-29') MERGE (FROM \"All clients\": \"ActivityForLastMonth\" = True AND \"Gender\" = 'F' AND \"AgeGroup\" = '30-44') MERGE (FROM \"All clients\": \"ActivityForLastMonth\" = True AND \"Gender\" = 'F' AND \"AgeGroup\" = '45-60')",
+            "acceptClients": false,
+            "excludeClients": false,
+            "useLocalControlGroup": false,
+            "targetGroupSnapshotId": null,
+            "lCGroupClientCalculationResult": null,
+            "localControlGroupSettings": null,
+            "useUniversalControlGroup": true,
+            "useTestGroup": false,
+            "testGroupClientSourceId": null,
+            "tagIds": []
+        },
+        {
+            "type": "PushCommunicationActivity",
+            "id": "8e8b24c4-7359-4557-a560-81fed9d0c41d",
+            "name": "vad 4 Предложение ТП Ультра",
+            "position": {
+                "left": 266,
+                "top": 332.5
+            },
+            "defaultSuccessActivityId": "db270c73-fb34-4cb3-963b-7ecdb096b38b",
+            "cases": {},
+            "isNotification": false,
+            "content": {
+                "type": "SmsContent",
+                "priority": 1,
+                "localizedContents": {
+                    "2": {
+                        "type": "SmsContentTranslation",
+                        "senderName": "EWvad4",
+                        "body": "Уважаемый абонент, с {{[c.BeginDate]}} по {{[c.EndDate]}} вы можете бесплатно перейти на новый ТП Ультра, отправив SMS c текстом «Ок» на номер 999.",
+                        "languageId": 2
+                    }
+                }
+            },
+            "schedule": {
+                "period": {
+                    "tzBehavior": "System",
+                    "beginDate": "0001-01-01T00:00:00+04:03",
+                    "tzBeginDate": "0001-01-01T00:00:00+04:03",
+                    "endDate": "0001-01-01T00:00:00+04:03",
+                    "tzEndDate": "0001-01-01T00:00:00+04:03"
+                },
+                "frequency": {
+                    "type": "DailyFrequency",
+                    "periodInDays": 1
+                }
+            },
+            "timeIntervals": [
+                {
+                    "begin": 28800,
+                    "end": 72000
+                }
+            ],
+            "frequencyForClient": {
+                "amount": 1,
+                "interval": 86400
+            },
+            "offers": [],
+            "limit": null,
+            "realtimeChecks": [],
+            "contentType": "SmsContent",
+            "contentTemplateId": null,
+            "productId": null,
+            "timeoutParameters": null,
+            "timeOutNextActivityId": null,
+            "clientLimit": null,
+            "useNbo": false,
+            "waitForDeliveryReport": false,
+            "channelId": 282,
+            "retryPolicy": {
+                "attempts": 3,
+                "interval": 3600
+            },
+            "disableRetries": false,
+            "validityPeriod": 3600,
+            "frequency": null,
+            "invalidTimeNextActivityId": null,
+            "customContentTypeId": null,
+            "priorityType": "Campaign",
+            "isInteractive": false,
+            "defaultFailActivityId": null,
+            "tagIds": []
+        },
+        {
+            "type": "ResponseActivity",
+            "id": "db270c73-fb34-4cb3-963b-7ecdb096b38b",
+            "name": "Response",
+            "position": {
+                "left": 266,
+                "top": 496.5
+            },
+            "defaultSuccessActivityId": null,
+            "cases": {
+                "1": "a257b102-d984-4878-9ac4-5954d199d5b0"
+            },
+            "responseSourceId": 122,
+            "haveToCheckSchedule": true,
+            "timeoutParameters": {
+                "timerType": "WaitForInterval",
+                "interval": 259200,
+                "waitUntil": null,
+                "waitUntilExpression": null
+            },
+            "timeOutNextActivityId": "feda9054-b3b2-4a24-89f5-6fb9a5c54de2",
+            "invalidTimeNextActivityId": null,
+            "linkedCommunicationActivities": [
+                "8e8b24c4-7359-4557-a560-81fed9d0c41d"
+            ],
+            "operations": "LTrim, RTrim, CaseInsensitive",
+            "filters": [
+                {
+                    "type": "CalculatedResponseFilter",
+                    "function": "Equals",
+                    "arguments": [
+                        "Ок"
+                    ],
+                    "index": 1
+                }
+            ],
+            "defaultFailActivityId": null,
+            "tagIds": []
+        },
+        {
+            "type": "PushCommunicationActivity",
+            "id": "feda9054-b3b2-4a24-89f5-6fb9a5c54de2",
+            "name": "Напоминание ТП Ультра",
+            "position": {
+                "left": 411.5,
+                "top": 660.5
+            },
+            "defaultSuccessActivityId": "56553c52-99e3-40af-9695-6d69874a1a71",
+            "cases": {},
+            "isNotification": true,
+            "content": {
+                "type": "SmsContent",
+                "priority": 1,
+                "localizedContents": {
+                    "2": {
+                        "type": "SmsContentTranslation",
+                        "senderName": "EWvad4",
+                        "body": "Уважаемый абонент, вы можете бесплатно перейти на новый ТП Ультра, отправив SMS c текстом «Ок» на номер 999 до {{[c.EndDate]}}.",
+                        "languageId": 2
+                    }
+                }
+            },
+            "schedule": {
+                "period": {
+                    "tzBehavior": "System",
+                    "beginDate": "0001-01-01T00:00:00+04:03",
+                    "tzBeginDate": "0001-01-01T00:00:00+04:03",
+                    "endDate": "0001-01-01T00:00:00+04:03",
+                    "tzEndDate": "0001-01-01T00:00:00+04:03"
+                },
+                "frequency": {
+                    "type": "DailyFrequency",
+                    "periodInDays": 1
+                }
+            },
+            "timeIntervals": [
+                {
+                    "begin": 28800,
+                    "end": 72000
+                }
+            ],
+            "frequencyForClient": {
+                "amount": 1,
+                "interval": 86400
+            },
+            "offers": [],
+            "limit": null,
+            "realtimeChecks": [],
+            "contentType": "SmsContent",
+            "contentTemplateId": null,
+            "productId": null,
+            "timeoutParameters": null,
+            "timeOutNextActivityId": null,
+            "clientLimit": null,
+            "useNbo": false,
+            "waitForDeliveryReport": false,
+            "channelId": 282,
+            "retryPolicy": {
+                "attempts": 3,
+                "interval": 3600
+            },
+            "disableRetries": false,
+            "validityPeriod": 3600,
+            "frequency": null,
+            "invalidTimeNextActivityId": null,
+            "customContentTypeId": null,
+            "priorityType": "Campaign",
+            "isInteractive": false,
+            "defaultFailActivityId": null,
+            "tagIds": []
+        },
+        {
+            "type": "ResponseActivity",
+            "id": "56553c52-99e3-40af-9695-6d69874a1a71",
+            "name": "Отклик ТП Ультра",
+            "position": {
+                "left": 411.5,
+                "top": 824.5
+            },
+            "defaultSuccessActivityId": null,
+            "cases": {
+                "1": "a257b102-d984-4878-9ac4-5954d199d5b0"
+            },
+            "responseSourceId": 122,
+            "haveToCheckSchedule": true,
+            "timeoutParameters": {
+                "timerType": "WaitUntil",
+                "interval": null,
+                "waitUntil": null,
+                "waitUntilExpression": null
+            },
+            "timeOutNextActivityId": null,
+            "invalidTimeNextActivityId": null,
+            "linkedCommunicationActivities": [
+                "feda9054-b3b2-4a24-89f5-6fb9a5c54de2"
+            ],
+            "operations": "LTrim, RTrim, CaseInsensitive",
+            "filters": [
+                {
+                    "type": "CalculatedResponseFilter",
+                    "function": "Equals",
+                    "arguments": [
+                        "Ок"
+                    ],
+                    "index": 1
+                }
+            ],
+            "defaultFailActivityId": null,
+            "tagIds": []
+        },
+        {
+            "type": "OrJoinActivity",
+            "id": "a257b102-d984-4878-9ac4-5954d199d5b0",
+            "name": "Or",
+            "position": {
+                "left": 266,
+                "top": 1134.5
+            },
+            "nextActivityId": "1b4da652-af35-4ea5-a563-e8323827b10f",
+            "tagIds": []
+        },
+        {
+            "type": "BusinessTransactionActivity",
+            "id": "1b4da652-af35-4ea5-a563-e8323827b10f",
+            "name": "Переключение на ТП Ультра",
+            "position": {
+                "left": 266,
+                "top": 1280.5
+            },
+            "defaultSuccessActivityId": "4efaedd4-91ea-43f0-8f6e-5ab2c31f2f71",
+            "cases": {},
+            "offerId": null,
+            "offerTemplateId": null,
+            "productId": null,
+            "businessOperation": {
+                "id": "switchTariffPlan",
+                "parameters": [
+                    {
+                        "name": "newPlanId",
+                        "value": "1",
+                        "valueExpression": null
+                    },
+                    {
+                        "name": "Comment",
+                        "value": null,
+                        "valueExpression": null
+                    },
+                    {
+                        "name": "FromNextPeriod",
+                        "value": null,
+                        "valueExpression": null
+                    }
+                ]
+            },
+            "retryPolicy": {
+                "attempts": 3,
+                "interval": 3600
+            },
+            "frequencyForClient": {
+                "amount": 1,
+                "interval": 86400
+            },
+            "limit": null,
+            "clientLimit": null,
+            "schedule": {
+                "period": {
+                    "tzBehavior": "System",
+                    "beginDate": "0001-01-01T00:00:00+04:03",
+                    "tzBeginDate": "0001-01-01T00:00:00+04:03",
+                    "endDate": "0001-01-01T00:00:00+04:03",
+                    "tzEndDate": "0001-01-01T00:00:00+04:03"
+                },
+                "frequency": {
+                    "type": "DailyFrequency",
+                    "periodInDays": 1
+                }
+            },
+            "timeIntervals": [
+                {
+                    "begin": 0,
+                    "end": 86400
+                }
+            ],
+            "invalidTimeNextActivityId": null,
+            "realtimeChecks": [],
+            "defaultFailActivityId": null,
+            "tagIds": []
+        },
+        {
+            "type": "ExcludeFromCampaignActivity",
+            "id": "4efaedd4-91ea-43f0-8f6e-5ab2c31f2f71",
+            "name": "Удаление клиентов из текущей кампании",
+            "position": {
+                "left": 266,
+                "top": 1434
+            },
+            "nextActivityId": null,
+            "campaigns": [],
+            "removeFromCurrentCampaign": true,
+            "tagIds": []
+        }
+    ],
+    "offers": [],
+    "zoom": 0.6236381977135171,
+    "autoAlign": true,
+    "position": {
+        "left": 71.17550008087551,
+        "top": 784.9102280692293
+    },
+    "subNodes": [
+        {
+            "id": "db270c73-fb34-4cb3-963b-7ecdb096b38b__1",
+            "type": "ActivityFilter",
+            "position": {
+                "left": 120.5,
+                "top": 988.5
+            }
+        },
+        {
+            "id": "56553c52-99e3-40af-9695-6d69874a1a71__1",
+            "type": "ActivityFilter",
+            "position": {
+                "left": 411.5,
+                "top": 988.5
+            }
+        }
+    ]
+}

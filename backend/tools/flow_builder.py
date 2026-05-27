@@ -407,6 +407,250 @@ def _build_generated_offers(activities: list[dict[str, Any]]) -> list[dict[str, 
     return offers
 
 
+# ── Готовый шаблон upsell-кампании с напоминанием ────────────────────────────
+
+def build_upsell_with_reminder_flow(
+    *,
+    campaign_name: str,
+    product: str,
+    target_group_id: int,
+    target_group_name: str | None = None,
+    offer_text: str,
+    reminder_text: str | None = None,
+    switch_tariff_plan_id: int = 1,
+    channel_id: int = 1,
+    sender: str = "AdTarget",
+    response_source_id: int = 122,
+    reminder_timeout_seconds: int = 259_200,  # 3 дня
+    response_keyword: str = "Ок",
+) -> dict[str, Any]:
+    """Сборка upsell-кампании по шаблону из examples/upsell_exp.json.
+
+    Структура:
+      Common
+        → TargetGroup
+          → SMS push (offer_text)
+            ├─ default success → Response #1 (filter Ок)
+            │                       ├─ case "1" → OrJoin
+            │                       └─ timeout (N дней) → SMS push (reminder_text)
+            │                                                 → Response #2 (filter Ок)
+            │                                                     └─ case "1" → OrJoin
+            │                                                                    ↓
+            ↓                                                                    │
+                                              OrJoin ←──────────────────────────┘
+                                                ↓
+                                          BusinessTransaction (switchTariffPlan)
+                                                ↓
+                                          ExcludeFromCampaign (removeFromCurrentCampaign=True)
+    """
+    reminder_text = reminder_text or _default_reminder_text(product)
+
+    # Генерим все id заранее, чтобы прописать переходы в обе стороны (DAG, не line).
+    common_id = new_id()
+    tg_id = new_id()
+    sms_offer_id = new_id()
+    response1_id = new_id()
+    sms_reminder_id = new_id()
+    response2_id = new_id()
+    orjoin_id = new_id()
+    bt_id = new_id()
+    exclude_id = new_id()
+
+    activities: list[dict[str, Any]] = []
+
+    # 1. Common — настройки кампании
+    common = make_common_activity(campaign_name)
+    common["id"] = common_id
+    common["nextActivityId"] = tg_id
+    common["position"] = {"left": 266, "top": 38}
+    activities.append(common)
+
+    # 2. TargetGroup
+    tg = make_target_group_activity(target_group_id=int(target_group_id))
+    tg["id"] = tg_id
+    tg["nextActivityId"] = sms_offer_id
+    tg["position"] = {"left": 266, "top": 179}
+    if target_group_name:
+        tg["name"] = target_group_name
+    activities.append(tg)
+
+    # 3. SMS push с предложением (offer_text)
+    sms_offer = make_push_communication_activity(
+        channel_id=channel_id, content_type="SmsContent",
+        message_text=offer_text, sender=sender,
+    )
+    sms_offer["id"] = sms_offer_id
+    sms_offer["name"] = f"Предложение «{_short(product, 24)}»"
+    sms_offer["nextActivityId"] = None
+    sms_offer["defaultSuccessActivityId"] = response1_id
+    sms_offer["position"] = {"left": 266, "top": 332}
+    activities.append(sms_offer)
+
+    # 4. Response #1: ждём «Ок» 3 дня, иначе уходим на reminder
+    response1 = _make_keyword_response_activity(
+        name="Response",
+        response_source_id=response_source_id,
+        keyword=response_keyword,
+        timeout_seconds=reminder_timeout_seconds,
+        timeout_next_id=sms_reminder_id,
+        case_match_next_id=orjoin_id,
+        linked_communication_id=sms_offer_id,
+    )
+    response1["id"] = response1_id
+    response1["position"] = {"left": 266, "top": 496}
+    activities.append(response1)
+
+    # 5. SMS push с напоминанием
+    sms_reminder = make_push_communication_activity(
+        channel_id=channel_id, content_type="SmsContent",
+        message_text=reminder_text, sender=sender,
+    )
+    sms_reminder["id"] = sms_reminder_id
+    sms_reminder["name"] = f"Напоминание «{_short(product, 24)}»"
+    sms_reminder["isNotification"] = True
+    sms_reminder["nextActivityId"] = None
+    sms_reminder["defaultSuccessActivityId"] = response2_id
+    sms_reminder["position"] = {"left": 411, "top": 660}
+    activities.append(sms_reminder)
+
+    # 6. Response #2: дожидаемся «Ок», timeout не задан
+    response2 = _make_keyword_response_activity(
+        name=f"Отклик «{_short(product, 24)}»",
+        response_source_id=response_source_id,
+        keyword=response_keyword,
+        timeout_seconds=None,
+        timeout_next_id=None,
+        case_match_next_id=orjoin_id,
+        linked_communication_id=sms_reminder_id,
+    )
+    response2["id"] = response2_id
+    response2["position"] = {"left": 411, "top": 824}
+    activities.append(response2)
+
+    # 7. OrJoin — объединение двух веток откликов
+    orjoin = make_or_join_activity(next_id=bt_id)
+    orjoin["id"] = orjoin_id
+    orjoin["name"] = "Or"
+    orjoin["position"] = {"left": 266, "top": 1134}
+    activities.append(orjoin)
+
+    # 8. BusinessTransaction: switchTariffPlan
+    bt = make_business_transaction_activity(
+        offer_template_id=0,
+        operation_id="switchTariffPlan",
+        operation_params=[
+            {"name": "newPlanId", "value": str(int(switch_tariff_plan_id)), "valueExpression": None},
+            {"name": "Comment", "value": None, "valueExpression": None},
+            {"name": "FromNextPeriod", "value": None, "valueExpression": None},
+        ],
+    )
+    bt["id"] = bt_id
+    bt["name"] = f"Переключение на «{_short(product, 24)}»"
+    bt["nextActivityId"] = None
+    bt["defaultSuccessActivityId"] = exclude_id
+    bt["position"] = {"left": 266, "top": 1280}
+    activities.append(bt)
+
+    # 9. Exclude from current campaign
+    exclude = _make_exclude_from_campaign_activity()
+    exclude["id"] = exclude_id
+    exclude["position"] = {"left": 266, "top": 1434}
+    activities.append(exclude)
+
+    return {
+        "activities": activities,
+        "offers": _build_generated_offers(activities),
+        "subNodes": [
+            {"id": f"{response1_id}__1", "type": "ActivityFilter", "position": {"left": 120, "top": 988}},
+            {"id": f"{response2_id}__1", "type": "ActivityFilter", "position": {"left": 411, "top": 988}},
+        ],
+        "zoom": 0.62,
+        "position": {"left": 71.0, "top": 784.0},
+        "autoAlign": True,
+    }
+
+
+def _make_keyword_response_activity(
+    *,
+    name: str,
+    response_source_id: int,
+    keyword: str,
+    timeout_seconds: int | None,
+    timeout_next_id: str | None,
+    case_match_next_id: str,
+    linked_communication_id: str,
+) -> dict[str, Any]:
+    """ResponseActivity, ждущая ключевое слово в отклике.
+
+    Случай `cases["1"]` соответствует фильтру №1 (равенство `keyword`).
+    Timeout (если задан) уводит на `timeout_next_id`.
+    """
+    timeout = None
+    if timeout_seconds is not None:
+        timeout = {
+            "timerType": "WaitForInterval",
+            "interval": int(timeout_seconds),
+            "waitUntil": None,
+            "waitUntilExpression": None,
+        }
+    return {
+        "type": "ResponseActivity",
+        "id": new_id(),
+        "name": name,
+        "position": {"left": 120, "top": 262},
+        "nextActivityId": None,
+        "tagIds": [],
+        "errors": [],
+        "warnings": [],
+        "defaultSuccessActivityId": None,
+        "cases": {"1": case_match_next_id},
+        "responseSourceId": int(response_source_id),
+        "haveToCheckSchedule": True,
+        "timeoutParameters": timeout,
+        "timeOutNextActivityId": timeout_next_id,
+        "invalidTimeNextActivityId": None,
+        "linkedCommunicationActivities": [linked_communication_id],
+        "operations": "LTrim, RTrim, CaseInsensitive",
+        "filters": [
+            {
+                "type": "CalculatedResponseFilter",
+                "function": "Equals",
+                "arguments": [keyword],
+                "index": 1,
+            }
+        ],
+        "defaultFailActivityId": None,
+    }
+
+
+def _make_exclude_from_campaign_activity() -> dict[str, Any]:
+    """ExcludeFromCampaignActivity — удаляет клиента из текущей кампании по факту BT."""
+    return {
+        "type": "ExcludeFromCampaignActivity",
+        "id": new_id(),
+        "name": "Удаление клиентов из текущей кампании",
+        "position": {"left": 120, "top": 262},
+        "nextActivityId": None,
+        "campaigns": [],
+        "removeFromCurrentCampaign": True,
+        "tagIds": [],
+    }
+
+
+def _default_reminder_text(product: str) -> str:
+    """Шаблонный текст напоминания, когда LLM сгенерировал только основной offer-текст."""
+    name = (product or "").strip() or "наш тариф"
+    return (
+        f"Напоминаем: вы можете перейти на «{name}». "
+        "Отправьте «Ок» на 999 до {{[c.EndDate]}}."
+    )
+
+
+def _short(text: str, limit: int) -> str:
+    text = (text or "").strip()
+    return text if len(text) <= limit else text[: max(1, limit - 1)] + "…"
+
+
 def assemble_flow(activities: list[dict[str, Any]]) -> dict[str, Any]:
     """Собирает полный объект flow из списка активностей.
 

@@ -79,15 +79,32 @@ _AUDIENCE_TRAIL_CHANNEL_RE = re.compile(
 _LEADING_TOKEN_RE = re.compile(r"^([\wёЁ-]+)([\s,.:;—-]+)", re.UNICODE)
 
 
-# Регулярка «пользователь просит сгенерировать оффер».
+# Регулярка «пользователь просит сгенерировать варианты контента / оффера».
 _OFFER_GEN_RE = re.compile(
-    r"\b(сгенерир|придум|подбер|напиш|дай)\w*\s+(\w+\s+){0,3}(оффер|вариант|вариант\w*\s+оффер|текст\w*)",
+    r"\b(сгенерир|придум|подбер|напиш|дай)\w*\s+(\w+\s+){0,3}(оффер|вариант|вариант\w*\s+(оффер|контент|текст)|текст\w*|контент\w*|смс|sms)",
     re.IGNORECASE,
 )
 _OFFER_SKIP_RE = re.compile(
-    r"\b(не\s+нужно|пропуст\w*|без\s+оффер|типовой|стандартн\w*|по\s+умолчанию)",
+    r"\b(не\s+нужно|пропуст\w*|без\s+оффер|без\s+генер|типов(ой|ым)|стандартн\w*|по\s+умолчанию)",
     re.IGNORECASE,
 )
+
+
+# Пользователь хочет использовать предложенную ранее ТГ:
+#   «возьми эту таргет-группу», «построй с ней», «используй эту аудиторию», …
+_TAKE_RECENT_TG_RE = re.compile(
+    r"\b("
+    r"возьм[иёе]\w*|использу\w+|использ[уоиаь]\w*|примен[иеяь]\w*|"
+    r"построй\s+с\s+(этой|ней|эту)|собер[иеу]\w*\s+с\s+(этой|ней|эту)|"
+    r"эт[аоу]\w*\s+(таргет\w*|аудитор\w*|групп\w*|сегмент\w*)|"
+    r"первый\s+вариант|перв[уы]\w*\s+гипотез\w*|первую\s+гипотезу"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _wants_take_recent_segment(message: str) -> bool:
+    return bool(message and _TAKE_RECENT_TG_RE.search(message))
 
 
 def _wants_offer_generation(message: str) -> bool:
@@ -155,6 +172,17 @@ async def execute(ctx: AgentContext) -> AgentResult:
     if seed_segment and isinstance(seed_segment, dict):
         if _resolve_target_group(ctx) == (None, None):
             await _auto_promote_segment(ctx, seed_segment)
+
+    # 0a.bis. Пользователь свободным текстом сказал «возьми эту ТГ / построй с ней» —
+    #         используем последнюю предложенную гипотезу сегмента из сессии.
+    if (
+        not seed_segment
+        and _wants_take_recent_segment(ctx.message)
+        and _resolve_target_group(ctx) == (None, None)
+    ):
+        recent = _pick_recent_segment(ctx)
+        if recent:
+            await _auto_promote_segment(ctx, recent)
 
     # 0b. select_offer action: пользователь выбрал вариант оффера из меню OfferAgent —
     #     сохраняем выбор как артефакт offer_choice, дальше сборка подхватит текст.
@@ -264,6 +292,15 @@ async def execute(ctx: AgentContext) -> AgentResult:
             return await _generate_offers(ctx, goal=goal, brief=brief)
         return await _ask_offer_decision(ctx, goal=goal, brief=brief)
 
+    # 3.6. Шаблон upsell-with-reminder: если goal=апсейл + канал SMS + продукт
+    # это тариф + есть ТГ и выбранный текст оффера — собираем флоу детерминированно
+    # по структуре examples/upsell_exp.json (Common→TG→SMS→Response(3д)→
+    # SMS reminder→Response→OrJoin→BT switchTariffPlan→ExcludeFromCampaign).
+    if offer_text and await _matches_upsell_with_reminder(brief, ctx):
+        return await _build_upsell_with_reminder(
+            ctx, goal=goal, brief=brief, offer_text=offer_text,
+        )
+
     # 4. LLM-план + детерминистический сборщик.
     await ctx.emit("step_started", detail="BuilderAgent: LLM-планировщик с брифом")
     history_pairs = [
@@ -319,7 +356,7 @@ async def execute(ctx: AgentContext) -> AgentResult:
     await ctx.emit("step_completed", detail=f"Fallback готов ({latency} ms)")
     message = (
         "Не получилось вытащить структуру кампании из запроса. Собрал базовый шаблон "
-        "**Common → TargetGroup → SMS push**. Уточните аудиторию, оффер и каналы — пересоберу подробнее."
+        "**Common → TargetGroup → SMS push**. Уточните аудиторию, текст коммуникации и каналы — пересоберу подробнее."
     )
     return await _finalize(ctx, flow=flow, message=message, mode="fallback", brief=brief)
 
@@ -656,10 +693,24 @@ async def _auto_promote_segment(ctx: AgentContext, segment: dict[str, Any]) -> N
         ctx.artifacts.append(artifact)
 
 
-# ── Шаг выбора оффера ────────────────────────────────────────────────────────
+# ── Шаг выбора контента коммуникации ─────────────────────────────────────────
+
+def _pick_recent_segment(ctx: AgentContext) -> dict[str, Any] | None:
+    """Возвращает контент последнего предложенного сегмента (primary гипотеза).
+
+    SegmentsAgent сохраняет primary как artifact segment_draft. Если пользователь
+    в чате сказал «возьми эту ТГ» — без явного нажатия кнопки — берём этот
+    артефакт автоматически.
+    """
+    artifact = ctx.latest_artifact("segment_draft")
+    if not artifact:
+        return None
+    content = artifact.get("content") or {}
+    return content if isinstance(content, dict) else None
+
 
 def _resolve_offer_text(ctx: AgentContext) -> str | None:
-    """Достаёт выбранный пользователем текст оффера из артефакта offer_choice."""
+    """Достаёт выбранный пользователем текст коммуникации из артефакта offer_choice."""
     # Если только что прилетел select_offer action — payload уже в inputs.
     direct = ctx.inputs.get("offer_text")
     if direct and isinstance(direct, str):
@@ -705,7 +756,7 @@ async def _save_offer_choice(ctx: AgentContext) -> None:
         ctx.artifacts.append(artifact)
     await ctx.emit(
         "step_completed",
-        detail=f"Оффер выбран ({len(content['text'])} символов) — собираю кампанию",
+        detail=f"Контент коммуникации выбран ({len(content['text'])} символов) — собираю кампанию",
         metadata={"variant_id": content["id"]},
     )
 
@@ -713,7 +764,7 @@ async def _save_offer_choice(ctx: AgentContext) -> None:
 async def _ask_offer_decision(
     ctx: AgentContext, *, goal: str, brief: CampaignBriefAnalysis,
 ) -> AgentResult:
-    """Спрашивает: сгенерировать варианты оффера или собрать с типовым текстом."""
+    """Спрашивает: сгенерировать варианты контента коммуникации или собрать с типовым текстом."""
     product_optional = getattr(brief, "product_optional", False)
     product = brief.product or ""
     channel = (brief.channels[0] if brief.channels else "sms").lower()
@@ -722,7 +773,7 @@ async def _ask_offer_decision(
 
     await ctx.emit(
         "step_started",
-        detail=f"BuilderAgent: запрашиваю решение по офферу (канал {channel})",
+        detail=f"BuilderAgent: запрашиваю решение по контенту коммуникации (канал {channel})",
     )
 
     # Заголовок брифа меняется в зависимости от того, указан ли продукт
@@ -738,13 +789,13 @@ async def _ask_offer_decision(
         brief_head = f"Бриф готов: кампания для **{audience}**, канал **{channel.upper()}**."
 
     message = (
-        f"{brief_head} Сгенерировать **2-3 варианта оффера** под этот канал и аудиторию "
-        "или собрать кампанию с **типовым текстом**?"
+        f"{brief_head} Сгенерировать **2-3 варианта контента коммуникации** под этот канал и "
+        "аудиторию или собрать кампанию с **типовым текстом**?"
     )
     actions = [
         ChatAction(
             id="generate_offers",
-            label="Сгенерируй варианты оффера",
+            label="Сгенерируй варианты контента коммуникации",
             kind="runtime",
             payload={"goal": goal, "product": product, "channel": channel, "audience": audience},
         ),
@@ -771,7 +822,7 @@ async def _ask_offer_decision(
 async def _generate_offers(
     ctx: AgentContext, *, goal: str, brief: CampaignBriefAnalysis,
 ) -> AgentResult:
-    """Делегирует генерацию оффера в OfferAgent."""
+    """Делегирует генерацию контента коммуникации в OfferAgent."""
     from agents.agent_offer import execute as offer_execute
 
     product = brief.product or ctx.inputs.get("product") or "продукт"
@@ -791,6 +842,14 @@ async def _generate_offers(
     ctx.inputs["audience"] = audience
     ctx.inputs["target_group_name"] = tg_name or audience
     ctx.inputs["from_builder"] = True
+    # Если у нас классический апсейл тарифа через SMS — даём OfferAgent
+    # подсказку про CVM-плейсхолдеры и формат «отправьте Ок на 999».
+    if (
+        _is_upsell_goal(brief)
+        and _is_sms_channel(brief)
+        and _looks_like_tariff(brief.product)
+    ):
+        ctx.inputs["scenario"] = "upsell_with_reminder"
     await ctx.emit(
         "step_started",
         detail=f"BuilderAgent → OfferAgent: продукт «{product}», канал {channel}",
@@ -815,6 +874,128 @@ def _resolve_target_group(ctx: AgentContext) -> tuple[int | None, str | None]:
     except (TypeError, ValueError):
         tg_id_int = None
     return tg_id_int, (str(tg_name) if tg_name else None)
+
+
+# ── Upsell-with-reminder детерминированный шаблон ────────────────────────────
+
+_UPSELL_GOAL_RE = re.compile(
+    r"\b(апсейл|ап-?сейл|upsell|перевод\s+на\s+тариф|апгрейд\s+тарифа)",
+    re.IGNORECASE,
+)
+
+
+def _is_upsell_goal(brief: CampaignBriefAnalysis) -> bool:
+    goal = (brief.goal or "").lower()
+    if _UPSELL_GOAL_RE.search(goal):
+        return True
+    # Иногда «апсейл» зашит в notes (после product_optional/quick-replies).
+    for note in brief.notes or []:
+        if _UPSELL_GOAL_RE.search(str(note).lower()):
+            return True
+    return False
+
+
+def _is_sms_channel(brief: CampaignBriefAnalysis) -> bool:
+    for ch in (brief.channels or []):
+        if "sms" in str(ch).lower():
+            return True
+    return False
+
+
+def _looks_like_tariff(product: str | None) -> bool:
+    if not product:
+        return False
+    return "тариф" in product.lower() or "тп " in product.lower()
+
+
+async def _matches_upsell_with_reminder(
+    brief: CampaignBriefAnalysis, ctx: AgentContext,
+) -> bool:
+    """Условия: goal=апсейл + канал SMS + продукт-тариф + есть ТГ.
+
+    Проверяет также наличие тарифа в каталоге (фоллбек на «похоже на тариф»
+    по имени, чтобы кампания собралась и для незакаталоженных тарифов).
+    """
+    if not _is_upsell_goal(brief):
+        return False
+    if not _is_sms_channel(brief):
+        return False
+    if not _looks_like_tariff(brief.product):
+        # Если продукт явно не тариф, попробуем сверить с каталогом.
+        if brief.product:
+            try:
+                from agents.product_catalog import find_product
+                p = await find_product(brief.product)
+                if not (p and p.get("category") == "tariff"):
+                    return False
+            except Exception:
+                return False
+        else:
+            return False
+    tg_id, _ = _resolve_target_group(ctx)
+    if not tg_id:
+        return False
+    return True
+
+
+async def _resolve_switch_plan_id(product: str | None) -> int:
+    """Берёт id тарифа из mock-каталога; если не нашли — fallback на 1."""
+    if not product:
+        return 1
+    try:
+        from agents.product_catalog import find_product
+        p = await find_product(product)
+        if p and isinstance(p.get("id"), int):
+            return int(p["id"])
+    except Exception:
+        pass
+    return 1
+
+
+async def _build_upsell_with_reminder(
+    ctx: AgentContext, *, goal: str, brief: CampaignBriefAnalysis, offer_text: str,
+) -> AgentResult:
+    """Собирает upsell-кампанию с напоминанием по структуре upsell_exp.json."""
+    from tools.flow_builder import build_upsell_with_reminder_flow
+
+    tg_id, tg_name = _resolve_target_group(ctx)
+    product = brief.product or "тариф"
+    plan_id = await _resolve_switch_plan_id(brief.product)
+    campaign_name = f"Промо «{product}» — upsell SMS"
+
+    await ctx.emit(
+        "step_started",
+        detail=f"BuilderAgent: upsell-шаблон для «{product}», план {plan_id}, ТГ #{tg_id}",
+    )
+    flow = build_upsell_with_reminder_flow(
+        campaign_name=campaign_name,
+        product=product,
+        target_group_id=int(tg_id),
+        target_group_name=tg_name,
+        offer_text=offer_text,
+        switch_tariff_plan_id=plan_id,
+    )
+    activities = flow.get("activities", [])
+    types_chain = ", ".join(a["type"].replace("Activity", "") for a in activities)
+    await ctx.emit(
+        "step_completed",
+        detail=f"Upsell-шаблон: {len(activities)} шагов",
+        metadata={"steps": len(activities), "template": "upsell_with_reminder"},
+    )
+
+    message_lines = [
+        f"Собрал кампанию **{campaign_name}** ({len(activities)} шагов) по шаблону "
+        "upsell с напоминанием.",
+        f"Таргет-группа: **{tg_name or '—'}** (id {tg_id}).",
+        f"Текст коммуникации: «{_truncate(offer_text, 100)}»",
+        f"Переключение тарифа: switchTariffPlan, newPlanId={plan_id}.",
+        "",
+        f"**Структура:** {types_chain}.",
+    ]
+    return await _finalize(
+        ctx, flow=flow, message="\n".join(message_lines),
+        mode="upsell_with_reminder", brief=brief,
+    )
 
 
 def _build_fallback_flow(

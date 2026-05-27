@@ -59,12 +59,19 @@ function groupSessions(sessions: ChatSession[]): { label: string; items: ChatSes
 
 // ── SVG icons ────────────────────────────────────────────────────────────────
 
+// AI-sparkle / фрактальный ромб — стандартная AI-иконка (Gemini/Copilot-style):
+// крупная 4-лучевая звезда + маленькая в правом-верхнем углу.
 const ChatIcon = () => (
-  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <path d="M4 6.5C4 5.119 5.119 4 6.5 4h11C18.881 4 20 5.119 20 6.5v8C20 15.881 18.881 17 17.5 17H10l-4 4v-4h-.5C4.119 17 3 15.881 3 14.5v-8z" stroke="#fff" strokeWidth="1.8" strokeLinejoin="round"/>
-    <circle cx="8" cy="10.5" r="1.1" fill="#fff"/>
-    <circle cx="11.5" cy="10.5" r="1.1" fill="#fff"/>
-    <circle cx="15" cy="10.5" r="1.1" fill="#fff"/>
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path
+      d="M11.25 2.5c.18 4.41 2.34 6.57 6.75 6.75v.5c-4.41.18-6.57 2.34-6.75 6.75h-.5c-.18-4.41-2.34-6.57-6.75-6.75v-.5c4.41-.18 6.57-2.34 6.75-6.75h.5z"
+      fill="#fff"
+    />
+    <path
+      d="M18.25 14.5c.1 2.42 1.33 3.65 3.75 3.75v.5c-2.42.1-3.65 1.33-3.75 3.75h-.5c-.1-2.42-1.33-3.65-3.75-3.75v-.5c2.42-.1 3.65-1.33 3.75-3.75h.5z"
+      fill="#fff"
+      opacity="0.85"
+    />
   </svg>
 );
 const HistoryIcon = () => (

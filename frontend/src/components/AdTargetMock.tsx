@@ -198,29 +198,52 @@ function computeLayout(flow: CampaignFlow): Map<string, Pos> {
   // 1. Глубина: BFS с релаксацией depth до max(parent)+1.
   const depth = new Map<string, number>();
   depth.set(root, 0);
-  // Несколько проходов: для DAG достаточно O(V); делаем до стабилизации.
-  let changed = true;
-  let safety = nodes.size * 4;
-  while (changed && safety-- > 0) {
-    changed = false;
-    for (const [id, kids] of children) {
-      const d = depth.get(id);
-      if (d === undefined) continue;
-      for (const k of kids) {
-        const kd = depth.get(k);
-        const target = d + 1;
-        if (kd === undefined || kd < target) {
-          depth.set(k, target);
-          changed = true;
+  const relaxDepth = () => {
+    let changed = true;
+    let safety = nodes.size * 4;
+    while (changed && safety-- > 0) {
+      changed = false;
+      for (const [id, kids] of children) {
+        const d = depth.get(id);
+        if (d === undefined) continue;
+        for (const k of kids) {
+          const kd = depth.get(k);
+          const target = d + 1;
+          if (kd === undefined || kd < target) {
+            depth.set(k, target);
+            changed = true;
+          }
         }
       }
     }
-  }
+  };
+  relaxDepth();
   // Узлы вне достижимости от корня — относим в конец.
   let extra = (Math.max(...depth.values(), 0)) + 1;
   for (const id of nodes.keys()) {
     if (!depth.has(id)) { depth.set(id, extra++); }
   }
+
+  // 1a. Выравнивание Filter-карточек по join-ноде: если Filter указывает на
+  // join (нода с ≥2 родителями), ставим его на (join.depth - 1). Это
+  // прижимает оба фильтра прямо над OrJoin, чтобы обе стрелки сходились
+  // в OR одним коротким шагом, а не растягивались через несколько уровней.
+  for (const [id, node] of nodes) {
+    if (node.kind !== "filter") continue;
+    const kids = children.get(id) ?? [];
+    if (kids.length !== 1) continue;
+    const joinId = kids[0];
+    if ((parents.get(joinId) ?? []).length < 2) continue;
+    const joinDepth = depth.get(joinId);
+    if (joinDepth === undefined) continue;
+    const aligned = joinDepth - 1;
+    if ((depth.get(id) ?? -1) < aligned) {
+      depth.set(id, aligned);
+    }
+  }
+  // Релаксируем заново — Filter мог только увеличить depth у потомков (но
+  // у Filter единственный потомок — join, у которого depth уже max+1).
+  relaxDepth();
 
   // 2. Считаем leaf-count по DAG для распределения по ширине.
   const leafCount = new Map<string, number>();
@@ -238,27 +261,22 @@ function computeLayout(flow: CampaignFlow): Map<string, Pos> {
   }
   countLeaves(root);
 
-  // 3. Раскладка X по уровням: дети распределяются вокруг центра родителя
-  //    пропорционально своему leafCount; нода размещается только когда её
-  //    depth совпадает с текущим (иначе ждёт нижнего уровня).
+  // 3. Раскладка X: depth-first от корня. Все immediate-дети ноды
+  //    распределяются по горизонтали пропорционально leafCount поддерева,
+  //    независимо от того, на сколько уровней ниже они лежат — это важно
+  //    для веток, где Filter «висит» прямо над join, а основная цепочка
+  //    идёт через несколько промежуточных нод. y берётся из depth ноды.
   const positions = new Map<string, Pos>();
   function place(id: string, centerX: number) {
     const node = nodes.get(id);
-    if (!node) return;
+    if (!node || positions.has(id)) return;
     const myDepth = depth.get(id) ?? 0;
-    const existing = positions.get(id);
-    // Если уже размещали — усредняем X (например, OrJoin с двух веток).
-    if (existing) {
-      positions.set(id, { x: (existing.x + centerX) / 2, y: myDepth * (NODE_H + V_GAP) });
-    } else {
-      positions.set(id, { x: centerX, y: myDepth * (NODE_H + V_GAP) });
-    }
-    const kids = (children.get(id) ?? []).filter(c => (depth.get(c) ?? -1) === myDepth + 1);
+    positions.set(id, { x: centerX, y: myDepth * (NODE_H + V_GAP) });
+    const kids = (children.get(id) ?? []).filter(c => nodes.has(c) && !positions.has(c));
     if (kids.length === 0) return;
     const totalLeaves = kids.reduce((s, c) => s + (leafCount.get(c) ?? 1), 0);
     const totalWidth = kids.reduce((s, c) => s + (nodes.get(c)?.width ?? NODE_W), 0)
       + (kids.length - 1) * H_GAP;
-    // Если у ветки общая ширина меньше суммы leaf-блоков — масштабируемся по leaf.
     const widthByLeaves = totalLeaves * NODE_W + (totalLeaves - 1) * H_GAP;
     const useWidth = Math.max(totalWidth, widthByLeaves);
     let startX = centerX - useWidth / 2;
@@ -293,6 +311,42 @@ function computeLayout(flow: CampaignFlow): Map<string, Pos> {
     if (!positions.has(id)) {
       positions.set(id, { x: 0, y: unreachableY });
       unreachableY += NODE_H + V_GAP;
+    }
+  }
+
+  // 5. Центрируем join-узлы (≥2 родителей) под средним X родителей и тянем
+  //    за ними линейный хвост (single-parent потомков). Без этого place()
+  //    припарковывает OrJoin в правую колонку (по filter1_right.x), а нам
+  //    надо, чтобы он стоял по центру между filter1_left и filter1_right.
+  const orderByDepth = Array.from(nodes.keys()).sort(
+    (a, b) => (depth.get(a) ?? 0) - (depth.get(b) ?? 0),
+  );
+  for (const id of orderByDepth) {
+    const ps = parents.get(id) ?? [];
+    if (ps.length < 2) continue;
+    const placed = ps.filter(p => positions.has(p));
+    if (placed.length < 2) continue;
+    const avgX = placed.reduce((s, p) => s + (positions.get(p)?.x ?? 0), 0) / placed.length;
+    const cur = positions.get(id);
+    if (!cur) continue;
+    const dx = avgX - cur.x;
+    if (Math.abs(dx) < 0.5) continue;
+    // Сдвигаем эту ноду и всех её потомков с единственным родителем (вся
+    // линейная «хвостовая» цепочка после join: OrJoin → BT → …).
+    const stack: string[] = [id];
+    const moved = new Set<string>();
+    while (stack.length) {
+      const n = stack.pop()!;
+      if (moved.has(n)) continue;
+      moved.add(n);
+      const np = positions.get(n);
+      if (!np) continue;
+      positions.set(n, { x: np.x + dx, y: np.y });
+      for (const c of children.get(n) ?? []) {
+        const cps = parents.get(c) ?? [];
+        // Тянем только single-parent потомков, у multi-parent отдельная итерация.
+        if (cps.length === 1) stack.push(c);
+      }
     }
   }
 

@@ -107,7 +107,7 @@ def test_build_upsell_with_reminder_assembles_9_activity_dag(monkeypatch):
     assert draft is not None
     flow = draft["content"]
     activities = flow["activities"]
-    assert len(activities) == 9
+    assert len(activities) == 8
 
     types = [a["type"] for a in activities]
     assert types == [
@@ -119,8 +119,9 @@ def test_build_upsell_with_reminder_assembles_9_activity_dag(monkeypatch):
         "ResponseActivity",
         "OrJoinActivity",
         "BusinessTransactionActivity",
-        "ExcludeFromCampaignActivity",
     ]
+    # Exclude не должен попадать в флоу — BT терминальный.
+    assert not any(a["type"] == "ExcludeFromCampaignActivity" for a in activities)
 
     sms_offer = activities[2]
     resp1 = activities[3]
@@ -128,7 +129,6 @@ def test_build_upsell_with_reminder_assembles_9_activity_dag(monkeypatch):
     resp2 = activities[5]
     orjoin = activities[6]
     bt = activities[7]
-    exclude = activities[8]
 
     # Текст оффера попал в первый PushCommunication (в content.parameters Text).
     text_param = next(
@@ -146,13 +146,12 @@ def test_build_upsell_with_reminder_assembles_9_activity_dag(monkeypatch):
     assert sms_reminder["isNotification"] is True
     # Response#2 → OrJoin.
     assert resp2["cases"]["1"] == orjoin["id"]
-    # OrJoin → BT, BT → Exclude.
+    # OrJoin → BT (терминал).
     assert orjoin["nextActivityId"] == bt["id"]
-    assert bt["defaultSuccessActivityId"] == exclude["id"]
+    assert bt["defaultSuccessActivityId"] is None
     assert bt["businessOperation"]["id"] == "switchTariffPlan"
     params = {p["name"]: p["value"] for p in bt["businessOperation"]["parameters"]}
     assert params["newPlanId"] == "301"
-    assert exclude["removeFromCurrentCampaign"] is True
 
 
 def test_upsell_match_requires_tariff_sms_upsell_and_tg(monkeypatch):

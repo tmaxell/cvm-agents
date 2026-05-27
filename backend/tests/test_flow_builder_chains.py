@@ -104,8 +104,8 @@ def test_common_target_group_event_email_response_chain():
 
 
 def test_upsell_with_reminder_flow_matches_template():
-    """Структура должна совпадать с examples/upsell_exp.json: 9 активностей,
-    SMS offer → Response#1 (timeout → reminder), Response#1/#2 → OrJoin → BT → Exclude."""
+    """Структура: 8 активностей, SMS offer → Response#1 (timeout → reminder),
+    обе ветки Response → OrJoin → BusinessTransaction (терминал, без Exclude)."""
     flow = build_upsell_with_reminder_flow(
         campaign_name="Апсейл Семейный",
         product="Тариф Семейный",
@@ -125,11 +125,12 @@ def test_upsell_with_reminder_flow_matches_template():
         "ResponseActivity",
         "OrJoinActivity",
         "BusinessTransactionActivity",
-        "ExcludeFromCampaignActivity",
     ]
+    # ExcludeFromCampaign убран сознательно — кампания заканчивается на BT.
+    assert not any(a["type"] == "ExcludeFromCampaignActivity" for a in flow["activities"])
 
     by_id = {a["id"]: a for a in flow["activities"]}
-    common, tg, sms_offer, resp1, sms_reminder, resp2, orjoin, bt, exclude = flow["activities"]
+    common, tg, sms_offer, resp1, sms_reminder, resp2, orjoin, bt = flow["activities"]
 
     # Линейные участки
     assert common["nextActivityId"] == tg["id"]
@@ -152,16 +153,13 @@ def test_upsell_with_reminder_flow_matches_template():
     # Response #2: case "1" → orjoin (без timeout-ветки)
     assert resp2["cases"]["1"] == orjoin["id"]
 
-    # OrJoin → BT → Exclude
+    # OrJoin → BT (терминал)
     assert orjoin["nextActivityId"] == bt["id"]
-    assert bt["defaultSuccessActivityId"] == exclude["id"]
+    assert bt["defaultSuccessActivityId"] is None
     assert bt["businessOperation"]["id"] == "switchTariffPlan"
     params = {p["name"]: p["value"] for p in bt["businessOperation"]["parameters"]}
     assert params["newPlanId"] == "301"
     assert "Comment" in params and "FromNextPeriod" in params
-
-    # ExcludeFromCampaign: removeFromCurrentCampaign=True
-    assert exclude["removeFromCurrentCampaign"] is True
 
     # subNodes должны содержать фильтры для обоих Response
     sub_ids = {sn["id"] for sn in flow["subNodes"]}
@@ -173,4 +171,4 @@ def test_upsell_with_reminder_flow_matches_template():
     assert sms_reminder["id"] in resp2.get("linkedCommunicationActivities", [])
 
     # Все id уникальны
-    assert len(by_id) == 9
+    assert len(by_id) == 8

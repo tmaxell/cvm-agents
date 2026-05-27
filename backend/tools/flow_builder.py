@@ -426,7 +426,7 @@ def build_upsell_with_reminder_flow(
 ) -> dict[str, Any]:
     """Сборка upsell-кампании по шаблону из examples/upsell_exp.json.
 
-    Структура:
+    Структура (8 активностей):
       Common
         → TargetGroup
           → SMS push (offer_text)
@@ -439,9 +439,7 @@ def build_upsell_with_reminder_flow(
             ↓                                                                    │
                                               OrJoin ←──────────────────────────┘
                                                 ↓
-                                          BusinessTransaction (switchTariffPlan)
-                                                ↓
-                                          ExcludeFromCampaign (removeFromCurrentCampaign=True)
+                                          BusinessTransaction (switchTariffPlan, терминал)
     """
     reminder_text = reminder_text or _default_reminder_text(product)
 
@@ -454,7 +452,6 @@ def build_upsell_with_reminder_flow(
     response2_id = new_id()
     orjoin_id = new_id()
     bt_id = new_id()
-    exclude_id = new_id()
 
     activities: list[dict[str, Any]] = []
 
@@ -547,15 +544,11 @@ def build_upsell_with_reminder_flow(
     bt["id"] = bt_id
     bt["name"] = f"Переключение на «{_short(product, 24)}»"
     bt["nextActivityId"] = None
-    bt["defaultSuccessActivityId"] = exclude_id
+    # BT — терминальная нода: ExcludeFromCampaign убран сознательно, чтобы
+    # визуально совпадать с эталонным макетом (Common → … → OrJoin → BT).
+    bt["defaultSuccessActivityId"] = None
     bt["position"] = {"left": 266, "top": 1280}
     activities.append(bt)
-
-    # 9. Exclude from current campaign
-    exclude = _make_exclude_from_campaign_activity()
-    exclude["id"] = exclude_id
-    exclude["position"] = {"left": 266, "top": 1434}
-    activities.append(exclude)
 
     return {
         "activities": activities,

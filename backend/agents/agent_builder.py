@@ -295,7 +295,7 @@ async def execute(ctx: AgentContext) -> AgentResult:
     # 3.6. Шаблон upsell-with-reminder: если goal=апсейл + канал SMS + продукт
     # это тариф + есть ТГ и выбранный текст оффера — собираем флоу детерминированно
     # по структуре examples/upsell_exp.json (Common→TG→SMS→Response(3д)→
-    # SMS reminder→Response→OrJoin→BT switchTariffPlan→ExcludeFromCampaign).
+    # SMS reminder→Response→OrJoin→BT switchTariffPlan, BT — терминал).
     if offer_text and await _matches_upsell_with_reminder(brief, ctx):
         return await _build_upsell_with_reminder(
             ctx, goal=goal, brief=brief, offer_text=offer_text,

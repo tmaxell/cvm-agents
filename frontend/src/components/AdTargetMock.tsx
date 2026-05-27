@@ -279,97 +279,65 @@ function AdtTopNav() {
 
 // ── Left sidebar ──────────────────────────────────────────────────────────────
 
-// SVG-иконки групп (стилизованы под Eastwind product icons,
-// 16×16, currentColor — каждая группа берёт цвет из родителя).
+// SVG-иконки групп — точные варианты из дизайн-системы Eastwind UI.
+// Все 20×20, fill="none", stroke="currentColor" — цвет берётся из родителя.
 function MegaphoneIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-      {/* Корпус мегафона */}
-      <path
-        d="M2.5 6.5L9 4v8L2.5 9.5a1 1 0 01-.6-.93V7.43a1 1 0 01.6-.93z"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinejoin="round"
-        fill="currentColor"
-        fillOpacity="0.12"
-      />
-      {/* Ручка снизу */}
-      <path d="M4.5 9.5L5.5 13" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-      {/* Звуковые волны */}
-      <path d="M11 6.5l1.2-.8M11 8h1.5M11 9.5l1.2.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M12.3532 2.45427C11.0698 3.41262 9.59016 4.07488 8.02045 4.39348L3.59838 5.2779C3.23035 5.35108 2.89904 5.54953 2.66085 5.83948C2.42268 6.12944 2.29235 6.49299 2.29205 6.86822V10.698C2.28475 11.0787 2.41161 11.45 2.65044 11.7467C2.88926 12.0433 3.22482 12.2466 3.59838 12.3207L8.02045 13.2052C9.5875 13.5141 11.067 14.1652 12.3532 15.1119C12.4738 15.2023 12.6172 15.2574 12.7672 15.2709C12.9173 15.2845 13.0682 15.2559 13.2029 15.1886C13.3377 15.1212 13.4511 15.0176 13.5303 14.8894C13.6095 14.7612 13.6515 14.6135 13.6515 14.4628V3.10338C13.6515 2.95269 13.6095 2.80499 13.5303 2.67681C13.4511 2.54863 13.3377 2.44504 13.2029 2.37765C13.0682 2.31027 12.9173 2.28174 12.7672 2.29527C12.6172 2.3088 12.4738 2.36386 12.3532 2.45427Z" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M7.00606 12.9699L8.36916 16.613C8.41491 16.7354 8.43041 16.8669 8.41441 16.9964C8.39841 17.126 8.35141 17.2498 8.27731 17.3574C8.20325 17.4649 8.10432 17.5529 7.98895 17.614C7.87358 17.6751 7.74516 17.7075 7.6146 17.7084H6.66527C6.33371 17.7094 6.00976 17.6089 5.73704 17.4204C5.46432 17.2318 5.25591 16.9642 5.13986 16.6536L3.51709 12.2559" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M10.4058 6.34863V11.217" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M15.4365 5.33476L17.5462 4.11768" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M15.4365 12.2314L17.5462 13.4485" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M15.2742 8.78271H17.7083" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
 }
 function BoltIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-      <path
-        d="M9 1.5L3.5 9h3.5l-.5 5.5L12.5 7H9l.5-5.5z"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinejoin="round"
-        fill="currentColor"
-      />
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M10.8819 2.14743L4.26403 11.0981C4.21269 11.1663 4.18007 11.2495 4.17004 11.3377C4.16002 11.4258 4.173 11.5153 4.20746 11.5957C4.24191 11.6759 4.2964 11.7436 4.36447 11.7906C4.43254 11.8376 4.51135 11.8621 4.59157 11.861H9.58017L8.82433 17.7133C8.821 17.7526 8.829 17.7919 8.84716 17.8258C8.86533 17.8597 8.89266 17.8862 8.92541 17.9017C8.95808 17.9173 8.99433 17.9209 9.029 17.9122C9.06366 17.9033 9.09492 17.8826 9.11825 17.8529L15.7362 8.90225C15.7875 8.834 15.8201 8.75083 15.8301 8.66267C15.8402 8.5745 15.8272 8.48491 15.7927 8.40466C15.7582 8.32443 15.7037 8.25679 15.6357 8.20976C15.5676 8.16273 15.4888 8.13829 15.4086 8.13933H10.42L11.1758 2.28699C11.1792 2.24777 11.1712 2.2084 11.153 2.17453C11.1348 2.14067 11.1075 2.11407 11.0747 2.09855C11.0421 2.08302 11.0058 2.0794 10.9712 2.08818C10.9365 2.09697 10.9052 2.11772 10.8819 2.14743Z" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
 }
 function ThumbsUpIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-      <path
-        d="M2 7.5h2.2v6.5H2.5a.5.5 0 01-.5-.5V7.5z"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M4.2 7.5l2.3-4.8c.2-.5.8-.7 1.3-.5.4.2.6.6.6 1l-.3 2.8h4.4a1.2 1.2 0 011.18 1.42l-.95 5.1A1.2 1.2 0 0111.6 13.5H4.2V7.5z"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinejoin="round"
-      />
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M4.79229 7.8457H3.80604C2.989 7.8457 2.32666 8.50808 2.32666 9.32508V16.2288C2.32666 17.0459 2.989 17.7082 3.80604 17.7082H4.79229C5.60933 17.7082 6.27167 17.0459 6.27167 16.2288V9.32508C6.27167 8.50808 5.60933 7.8457 4.79229 7.8457Z" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M17.6334 10.2024L16.4499 16.1199C16.3596 16.574 16.1126 16.9819 15.752 17.2722C15.3914 17.5625 14.9402 17.7167 14.4774 17.7078H8.24423C7.72109 17.7078 7.21938 17.5 6.84946 17.1301C6.47955 16.7602 6.27173 16.2584 6.27173 15.7353V9.81784C6.28758 9.438 6.38365 9.06592 6.55364 8.72592C6.72363 8.386 6.96367 8.08584 7.25798 7.8453L8.07657 2.91405C8.09502 2.799 8.14039 2.68995 8.20898 2.59576C8.27756 2.50158 8.36746 2.42493 8.47121 2.37205C8.57504 2.31918 8.68988 2.29158 8.80646 2.2915C8.92296 2.29143 9.0378 2.31887 9.14171 2.3716L10.059 2.82529C10.6649 3.1249 11.15 3.62299 11.4335 4.23667C11.717 4.85035 11.7819 5.54261 11.6172 6.19826L11.203 7.83544H15.7003C15.9928 7.83538 16.2817 7.90038 16.546 8.02575C16.8103 8.15111 17.0435 8.33367 17.2285 8.56025C17.4135 8.78684 17.5458 9.05175 17.6159 9.33575C17.6859 9.61975 17.6919 9.91584 17.6334 10.2024Z" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
 }
 function BackArrowIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-      <path d="M6.5 3L2.5 7l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M2.5 7h7a4 4 0 014 4v3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M2.77195 8.55426H12.8912C18.6736 8.55426 18.6736 16.5051 12.8912 16.5051M7.83158 13.6139L2.77195 8.55426L7.83158 3.49463" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
 }
 function ChatIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-      <path
-        d="M2.5 4a2 2 0 012-2h7a2 2 0 012 2v5a2 2 0 01-2 2H7l-3.2 2.5a.3.3 0 01-.5-.23V11a1 1 0 01-.8-.98V4z"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinejoin="round"
-      />
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M15.1091 13.5494C12.9715 15.2752 10.8337 14.7822 9.76479 14.7822C8.69596 14.7822 8.63187 15.0072 7.85157 15.8542C7.75171 15.9596 7.63152 16.0435 7.4983 16.1009C7.36507 16.1582 7.22162 16.1878 7.07664 16.1878C6.93166 16.1878 6.7882 16.1582 6.65497 16.1009C6.52176 16.0435 6.40157 15.9596 6.30171 15.8542L4.16398 13.7102C4.05887 13.61 3.97518 13.4895 3.91798 13.3559C3.86079 13.2222 3.8313 13.0784 3.8313 12.933C3.8313 12.7876 3.86079 12.6437 3.91798 12.5101C3.97518 12.3765 4.05887 12.2559 4.16398 12.1558C5.01907 11.3732 5.23285 11.2232 5.23285 10.2369C5.23285 8.98266 4.64497 6.6136 7.08198 4.16946C7.68324 3.56147 8.40346 3.08484 9.19729 2.76955C9.99112 2.45425 10.8414 2.30711 11.6947 2.33737C12.548 2.36763 13.3858 2.57466 14.1555 2.94541C14.925 3.31616 15.6099 3.84262 16.1669 4.49168C16.7238 5.14074 17.1408 5.89837 17.3916 6.7169C17.6425 7.53542 17.7217 8.39716 17.6244 9.24791C17.527 10.0987 17.2552 10.92 16.826 11.6602C16.3969 12.4005 15.8195 13.0437 15.1305 13.5494H15.1091Z" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M3.91813 13.5386L2.66756 14.7928C2.32552 15.1358 2.22933 15.6075 2.46448 15.8648L4.20672 17.5371C4.44187 17.7729 4.91217 17.6765 5.27559 17.3334L6.45134 16.0792" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M13.26 5.42358C13.0197 5.18146 12.734 4.98933 12.4194 4.85824C12.1048 4.72715 11.7675 4.65967 11.4269 4.65967C11.0863 4.65967 10.7489 4.72715 10.4343 4.85824C10.1198 4.98933 9.83408 5.18146 9.59375 5.42358" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
 }
 function ClockCheckIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-      <path d="M14 8a6 6 0 11-1.76-4.24" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-      <path d="M5.5 8l1.7 1.7L10.5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M17.5 10C17.5 11.4834 17.0601 12.9334 16.236 14.1668C15.4119 15.4001 14.2406 16.3614 12.8701 16.9291C11.4997 17.4968 9.99168 17.6453 8.53683 17.3559C7.08197 17.0665 5.7456 16.3522 4.6967 15.3033C3.64781 14.2544 2.9335 12.918 2.64411 11.4632C2.35472 10.0083 2.50325 8.50032 3.07091 7.12987C3.63856 5.75943 4.59986 4.58809 5.83323 3.76398C7.0666 2.93987 8.51664 2.5 10 2.5C12.1 2.5 14.1083 3.33333 15.6167 4.78333L17.5 6.66667" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M17.4999 2.5V6.66667H13.3333" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M9.34766 6.6665V11.7565L12.737 10.0599" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
 }
 function ShieldIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-      <path
-        d="M8 1.5l5 2v4.2c0 3-2.1 5.5-5 6.3-2.9-.8-5-3.3-5-6.3V3.5l5-2z"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinejoin="round"
-        fill="currentColor"
-        fillOpacity="0.12"
-      />
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M14.1166 3.91455H14.1666C14.8296 3.91455 15.4655 4.17101 15.9343 4.62751C16.4032 5.08402 16.6666 5.70317 16.6666 6.34876V14.4628C16.6666 15.3236 16.3154 16.1491 15.6903 16.7578C15.0652 17.3665 14.2173 17.7084 13.3333 17.7084H6.66659C5.78253 17.7084 4.93469 17.3665 4.30956 16.7578C3.68444 16.1491 3.33325 15.3236 3.33325 14.4628V6.34876C3.33312 5.71151 3.58964 5.09963 4.04772 4.6445C4.5058 4.18937 5.12891 3.92729 5.78325 3.91455" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M13.2832 2.2915H6.61654C6.1563 2.2915 5.7832 2.65478 5.7832 3.1029V4.72571L9.94985 7.65771L14.1165 4.72571V3.1029C14.1165 2.65478 13.7434 2.2915 13.2832 2.2915Z" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
 }
@@ -378,7 +346,7 @@ const SIDEBAR_GROUPS: Array<{ label: string; color: string; icon: () => JSX.Elem
   { label: "Communication",         color: "#5257ff", icon: MegaphoneIcon,  hasArrow: true  },
   { label: "Custom communication",  color: "#5257ff", icon: MegaphoneIcon,  hasArrow: true  },
   { label: "Product action",        color: "#5257ff", icon: BoltIcon,       hasArrow: true  },
-  { label: "Responce",              color: "#ffcc00", icon: ThumbsUpIcon,   hasArrow: false },
+  { label: "Response",              color: "#ffcc00", icon: ThumbsUpIcon,   hasArrow: false },
   { label: "Business transaction",  color: "#611eb7", icon: BackArrowIcon,  hasArrow: false },
   { label: "Event",                 color: "#ff48e7", icon: ChatIcon,       hasArrow: false },
   { label: "Real-time check",       color: "#21cf18", icon: ClockCheckIcon, hasArrow: false },

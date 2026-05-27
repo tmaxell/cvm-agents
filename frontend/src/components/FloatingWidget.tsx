@@ -331,6 +331,9 @@ export function FloatingWidget() {
 
   const [mode, setMode] = useState<WidgetMode>("fab");
   const [history, setHistory] = useState<HistoryMode>("closed");
+  // В expanded-режиме история по умолчанию открыта как боковая колонка,
+  // но её можно свернуть, чтобы окно диалога заняло всю ширину виджета.
+  const [expandedSideOpen, setExpandedSideOpen] = useState<boolean>(true);
   const [input, setInput] = useState("");
   const threadRef = useRef<HTMLDivElement | null>(null);
 
@@ -339,6 +342,18 @@ export function FloatingWidget() {
       threadRef.current.scrollTop = threadRef.current.scrollHeight;
     }
   }, [messages.length, sending]);
+
+  // Dock-режим: даём знать .adt-shell, сколько места под него съели,
+  // чтобы шелл с канвасом ужался слева и кампания осталась видимой.
+  useEffect(() => {
+    if (mode !== "expanded") return;
+    const root = document.documentElement;
+    // Используем те же min/max, что и в .fw-root-expanded.
+    root.style.setProperty("--fw-shell-shrink", "clamp(480px, 50vw, 760px)");
+    return () => {
+      root.style.removeProperty("--fw-shell-shrink");
+    };
+  }, [mode]);
 
   const handlePickSuggestion = (prompt: string) => {
     void sendMessage(prompt);
@@ -388,7 +403,7 @@ export function FloatingWidget() {
   }
 
   const isExpanded = mode === "expanded";
-  const showSideHistory = isExpanded;          // в расширенном режиме история — постоянная боковая колонка
+  const showSideHistory = isExpanded && expandedSideOpen; // боковая история, скрываемая кнопкой
   const showOverlayHistory = !isExpanded && history === "open";
 
   return (
@@ -411,7 +426,15 @@ export function FloatingWidget() {
 
         <div className="fw-main">
           <header className="fw-header">
-            {!isExpanded && (
+            {isExpanded ? (
+              <button
+                className={`fw-icon-btn ${expandedSideOpen ? "active" : ""}`}
+                title={expandedSideOpen ? "Свернуть историю диалогов" : "Показать историю диалогов"}
+                onClick={() => setExpandedSideOpen(v => !v)}
+              >
+                <HistoryIcon />
+              </button>
+            ) : (
               <button
                 className={`fw-icon-btn ${history === "open" ? "active" : ""}`}
                 title="История диалогов"

@@ -26,7 +26,13 @@
 
 .adt-shell {
   position: fixed;
-  inset: 0;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  /* В dock-режиме виджета (см. .fw-root-expanded) шелл ужимается
+     слева, оставляя место под side-panel chat. CSS-var ставит сам
+     виджет через documentElement при mode === "expanded". */
+  right: var(--fw-shell-shrink, 0px);
   display: flex;
   flex-direction: column;
   background: var(--adt-surface);
@@ -37,6 +43,7 @@
   z-index: 0;
   user-select: none;
   pointer-events: none;
+  transition: right 0.2s ease;
 }
 
 .adt-shell .adt-node,
@@ -212,8 +219,8 @@
 }
 
 .adt-group-icon {
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   display: inline-flex;
   align-items: center;
   justify-content: center;

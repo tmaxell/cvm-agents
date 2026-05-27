@@ -43,13 +43,16 @@ export function normalizeUpsellFlow(flow: CampaignFlow): CampaignFlow {
   const orJoin = byType.get("OrJoinActivity") ?? [];
   const bt = byType.get("BusinessTransactionActivity") ?? [];
 
+  // Сигнатура upsell-флоу. Используем >= 1/2, а не ===, чтобы покрыть
+  // артефакты с лишними нодами (например, второй Exclude или Wait), —
+  // главное, чтобы базовая структура была.
   const isUpsell =
-    common.length === 1 &&
-    tg.length === 1 &&
-    sms.length === 2 &&
-    resp.length === 2 &&
-    orJoin.length === 1 &&
-    bt.length === 1;
+    common.length >= 1 &&
+    tg.length >= 1 &&
+    sms.length >= 2 &&
+    resp.length >= 2 &&
+    orJoin.length >= 1 &&
+    bt.length >= 1;
   if (!isUpsell) return flow;
 
   // Если связи уже корректно проставлены (новый артефакт) — не трогаем,
@@ -70,6 +73,8 @@ export function normalizeUpsellFlow(flow: CampaignFlow): CampaignFlow {
       { id: `${resp1.id}__1`, type: "ActivityFilter" },
       { id: `${resp2.id}__1`, type: "ActivityFilter" },
     ];
+    // eslint-disable-next-line no-console
+    console.info("[normalizeUpsellFlow] proper-branching: drop Exclude, ensure subNodes");
     return {
       ...flow,
       // Отбрасываем ExcludeFromCampaignActivity, если он остался в активностях
@@ -78,6 +83,8 @@ export function normalizeUpsellFlow(flow: CampaignFlow): CampaignFlow {
       subNodes,
     };
   }
+  // eslint-disable-next-line no-console
+  console.info("[normalizeUpsellFlow] linear legacy → rebuild DAG, drop Exclude");
 
   // Старый линейный артефакт — пересобираем DAG.
   const defaultFilter = [{

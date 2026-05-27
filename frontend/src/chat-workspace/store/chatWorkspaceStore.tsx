@@ -43,7 +43,33 @@ function extractDraftFlow(artifacts: ChatArtifact[]): CampaignFlow | null {
       // цепочкой через nextActivityId — без cases/timeOutNext/subNodes.
       // Нормализатор распознаёт сигнатуру по типам активностей и
       // пересобирает их как DAG, чтобы рендерер корректно показал две ветки.
-      return normalizeUpsellFlow(a.content as unknown as CampaignFlow);
+      const flow = normalizeUpsellFlow(a.content as unknown as CampaignFlow);
+      // Безусловно выбрасываем ExcludeFromCampaignActivity из любого
+      // draft_flow — на платформе это «удалить клиента из текущей кампании»
+      // и для визуализации не нужен (включая случаи, когда сигнатура
+      // upsell не совпала и normalizer вернул flow как есть).
+      const activities = (flow.activities ?? []).filter(
+        a => a.type !== "ExcludeFromCampaignActivity",
+      );
+      // Если предыдущая нода ссылалась на Exclude через nextActivityId —
+      // переподключаем её на то, на что ссылался Exclude (или null).
+      const removedIds = new Set(
+        (flow.activities ?? [])
+          .filter(a => a.type === "ExcludeFromCampaignActivity")
+          .map(a => a.id),
+      );
+      if (removedIds.size > 0) {
+        const nextOfRemoved = new Map<string, string | null>();
+        for (const a of flow.activities ?? []) {
+          if (removedIds.has(a.id)) nextOfRemoved.set(a.id, a.nextActivityId ?? null);
+        }
+        for (const a of activities) {
+          if (a.nextActivityId && removedIds.has(a.nextActivityId)) {
+            a.nextActivityId = nextOfRemoved.get(a.nextActivityId) ?? null;
+          }
+        }
+      }
+      return { ...flow, activities };
     }
   }
   return null;

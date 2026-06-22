@@ -1,215 +1,128 @@
-# cvm-agents
+# CVM Agents
 
-AI-ассистенты для платформы **AdTarget CVM**: RAG-копилот по документации, агент для сборки кампаний, мониторинг кампаний и web-прототип с плавающим виджетом поверх mock-интерфейса AdTarget.
+Агентская AI-платформа для **AdTarget CVM** — серверный сервис из специализированных LLM-агентов, которые помогают CVM-команде подбирать сегменты, проектировать и дорабатывать кампании, генерировать креативы и анализировать портфель прямо поверх AdTarget. В состав репозитория также входит web-прототип: плавающий AI-виджет поверх mock-интерфейса AdTarget.
 
-## Текущее состояние проекта
+> **Статус:** рабочий прототип (MVP). Интеграция с AdTarget по умолчанию работает в mock-режиме; целевые требования к промышленной реализации зафиксированы в БФТ (локальная папка `docs/`, см. ниже).
 
-Проект — рабочий MVP-прототип из двух приложений:
+---
 
-- **Backend**: FastAPI API на Python, LangChain/LangGraph-агенты, интеграция с AdTarget API, RAG по документации, SQL-хранилище истории Builder-сессий.
-- **Frontend**: React + Vite + TypeScript UI. На фоне отображается mock-интерфейс AdTarget, поверх него — плавающий AI-виджет с вкладками Copilot, Campaign Builder и Monitoring.
-- **Persistence**: по умолчанию локальная SQLite БД `backend/data/cvm_agents.sqlite3`; в Docker Compose используется PostgreSQL.
-- **AdTarget режимы**: реальный API через Keycloak OAuth2 или принудительный/mock fallback через `ADTARGET_MOCK=true`.
-- **LLM/Embeddings**: поддерживаются Anthropic Claude, GigaChat, Groq, Gemini и Ollama; embeddings — Anthropic/Voyage или локальные HuggingFace.
+## Содержание
+
+- [Возможности](#возможности)
+- [Архитектура](#архитектура)
+- [Агенты](#агенты)
+- [API](#api)
+- [Быстрый старт](#быстрый-старт)
+- [Конфигурация](#конфигурация)
+- [Docker](#docker)
+- [Тесты](#тесты)
+- [Структура репозитория](#структура-репозитория)
+
+---
 
 ## Возможности
 
-### F1 CVM Copilot
+- **Единый чат-интерфейс.** Все запросы идут в `POST /api/chat`; оркестратор классифицирует намерение и маршрутизирует к нужному агенту.
+- **Проектирование кампаний.** Сборка валидного flow AdTarget из бизнес-описания: бриф → план → детерминированный сборщик → валидация.
+- **Доработка кампаний.** Модификация черновика или существующей кампании по текстовой команде (добавить шаг, сменить канал, разветвить на каналы и т. д.).
+- **Сегментация.** Гипотезы аудитории под продукт/цель, сопоставление с существующими целевыми группами, назначение таргет-группой.
+- **Генерация креативов.** Несколько вариантов текста коммуникации под продукт, канал и сегмент.
+- **Мониторинг портфеля.** Анализ кампаний, ранжирование проблемных, диагноз и план действий.
+- **Copilot по документации.** Ответы по документации AdTarget через гибридный RAG (ChromaDB + BM25) со ссылками на источники.
+- **Трассировка и артефакты.** Каждый запрос пишет trace-события; результаты агентов сохраняются как артефакты в сессии.
 
-- Отвечает на вопросы по AdTarget CVM и документации проекта.
-- Использует гибридный RAG: ChromaDB semantic retriever + BM25 keyword retriever.
-- Подмешивает live-контекст текущей кампании: данные кампании, flow, статистику и ошибки валидации.
-- Возвращает citations, которые frontend показывает как источники.
-
-### F2 Campaign Builder
-
-- LangGraph ReAct-агент, который собирает кампанию из бизнес-описания.
-- Работает с диалоговой памятью и сохранёнными предпочтениями пользователя: продукт, цель, каналы, ЦГ, контент, рекомендации по офферам.
-- Запрашивает справочники AdTarget: целевые группы, каналы, события, шаблоны офферов, типы/группы кампаний, продуктовый каталог.
-- Генерирует `campaign flow` из поддерживаемых activity-блоков, валидирует его и создаёт/обновляет кампанию в AdTarget.
-- Сохраняет историю сессий, сообщения, `campaign_id`, последний draft flow и runtime status в БД.
-- Поддерживает старт и паузу кампании через backend endpoints.
-
-### F3 Campaign Monitor
-
-- Анализирует созданную кампанию и draft flow.
-- Генерирует детерминированные mock-метрики по `campaign_id`, `refresh_seed` и структуре flow.
-- Показывает доставки по каналам, open/click/conversion rates, сравнение тестовой и контрольной групп.
-- Возвращает AI-рекомендации по структуре кампании, запуску и действиям по похожим кампаниям.
-
-### Frontend UI
-
-- Статичный mock AdTarget с canvas-представлением campaign flow.
-- Плавающий AI-виджет с вкладками:
-  - **CVM Copilot** — чат по документации и контексту кампании;
-  - **Campaign Builder** — создание кампаний, история Builder-сессий, черновик flow;
-  - **Monitoring** — метрики, score и рекомендации по текущей кампании.
-- Переключение RU/EN в виджете.
-- Normal/large размер панели.
-- Кнопки запуска и паузы кампании в mock-интерфейсе после создания кампании.
-- План упрощения перегруженного Campaign Builder и виджета: [`docs/BUILDER_SIMPLIFICATION_PLAN.md`](docs/BUILDER_SIMPLIFICATION_PLAN.md).
+---
 
 ## Архитектура
 
-```text
-cvm-agents/
-├── backend/
-│   ├── app.py                     # FastAPI routes: health, copilot, builder, monitor, sessions, campaign actions
-│   ├── db.py                      # Async SQLAlchemy engine/repository, SQLite fallback, PostgreSQL support
-│   ├── models.py                  # sessions, messages, campaign_states
-│   ├── schemas.py                 # Pydantic request/response models and shared DTOs
-│   ├── llm.py                     # LLM provider factory: Anthropic, GigaChat, Groq, Gemini, Ollama
-│   ├── gigachat_tools.py          # GigaChat tool-call compatibility adapter
-│   ├── agents/
-│   │   ├── qa_copilot.py          # F1 RAG Copilot
-│   │   ├── campaign_builder.py    # F2 LangGraph Campaign Builder
-│   │   └── campaign_monitor.py    # F3 Campaign Monitor
-│   ├── tools/
-│   │   ├── adtarget.py            # Single entry point to AdTarget API + mock fallback
-│   │   ├── flow_builder.py        # Helpers for AdTarget flow/activity JSON
-│   │   └── mock_data.py           # Mock dictionaries and runtime action responses
-│   ├── rag/
-│   │   ├── embeddings.py          # Anthropic/Voyage or local HuggingFace embeddings
-│   │   ├── indexer.py             # Builds ChromaDB index from docs
-│   │   └── retriever.py           # Hybrid retriever for Copilot
-│   └── tests/                     # Backend unit tests for Builder and flow logic
-├── frontend/
-│   ├── src/
-│   │   ├── App.tsx                # Root state: flow, campaign status, runtime actions
-│   │   ├── components/            # Mock AdTarget, widget, chats, monitoring, flow canvas
-│   │   ├── hooks/useChat.ts       # Chat helper for Copilot/Builder requests
-│   │   └── types/api.ts           # Shared frontend API types
-│   └── package.json               # Vite/React scripts
-├── docs/
-│   ├── MVP_INITIATIVES_REQUIREMENTS.md
-│   └── PLATFORM_UI.md
-└── deploy/
-    ├── Dockerfile.backend
-    ├── Dockerfile.frontend
-    └── docker-compose.yml         # PostgreSQL + backend + frontend
+```
+                ┌─────────────────────────────┐
+   HTTP ─────►  │   FastAPI (backend/app.py)   │
+                │        POST /api/chat        │
+                └──────────────┬──────────────┘
+                               │
+                     supervisor.handle()
+                ┌──────────────┴──────────────┐
+                │  action? → dispatch          │
+                │  message? → classify_intent  │
+                └──────────────┬──────────────┘
+                               │  registry.agent_for_intent
+        ┌───────────┬──────────┼───────────┬───────────┐
+        ▼           ▼          ▼           ▼           ▼
+     docs       builder    segments     offer      attention ...
+        │           │          │           │           │
+        └───────────┴────┬─────┴───────────┴───────────┘
+                         ▼
+        ┌────────────┬───────────┬──────────────┐
+        ▼            ▼           ▼              ▼
+   tools/adtarget  llm.py      rag/         db.py (sessions,
+   (REST + mock)  (LLM-провайдеры) (Chroma+BM25)  artifacts, trace)
 ```
 
-## Backend API
+- **Единая точка интеграции с AdTarget** — `backend/tools/adtarget.py` (REST + авто-fallback на mock).
+- **Единая точка вызова LLM** — `backend/llm.py` (несколько провайдеров).
+- **Сборка flow** — `backend/tools/flow_builder.py` (детерминированный сборщик из плана агента).
+- **Хранилище** — SQLAlchemy async; локально SQLite, в Docker — PostgreSQL.
 
-| Method | Path | Назначение |
+---
+
+## Агенты
+
+Все агенты регистрируются в `backend/agents/registry.py` и выбираются оркестратором по интенту.
+
+| Агент | Интент | Назначение |
 |---|---|---|
-| `GET` | `/api/health` | Health check backend-а |
-| `POST` | `/api/copilot` | F1 Copilot: вопрос + контекст → ответ + citations |
-| `POST` | `/api/builder` | F2 Builder: goal/session state → ответ, campaign_id, draft_flow |
-| `POST` | `/api/monitor` | F3 Monitor: campaign_id + draft_flow_json → метрики и рекомендации |
-| `GET` | `/api/sessions` | Список Builder-сессий |
-| `GET` | `/api/sessions/{session_id}` | Полная история Builder-сессии |
-| `POST` | `/api/sessions` | Создать или продолжить Builder-сессию |
-| `POST` | `/api/sessions/{session_id}/messages` | Добавить сообщение в сессию без запуска агента |
-| `POST` | `/api/campaigns/{campaign_id}/start` | Запустить кампанию в AdTarget |
-| `POST` | `/api/campaigns/{campaign_id}/pause` | Поставить кампанию на паузу/остановить |
+| `docs` | `documentation_qa` | RAG-ответы по документации AdTarget со ссылками на источники |
+| `builder` | `build_campaign` | Сборка черновика flow из бизнес-описания |
+| `refiner` | `refine_campaign` | Доработка черновика/кампании, рекомендации |
+| `segments` | `suggest_segments` | Гипотезы сегментов, сопоставление с целевыми группами |
+| `offer` | `generate_offers` | Варианты текста креатива под продукт/канал/аудиторию |
+| `attention` | `campaign_attention` | Портфельный анализ кампаний и план действий |
+| `runtime` | `runtime_action` | Сохранение, запуск, пауза кампании; создание ЦГ |
 
-Backend также отдаёт документацию для UI-источников, если папки существуют:
+---
 
-- `docs/` → `/source-docs/`;
-- соседний `../cvmCopilot/docs/` → `/cvmCopilot-docs/`.
+## API
 
-## Поддерживаемые activity-типы Campaign Builder
+| Метод | Путь | Назначение |
+|---|---|---|
+| `GET` | `/api/health` | Проверка работоспособности |
+| `POST` | `/api/chat` | Единая точка: сообщение или команда (action) + контекст → ответ агента |
+| `GET` | `/api/sessions` | Список сессий |
+| `POST` | `/api/sessions` | Создать/продолжить сессию |
+| `GET` | `/api/sessions/{id}` | Сессия: сообщения, артефакты |
+| `GET` | `/api/sessions/{id}/messages` | История сообщений сессии |
+| `POST` | `/api/campaigns/{id}/start` | Запустить кампанию |
+| `POST` | `/api/campaigns/{id}/pause` | Поставить кампанию на паузу |
 
-Builder генерирует flow через `backend/tools/flow_builder.py`. Сейчас поддерживаются:
+---
 
-- `TargetGroupActivity`
-- `PushCommunicationActivity`
-- `PullCommunicationActivity`
-- `EventActivity`
-- `WaitActivity`
-- `BusinessTransactionActivity`
-- `RealTimeCheckActivity`
-- `ResponseActivity`
-- `InteractiveResponseActivity`
-- `OrJoinActivity`
+## Быстрый старт
 
-## Конфигурация
-
-Создайте `backend/.env` из примера:
-
-```bash
-cd backend
-cp .env.example .env
-```
-
-Основные параметры:
-
-```env
-# AdTarget
-ADTARGET_API_BASE=http://192.168.15.102:4001
-ADTARGET_TOKEN_URL=http://192.168.15.102:8117/auth/realms/mmp/protocol/openid-connect/token
-ADTARGET_CLIENT_ID=adtarget
-ADTARGET_USERNAME=your_login@company.com
-ADTARGET_PASSWORD=your_password
-ADTARGET_MOCK=true
-
-# LLM provider: auto | anthropic | gigachat | groq | gemini | ollama
-LLM_PROVIDER=groq
-GROQ_API_KEY=gsk_...
-GROQ_MODEL=llama-3.3-70b-versatile
-GROQ_MAX_TOKENS=2048
-
-# Anthropic / Claude, если выбран anthropic или нужны Voyage embeddings
-ANTHROPIC_API_KEY=sk-ant-...
-ANTHROPIC_MODEL=claude-sonnet-4-5
-
-# Embeddings: auto | anthropic | local
-EMBEDDING_PROVIDER=local
-
-# Persistence; если не задано — локальный SQLite файл backend/data/cvm_agents.sqlite3
-DATABASE_URL=postgresql+asyncpg://cvm_agents:cvm_agents@localhost:5432/cvm_agents
-```
-
-Примечания:
-
-- `LLM_PROVIDER` без явного значения выбирается автоматически по доступным ключам.
-- `ADTARGET_MOCK=true` позволяет запускать прототип без VPN и живого стенда AdTarget.
-- Для Groq можно уменьшать контекст Builder-а переменными `BUILDER_MESSAGE_TOKEN_BUDGET`, `BUILDER_MAX_TARGET_GROUPS`, `BUILDER_MAX_CHANNELS`, `BUILDER_MAX_EVENTS`, `BUILDER_MAX_OFFERS`.
-- Для локальных embeddings первый запуск может скачать HuggingFace/SentenceTransformers модель.
-
-## Локальный запуск
+**Требования:** Python 3.13, Node.js 18+.
 
 ### Backend
 
 ```bash
 cd backend
-python -m venv .venv
-source .venv/bin/activate
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env
-# отредактируйте .env под нужный LLM и режим AdTarget
+cp .env.example .env          # отредактируйте под нужный LLM и режим AdTarget
+
+python -m rag.indexer         # построить RAG-индекс для Copilot
+USE_SQLITE_FALLBACK=true uvicorn app:app --reload --port 8000
 ```
 
-Построить RAG-индекс для Copilot:
+Проверка: `curl http://localhost:8000/api/health`
+
+> Без `USE_SQLITE_FALLBACK=true` backend ожидает PostgreSQL (см. [Конфигурация](#конфигурация) и [Docker](#docker)).
+
+Демо-данные для мониторинга (30 кампаний с диагностикой):
 
 ```bash
-python -m rag.indexer
-```
-
-Запустить API:
-
-```bash
-uvicorn app:app --reload --port 8000
-```
-
-Проверка:
-
-```bash
-curl http://localhost:8000/api/health
-```
-
-Заполнить demo-кампании (20–50 шт.) и диагностику `campaign_health`:
-
-```bash
-cd backend
-python -m scripts.seed_demo_campaigns
-```
-
-Автосид при старте backend в dev-режиме:
-
-```bash
-SEED_DEMO_CAMPAIGNS_ON_STARTUP=true uvicorn app:app --reload --port 8000
+USE_SQLITE_FALLBACK=true python -m scripts.seed_demo_campaigns
+# или автосид при старте:
+SEED_DEMO_CAMPAIGNS_ON_STARTUP=true USE_SQLITE_FALLBACK=true uvicorn app:app --reload --port 8000
 ```
 
 ### Frontend
@@ -217,124 +130,119 @@ SEED_DEMO_CAMPAIGNS_ON_STARTUP=true uvicorn app:app --reload --port 8000
 ```bash
 cd frontend
 npm install
-npm run dev
+npm run dev                   # UI на http://localhost:5173, /api/* проксируется на :8000
 ```
 
-### Unified chat rollout flags (frontend)
+Если backend на другом адресе: `VITE_API_PROXY=http://localhost:8000 npm run dev`.
+
+---
+
+## Конфигурация
+
+Создайте `backend/.env` из `backend/.env.example`. Ключевые параметры:
 
 ```env
-VITE_UNIFIED_CHAT_ENABLED=false
-VITE_UNIFIED_CHAT_ROLLOUT_ENVS=dev,stage
-VITE_UNIFIED_CHAT_ROLLOUT_USERS=user1,user2
-VITE_UNIFIED_CHAT_DEFAULT_NAV=false
+# LLM-провайдер: auto | anthropic | gigachat | groq | gemini | ollama
+LLM_PROVIDER=groq
+GROQ_API_KEY=gsk_...
+GROQ_MODEL=llama-3.3-70b-versatile
+
+# Anthropic / Claude (если выбран anthropic)
+ANTHROPIC_API_KEY=sk-ant-...
+ANTHROPIC_MODEL=claude-sonnet-4-5
+
+# Эмбеддинги: auto | anthropic | local
+EMBEDDING_PROVIDER=local
+
+# AdTarget
+ADTARGET_API_BASE=http://192.168.15.102:4001
+ADTARGET_TOKEN_URL=http://192.168.15.102:8117/auth/realms/mmp/protocol/openid-connect/token
+ADTARGET_CLIENT_ID=adtarget
+ADTARGET_USERNAME=your_login@company.com
+ADTARGET_PASSWORD=your_password
+ADTARGET_MOCK=true            # true — работать без VPN/живого стенда AdTarget
+
+# Хранилище: PostgreSQL (по умолчанию) либо локальный SQLite через USE_SQLITE_FALLBACK=true
+DATABASE_URL=postgresql+asyncpg://cvm_agents:cvm_agents@localhost:5432/cvm_agents
 ```
 
-Migration guide for frontend team: `docs/FRONTEND_UNIFIED_CHAT_MIGRATION.md`.
+- `LLM_PROVIDER` без значения выбирается автоматически по доступным ключам.
+- `ADTARGET_MOCK=true` — все вызовы AdTarget идут через mock (`backend/tools/mock_data.py`).
+- Для локальных эмбеддингов первый запуск скачает модель HuggingFace.
 
-### Widget shell / legacy styles flags (frontend)
+---
 
-```env
-# enables legacy-compatible widget shell stylesheet loading from main.tsx
-VITE_ENABLE_LEGACY_CSS=false
+## Docker
 
-# optional hard switch for widget shell stylesheet (default true)
-VITE_WIDGET_SHELL_ENABLED=true
-```
-
-Defaults:
-
-- **Dev:** `VITE_ENABLE_LEGACY_CSS=false` (full-page chat by default, widget shell CSS not loaded).
-- **Prod:** `VITE_ENABLE_LEGACY_CSS=false`; enable per deployment only for widget embeds that still rely on legacy selectors.
-- `VITE_WIDGET_SHELL_ENABLED` defaults to `true`; set `false` to force-disable widget shell CSS even when legacy flag is enabled.
-- Styles are loaded only in widget mode (`/widget*` path or `.floating-widget-root` container).
-
-
-UI будет доступен на <http://localhost:5173>. В dev-режиме Vite проксирует `/api/*` на backend; при необходимости задайте:
-
-```bash
-VITE_API_PROXY=http://localhost:8000 npm run dev
-```
-
-Если frontend собирается отдельно и должен ходить на другой backend без Vite proxy, задайте `VITE_API_BASE`.
-
-#### E2E smoke-тесты
-
-Перед первым запуском Playwright установите Chromium:
-
-```bash
-npx playwright install chromium
-```
-
-Запуск e2e-тестов frontend:
-
-```bash
-npm run test:e2e
-```
-
-
-## Frontend bootstrap in container
-
-Чтобы избежать «дрейфа» окружения (запуск не из того каталога, stale bind mount, пустой `node_modules`), всегда запускайте frontend **из `/app/frontend`** одной командой:
-
-```bash
-cd /app/frontend && rm -rf node_modules/.vite .vite && npm ci && npm run dev -- --host 0.0.0.0 --port 5173
-```
-
-Минимальные проверки в контейнере перед стартом:
-
-```bash
-cd /app/frontend
-test -f package.json && test -f package-lock.json && test -d node_modules/react-router-dom
-npm ls react-router-dom react-router
-```
-
-## Docker Compose
-
-Production-like demo-стек поднимает PostgreSQL, backend и frontend:
+Production-like стек (PostgreSQL + backend + frontend):
 
 ```bash
 cd deploy
 docker compose up --build
 ```
 
-Compose использует:
-
-- `postgres` с volume `postgres_data`;
-- `backend` с `DATABASE_URL=postgresql+asyncpg://...` и `ADTARGET_MOCK=${ADTARGET_MOCK:-true}`;
-- `frontend` с `VITE_API_PROXY=http://backend:8000`.
-
-Очистить историю demo-стека:
+Очистить данные стенда:
 
 ```bash
-cd deploy
-docker compose down -v
+cd deploy && docker compose down -v
 ```
 
-## Тесты и проверки
+---
 
-Backend unit tests:
-
-```bash
-cd backend
-pytest
-```
-
-Frontend production build:
+## Тесты
 
 ```bash
+# Backend
+cd backend && pytest
+
+# Frontend
 cd frontend
-npm run build
+npm run test:unit             # vitest
+npm run test:e2e              # playwright (сначала: npx playwright install chromium)
+npm run build                 # production-сборка
 ```
 
-## Документация
+---
 
-- [MVP initiatives requirements](docs/MVP_INITIATIVES_REQUIREMENTS.md) — требования к MVP-инициативам CVM Agents / AdTarget.
-- [Platform UI notes](docs/PLATFORM_UI.md) — заметки по UI платформы.
+## Структура репозитория
 
-## Ключевые принципы разработки
+```
+cvm-agents/
+├── backend/
+│   ├── app.py                 # FastAPI: routes (health, chat, sessions, campaign actions)
+│   ├── agents/
+│   │   ├── supervisor.py      # оркестрация: action-dispatch + intent routing
+│   │   ├── chat_orchestrator.py  # классификация интента (rules + LLM)
+│   │   ├── registry.py        # реестр агентов
+│   │   ├── agent_*.py         # агенты: docs, builder, refiner, segments, offer, attention, runtime
+│   │   └── builder/           # бриф, план, шаблоны, модификации flow
+│   ├── tools/
+│   │   ├── adtarget.py        # единый клиент AdTarget API + mock fallback
+│   │   ├── flow_builder.py    # сборка flow/activity JSON
+│   │   └── mock_data.py       # mock-справочники и runtime-ответы
+│   ├── rag/                   # индекс (Chroma) + гибридный ретривер
+│   ├── llm.py                 # фабрика LLM-провайдеров
+│   ├── db.py / models.py / schemas.py
+│   ├── scripts/               # seed демо-данных
+│   └── tests/
+├── frontend/                  # React + Vite + TS: плавающий виджет поверх mock AdTarget
+│   └── src/
+│       ├── components/        # AdTargetMock, FloatingWidget, MainLayout, flow
+│       ├── chat-workspace/    # стор чата
+│       └── api/chatApi.ts
+├── examples/                  # референсные JSON flow для шаблонов/тестов
+├── deploy/                    # Dockerfile.backend, Dockerfile.frontend, docker-compose.yml
+└── docs/                      # ⚠️ локальная папка (в репозиторий не входит, см. .gitignore)
+```
 
-- Все вызовы AdTarget API проходят через `backend/tools/adtarget.py`.
-- JSON flow собирается через helpers в `backend/tools/flow_builder.py`, а не вручную в UI.
-- История Builder-а и runtime-состояние кампании сохраняются на backend-е, frontend держит только текущий UI state.
-- Copilot должен ссылаться на RAG-источники и не выдумывать ответы, если документации/контекста недостаточно.
-- Mock-режим должен оставаться пригодным для demo без VPN и внешнего AdTarget стенда.
+> **`docs/` и `backend/chroma_db/` не версионируются.** `docs/` хранится только локально (БФТ, аудиты, описания платформы), а индекс RAG (`chroma_db/`) пересобирается командой `python -m rag.indexer`.
+
+---
+
+## Ключевые принципы
+
+- Все вызовы AdTarget API — только через `backend/tools/adtarget.py`.
+- JSON flow собирается через `backend/tools/flow_builder.py`, а не вручную.
+- История и runtime-состояние хранятся на backend; frontend держит только текущий UI-state.
+- Copilot ссылается на источники RAG и не выдумывает ответ при недостатке данных.
+- Mock-режим остаётся пригодным для demo без VPN и живого стенда AdTarget.

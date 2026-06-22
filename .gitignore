@@ -1,13 +1,36 @@
-.claude
+# OS / editor
 .DS_Store
-backend/__pycache__
-backend/**/__pycache__/
-backend/data/*.json
-backend/data/*.tmp
+.claude
 
-# Секреты — не должны попадать в git
+# Secrets — never commit
 .env
 *.env
 !*.env.example
 !.env.example
 backend/.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+backend/.venv/
+.venv/
+
+# Backend runtime / generated data
+backend/data/
+backend/chroma_db/
+
+# Node / frontend build
+node_modules/
+frontend/dist/
+frontend/.vite/
+**/.vite/
+
+# Local-only documentation (kept on disk, excluded from the repo)
+docs/
+frontend/docs/
+
+# Test artifacts
+playwright-report/
+test-results/
